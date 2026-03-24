@@ -3,6 +3,7 @@ const MentorshipSession = require('../models/MentorshipSession');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
+const { sendSessionRequestEmail } = require('../utils/emailService');
 const router = express.Router();
 
 // POST /api/mentorship - Book a session
@@ -13,11 +14,19 @@ router.post('/', protect, authorize('mentee'), async (req, res) => {
             mentor, mentee: req.user._id, scheduledDate, duration, agenda, aimingCompany
         });
 
-        // Notify mentor
+        // Notify mentor in-app
         await Notification.create({
             user: mentor, type: 'session',
             message: `New mentorship session request from ${req.user.name}`
         });
+
+        // Send email notification to mentor
+        const mentorUser = await User.findById(mentor);
+        if (mentorUser?.email) {
+            sendSessionRequestEmail(mentorUser.email, mentorUser.name, {
+                name: req.user.name, agenda, scheduledDate
+            }).catch(err => console.error('Email send error:', err));
+        }
 
         res.status(201).json({ success: true, session });
     } catch (error) {

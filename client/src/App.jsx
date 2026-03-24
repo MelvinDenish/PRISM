@@ -8,15 +8,19 @@ import Resources from './pages/Resources';
 import Mentors from './pages/Mentors';
 import MentorProfile from './pages/MentorProfile';
 import Sessions from './pages/Sessions';
-import MockInterviews from './pages/MockInterviews';
 import TechnicalInterview from './pages/TechnicalInterview';
-import GDRooms from './pages/GDRooms';
 import ResumeAnalysis from './pages/ResumeAnalysis';
 import Analytics from './pages/Analytics';
 import Notifications from './pages/Notifications';
 import Companies from './pages/Companies';
 import CodingQuestions from './pages/CodingQuestions';
 import Admin from './pages/Admin';
+import Topics from './pages/Topics';
+import InterviewGame from './pages/InterviewGame';
+import AIInterview from './pages/AIInterview';
+import VideoCall from './pages/VideoCall';
+import ResumeBuilder from './pages/ResumeBuilder';
+import LearningPaths from './pages/LearningPaths';
 import './index.css';
 
 const ProtectedRoute = ({ children }) => {
@@ -33,15 +37,19 @@ const App = () => {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/interview/:id" element={<ProtectedRoute><TechnicalInterview /></ProtectedRoute>} />
+          <Route path="/video-call/:sessionId" element={<ProtectedRoute><VideoCall /></ProtectedRoute>} />
           <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route index element={<Navigate to="/dashboard" />} />
             <Route path="dashboard" element={<Dashboard />} />
+            <Route path="topics" element={<Topics />} />
             <Route path="resources" element={<Resources />} />
+            <Route path="learning-paths" element={<LearningPaths />} />
             <Route path="mentors" element={<Mentors />} />
             <Route path="mentor/:id" element={<MentorProfile />} />
             <Route path="sessions" element={<Sessions />} />
-            <Route path="mock-interviews" element={<MockInterviews />} />
-            <Route path="gd-rooms" element={<GDRooms />} />
+            <Route path="interview-game" element={<InterviewGame />} />
+            <Route path="ai-interview" element={<AIInterview />} />
+            <Route path="resume-builder" element={<ResumeBuilder />} />
             <Route path="resume-analysis" element={<ResumeAnalysis />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="notifications" element={<Notifications />} />

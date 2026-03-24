@@ -1,8 +1,9 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
-    FiHome, FiBook, FiUsers, FiCalendar, FiMonitor, FiMessageSquare,
-    FiFileText, FiBarChart2, FiBell, FiLogOut, FiSettings, FiCode, FiBriefcase
+    FiHome, FiBook, FiUsers, FiCalendar,
+    FiFileText, FiBarChart2, FiBell, FiLogOut, FiSettings, FiCode, FiBriefcase,
+    FiMap, FiCpu, FiPlay, FiEdit
 } from 'react-icons/fi';
 import './Sidebar.css';
 
@@ -14,11 +15,14 @@ const Sidebar = () => {
 
     const menteeLinks = [
         { to: '/dashboard', icon: <FiHome />, label: 'Dashboard' },
-        { to: '/resources', icon: <FiBook />, label: 'Resources' },
+        { to: '/topics', icon: <FiBook />, label: 'Topics' },
+        { to: '/resources', icon: <FiFileText />, label: 'Resources' },
+        { to: '/learning-paths', icon: <FiMap />, label: 'Learning Paths' },
         { to: '/mentors', icon: <FiUsers />, label: 'Find Mentors' },
         { to: '/sessions', icon: <FiCalendar />, label: 'My Sessions' },
-        { to: '/mock-interviews', icon: <FiMonitor />, label: 'Mock Interviews' },
-        { to: '/gd-rooms', icon: <FiMessageSquare />, label: 'GD Rooms' },
+        { to: '/interview-game', icon: <FiPlay />, label: 'Interview Game' },
+        { to: '/ai-interview', icon: <FiCpu />, label: 'AI Interview' },
+        { to: '/resume-builder', icon: <FiEdit />, label: 'Resume Builder' },
         { to: '/resume-analysis', icon: <FiFileText />, label: 'Resume Analysis' },
         { to: '/analytics', icon: <FiBarChart2 />, label: 'Analytics' },
         { to: '/notifications', icon: <FiBell />, label: 'Notifications' },
@@ -26,9 +30,9 @@ const Sidebar = () => {
 
     const mentorLinks = [
         { to: '/dashboard', icon: <FiHome />, label: 'Dashboard' },
-        { to: '/resources', icon: <FiBook />, label: 'Resources' },
+        { to: '/topics', icon: <FiBook />, label: 'Topics' },
+        { to: '/resources', icon: <FiFileText />, label: 'Resources' },
         { to: '/sessions', icon: <FiCalendar />, label: 'Sessions' },
-        { to: '/mock-interviews', icon: <FiMonitor />, label: 'Mock Interviews' },
         { to: '/coding-questions', icon: <FiCode />, label: 'Questions' },
         { to: '/companies', icon: <FiBriefcase />, label: 'Companies' },
         { to: '/notifications', icon: <FiBell />, label: 'Notifications' },
@@ -37,7 +41,8 @@ const Sidebar = () => {
     const adminLinks = [
         { to: '/dashboard', icon: <FiHome />, label: 'Dashboard' },
         { to: '/admin', icon: <FiSettings />, label: 'Admin Panel' },
-        { to: '/resources', icon: <FiBook />, label: 'Resources' },
+        { to: '/topics', icon: <FiBook />, label: 'Topics' },
+        { to: '/resources', icon: <FiFileText />, label: 'Resources' },
         { to: '/companies', icon: <FiBriefcase />, label: 'Companies' },
         { to: '/notifications', icon: <FiBell />, label: 'Notifications' },
     ];

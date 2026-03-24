@@ -1,0 +1,21 @@
+version: '3.8'
+
+# Piston Self-Hosted — Code Execution Engine for PRISM
+# Run: docker-compose -f judge0-docker-compose.yml up -d
+# API available at: http://localhost:2000
+
+services:
+  piston:
+    image: ghcr.io/engineer-man/piston
+    container_name: prism-piston
+    privileged: true
+    ports:
+      - "2000:2000"
+    volumes:
+      - piston-packages:/piston/packages
+    tmpfs:
+      - /piston/jobs:exec,uid=1000,gid=1000
+    restart: unless-stopped
+
+volumes:
+  piston-packages:

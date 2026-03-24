@@ -7,12 +7,9 @@ const api = axios.create({
     headers: { 'Content-Type': 'application/json' }
 });
 
-// Add auth token to requests
 api.interceptors.request.use((config) => {
     const token = localStorage.getItem('prism_token');
-    if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-    }
+    if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
 });
 
@@ -104,5 +101,49 @@ export const getDashboardAnalytics = () => api.get('/analytics/dashboard');
 export const getNotifications = () => api.get('/notifications');
 export const markNotificationRead = (id) => api.patch(`/notifications/${id}/read`);
 export const markAllNotificationsRead = () => api.patch('/notifications/read-all');
+
+// =================== NEW APIs ===================
+
+// Interview Game
+export const startInterviewGame = (data) => api.post('/interview-game/start', data);
+export const getGameQuestions = (round) => api.get(`/interview-game/questions/${round}`);
+export const submitGameRound = (data) => api.post('/interview-game/submit-round', data);
+export const getGameHistory = () => api.get('/interview-game/history');
+export const getGame = (id) => api.get(`/interview-game/${id}`);
+
+// AI Interview
+export const startAIInterview = (data) => api.post('/ai-interview/start', data);
+export const chatAIInterview = (data) => api.post('/ai-interview/chat', data);
+export const evaluateAIInterview = (data) => api.post('/ai-interview/evaluate', data);
+
+// Summarize
+export const summarizeArticle = (data) => api.post('/summarize', data);
+
+// Resume Builder
+export const getResumeDrafts = () => api.get('/resume-builder/drafts');
+export const getResumeDraft = (id) => api.get(`/resume-builder/drafts/${id}`);
+export const saveResumeDraft = (data) => api.post('/resume-builder/drafts', data);
+export const updateResumeDraft = (id, data) => api.put(`/resume-builder/drafts/${id}`, data);
+export const deleteResumeDraft = (id) => api.delete(`/resume-builder/drafts/${id}`);
+export const generateResumeContent = (data) => api.post('/resume-builder/generate', data);
+export const generateCoverLetter = (data) => api.post('/resume-builder/cover-letter', data);
+
+// Learning Paths
+export const getLearningPaths = () => api.get('/learning-paths');
+export const getLearningPath = (id) => api.get(`/learning-paths/${id}`);
+export const generateLearningPath = (data) => api.post('/learning-paths/generate', data);
+export const updatePathProgress = (id, data) => api.patch(`/learning-paths/${id}/progress`, data);
+export const deleteLearningPath = (id) => api.delete(`/learning-paths/${id}`);
+
+// Code Execution (Piston)
+export const submitCodeExecution = (data) => api.post('/code-execution/submit', data);
+export const runTestCases = (data) => api.post('/code-execution/run-tests', data);
+export const runCustomCode = (data) => api.post('/code-execution/run-custom', data);
+export const getJudgeLanguages = () => api.get('/code-execution/languages');
+
+// Group Discussion
+export const startGroupDiscussion = (data) => api.post('/group-discussion/start', data || {});
+export const respondGroupDiscussion = (data) => api.post('/group-discussion/respond', data);
+export const evaluateGroupDiscussion = (data) => api.post('/group-discussion/evaluate', data);
 
 export default api;

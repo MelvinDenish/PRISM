@@ -39,6 +39,13 @@ app.use('/api/gd-rooms', require('./routes/gdRooms'));
 app.use('/api/resume-analysis', require('./routes/resumeAnalysis'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/analytics', require('./routes/analytics'));
+app.use('/api/interview-game', require('./routes/interviewGame'));
+app.use('/api/ai-interview', require('./routes/aiInterview'));
+app.use('/api/summarize', require('./routes/summarize'));
+app.use('/api/resume-builder', require('./routes/resumeBuilder'));
+app.use('/api/learning-paths', require('./routes/learningPaths'));
+app.use('/api/code-execution', require('./routes/codeExecution'));
+app.use('/api/group-discussion', require('./routes/groupDiscussion'));
 
 // Health check
 app.get('/api/health', (req, res) => {
