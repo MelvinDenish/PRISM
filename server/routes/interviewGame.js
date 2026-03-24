@@ -18,7 +18,7 @@ const generateMCQs = async (type, count) => {
   };
 
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'llama-3.1-8b-instant',
     messages: [
       { role: 'system', content: 'You are a placement exam question generator. Return ONLY a JSON array. No extra text, no markdown.' },
       { role: 'user', content: `${prompts[type] || prompts.technical}
@@ -45,7 +45,7 @@ Return exactly ${count} questions.` }
 const generateHRQuestions = async (count) => {
   const groq = getGroq();
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'llama-3.1-8b-instant',
     messages: [
       { role: 'system', content: 'You are an HR interview question generator. Return ONLY a JSON array of strings. No extra text.' },
       { role: 'user', content: `Generate ${count} HR/behavioral interview questions for a placement interview. Mix of: self-introduction, strengths/weaknesses, teamwork, leadership, failure handling, motivation, career goals, conflict resolution, pressure handling. Make them realistic and thought-provoking.
@@ -65,7 +65,7 @@ Return as JSON array of strings: ["question1","question2",...]` }
 const generateGDTopic = async () => {
   const groq = getGroq();
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'llama-3.1-8b-instant',
     messages: [
       { role: 'system', content: 'Return ONLY a single discussion topic as a plain string. No quotes, no JSON, no explanation.' },
       { role: 'user', content: 'Generate one thought-provoking group discussion topic for a placement interview. It should be relevant to technology, society, or current affairs. Make it debatable with multiple valid perspectives.' }
@@ -80,7 +80,7 @@ const generateGDTopic = async () => {
 const generateCodingProblems = async (count, difficulty = 'medium') => {
   const groq = getGroq();
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'llama-3.1-8b-instant',
     messages: [
       { role: 'system', content: 'You are a competitive programming problem setter. Return ONLY valid JSON. No markdown, no extra text.' },
       { role: 'user', content: `Generate ${count} coding problems for a placement interview coding round (${difficulty} difficulty). Each problem should have:

@@ -42,7 +42,7 @@ router.post('/', protect, async (req, res) => {
 
     const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-8b-instant',
       messages: [
         { role: 'system', content: 'You are a concise summarizer. Provide a clear, structured summary with key points in bullet format. Keep it under 300 words.' },
         { role: 'user', content: `Summarize this article:\n\n${content}` }

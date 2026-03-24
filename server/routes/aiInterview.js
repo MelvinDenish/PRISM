@@ -30,7 +30,7 @@ router.post('/start', protect, async (req, res) => {
       : `You are a group discussion moderator. Present a topic and guide discussion. Evaluate communication, reasoning, and leadership skills.`;
 
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-8b-instant',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Start the ${type} interview. The candidate's topic of interest is: ${topic}. Begin with your first question.` }
@@ -65,7 +65,7 @@ router.post('/chat', protect, async (req, res) => {
     ];
 
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-8b-instant',
       messages,
       max_tokens: 500,
       temperature: 0.7
@@ -101,7 +101,7 @@ router.post('/evaluate', protect, async (req, res) => {
 Only respond with the JSON, no extra text.`;
 
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-8b-instant',
       messages: [
         ...conversationContext,
         { role: 'user', content: evalPrompt }

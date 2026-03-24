@@ -44,7 +44,7 @@ router.post('/generate', protect, async (req, res) => {
       const resourceList = resources.map(r => `ID:${r._id} | ${r.title} | Level:${r.level} | Type:${r.resourceType}`).join('\n');
 
       const completion = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: 'llama-3.1-8b-instant',
         messages: [
           { role: 'system', content: `You are a learning path designer. Given a topic, student level, and available resources, create an optimal ordered learning path. Return JSON array: [{ "resourceId": "...", "order": 1, "title": "step title", "description": "why this step matters", "estimatedTime": "30 min" }]. Select 15-25 resources and order them from foundational to advanced. Only return valid JSON array.` },
           { role: 'user', content: `Topic: ${topic.name}\nStudent Level: ${level}\n${assessmentAnswers ? `Assessment: ${JSON.stringify(assessmentAnswers)}` : ''}\n\nAvailable Resources:\n${resourceList}` }

@@ -27,7 +27,7 @@ router.post('/start', protect, async (req, res) => {
     let topic = customTopic;
     if (!topic) {
       const topicRes = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: 'llama-3.1-8b-instant',
         messages: [
           { role: 'system', content: 'Return ONLY a single group discussion topic as a plain string. No quotes, no explanation.' },
           { role: 'user', content: 'Generate a thought-provoking group discussion topic for a placement interview. It should be relevant to technology, business, society, or current affairs. Make it debatable with no clear "right" answer. Examples: "Should AI replace human decision-making in healthcare?", "Is remote work sustainable long-term or just a trend?"' }
@@ -44,7 +44,7 @@ router.post('/start', protect, async (req, res) => {
 
     // Generate opening statement from first AI participant
     const openingRes = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-8b-instant',
       messages: [
         { role: 'system', content: `You are ${selectedParticipants[0].name}, a ${selectedParticipants[0].style}. You are in a group discussion for a placement interview. The topic is: "${topic}". Give your opening statement in 2-3 sentences. Be natural, speak in first person, and take a clear stance. Do NOT use your name in the response.` },
         { role: 'user', content: 'Start the group discussion with your opening statement.' }
@@ -95,7 +95,7 @@ router.post('/respond', protect, async (req, res) => {
       const participant = PARTICIPANTS.find(p => p.name === responder.name) || responder;
 
       const completion = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: 'llama-3.1-8b-instant',
         messages: [
           ...runningContext,
           { role: 'user', content: `Now ${participant.name} responds. ${participant.name} is ${participant.style || 'thoughtful and articulate'}. Topic: "${topic}". Respond naturally in 2-3 sentences. You may agree, disagree, counter-argue, add new points, or build upon what the candidate said. Be conversational and realistic. Speak in first person. Return ONLY the response text, no name prefix.` }
@@ -126,7 +126,7 @@ router.post('/evaluate', protect, async (req, res) => {
     const groq = getGroq();
 
     const evalRes = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-8b-instant',
       messages: [
         ...context,
         { role: 'user', content: `Evaluate the candidate's performance in this group discussion on "${topic}". Return ONLY valid JSON:
