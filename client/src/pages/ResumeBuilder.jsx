@@ -16,6 +16,7 @@ const ResumeBuilder = () => {
     const [loading, setLoading] = useState(false);
     const [generating, setGenerating] = useState(false);
     const [coverLetterGen, setCoverLetterGen] = useState(false);
+    const [aiSuccess, setAiSuccess] = useState('');
     const [form, setForm] = useState({
         name: 'My Resume', template: 'modern',
         personalInfo: { fullName: '', email: '', phone: '', location: '', linkedin: '', github: '', summary: '' },
@@ -61,12 +62,38 @@ const ResumeBuilder = () => {
 
     const aiGenerate = async () => {
         setGenerating(true);
+        setAiSuccess('');
         try {
             const { data } = await generateResumeContent({ personalInfo: form.personalInfo, education: form.education, experience: form.experience, skills: form.skills, projects: form.projects, jobDescription: form.jobDescription });
             if (data.generated) {
-                setForm(prev => ({ ...prev, personalInfo: { ...prev.personalInfo, summary: data.generated.summary || prev.personalInfo.summary }, skills: data.generated.skillsOptimized || prev.skills }));
+                setForm(prev => {
+                    const updated = { ...prev };
+                    // Apply summary
+                    if (data.generated.summary && typeof data.generated.summary === 'string') {
+                        updated.personalInfo = { ...prev.personalInfo, summary: data.generated.summary };
+                    }
+                    // Apply optimized skills (ensure they're individual strings)
+                    if (data.generated.skillsOptimized && Array.isArray(data.generated.skillsOptimized)) {
+                        updated.skills = data.generated.skillsOptimized.filter(s => typeof s === 'string' && s.length < 50);
+                    }
+                    // Apply improved experience descriptions
+                    if (data.generated.experienceDescriptions && Array.isArray(data.generated.experienceDescriptions)) {
+                        updated.experience = prev.experience.map((exp, i) => {
+                            const ai = data.generated.experienceDescriptions[i];
+                            if (ai && typeof ai === 'object' && ai.description) {
+                                return { ...exp, description: ai.description, position: ai.position || exp.position };
+                            } else if (ai && typeof ai === 'string') {
+                                return { ...exp, description: ai };
+                            }
+                            return exp;
+                        });
+                    }
+                    return updated;
+                });
+                setAiSuccess('✅ Resume optimized! Summary, skills & experience updated.');
+                setTimeout(() => setAiSuccess(''), 5000);
             }
-        } catch {}
+        } catch (err) { setAiSuccess('❌ AI optimization failed. Try again.'); setTimeout(() => setAiSuccess(''), 4000); }
         setGenerating(false);
     };
 
@@ -215,6 +242,7 @@ const ResumeBuilder = () => {
                         <textarea className="form-textarea" rows={3} value={form.jobDescription} onChange={e => setForm(prev => ({ ...prev, jobDescription: e.target.value }))} placeholder="Paste the target job description..." />
                     </div>
                     <button className="btn btn-primary" onClick={aiGenerate} disabled={generating}><FiZap /> {generating ? 'Generating...' : 'AI Optimize'}</button>
+                    {aiSuccess && <p style={{ marginTop: 12, fontSize: 13, color: aiSuccess.startsWith('✅') ? 'var(--accent-success)' : 'var(--accent-danger)', fontWeight: 600 }}>{aiSuccess}</p>}
                 </div>
             )}
 
@@ -320,7 +348,7 @@ const ResumeBuilder = () => {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
                 {step > 1 && <button className="btn btn-secondary" onClick={() => setStep(s => s - 1)}>← Previous</button>}
-                {step < 7 && <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setStep(s => s + 1)}>Next →</button>}
+                {step < 7 && <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => { if (step === 6) saveDraft(); setStep(s => s + 1); }}>Next →</button>}
             </div>
         </div>
     );

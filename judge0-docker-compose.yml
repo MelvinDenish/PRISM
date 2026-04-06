@@ -1,21 +1,63 @@
 version: '3.8'
 
-# Piston Self-Hosted — Code Execution Engine for PRISM
+# Judge0 CE Self-Hosted — Free Code Execution Engine for PRISM
 # Run: docker-compose -f judge0-docker-compose.yml up -d
-# API available at: http://localhost:2000
+# API available at: http://localhost:2358
 
 services:
-  piston:
-    image: ghcr.io/engineer-man/piston
-    container_name: prism-piston
-    privileged: true
+  judge0-server:
+    image: judge0/judge0:1.13.1
+    container_name: prism-judge0
     ports:
-      - "2000:2000"
+      - "2358:2358"
+    privileged: true
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=judge0
+      - POSTGRES_USER=judge0
+      - POSTGRES_PASSWORD=judge0password
+      - RAILS_MAX_THREADS=4
+      - RAILS_ENV=production
+      - ALLOW_ORIGIN=*
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
+  db:
+    image: postgres:15-alpine
+    container_name: prism-judge0-db
+    environment:
+      - POSTGRES_DB=judge0
+      - POSTGRES_USER=judge0
+      - POSTGRES_PASSWORD=judge0password
     volumes:
-      - piston-packages:/piston/packages
-    tmpfs:
-      - /piston/jobs:exec,uid=1000,gid=1000
+      - judge0-postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: prism-judge0-redis
+    restart: unless-stopped
+
+  # Worker processes code submissions
+  judge0-workers:
+    image: judge0/judge0:1.13.1
+    container_name: prism-judge0-workers
+    command: ["./scripts/workers"]
+    privileged: true
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_HOST=db
+      - POSTGRES_DB=judge0
+      - POSTGRES_USER=judge0
+      - POSTGRES_PASSWORD=judge0password
+      - RAILS_ENV=production
+    depends_on:
+      - db
+      - redis
     restart: unless-stopped
 
 volumes:
-  piston-packages:
+  judge0-postgres:

@@ -21,6 +21,7 @@ import AIInterview from './pages/AIInterview';
 import VideoCall from './pages/VideoCall';
 import ResumeBuilder from './pages/ResumeBuilder';
 import LearningPaths from './pages/LearningPaths';
+import GDRooms from './pages/GDRooms';
 import './index.css';
 
 const ProtectedRoute = ({ children }) => {
@@ -55,6 +56,7 @@ const App = () => {
             <Route path="notifications" element={<Notifications />} />
             <Route path="companies" element={<Companies />} />
             <Route path="coding-questions" element={<CodingQuestions />} />
+            <Route path="gd-rooms" element={<GDRooms />} />
             <Route path="admin" element={<Admin />} />
           </Route>
         </Routes>

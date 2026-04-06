@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import {
     FiHome, FiBook, FiUsers, FiCalendar,
     FiFileText, FiBarChart2, FiBell, FiLogOut, FiSettings, FiCode, FiBriefcase,
-    FiMap, FiCpu, FiPlay, FiEdit
+    FiMap, FiCpu, FiPlay, FiEdit, FiMessageSquare
 } from 'react-icons/fi';
 import './Sidebar.css';
 
@@ -24,6 +24,8 @@ const Sidebar = () => {
         { to: '/ai-interview', icon: <FiCpu />, label: 'AI Interview' },
         { to: '/resume-builder', icon: <FiEdit />, label: 'Resume Builder' },
         { to: '/resume-analysis', icon: <FiFileText />, label: 'Resume Analysis' },
+        { to: '/gd-rooms', icon: <FiMessageSquare />, label: 'GD Rooms' },
+        { to: '/coding-questions', icon: <FiCode />, label: 'Coding Questions' },
         { to: '/analytics', icon: <FiBarChart2 />, label: 'Analytics' },
         { to: '/notifications', icon: <FiBell />, label: 'Notifications' },
     ];
@@ -34,6 +36,7 @@ const Sidebar = () => {
         { to: '/resources', icon: <FiFileText />, label: 'Resources' },
         { to: '/sessions', icon: <FiCalendar />, label: 'Sessions' },
         { to: '/coding-questions', icon: <FiCode />, label: 'Questions' },
+        { to: '/gd-rooms', icon: <FiMessageSquare />, label: 'GD Rooms' },
         { to: '/companies', icon: <FiBriefcase />, label: 'Companies' },
         { to: '/notifications', icon: <FiBell />, label: 'Notifications' },
     ];

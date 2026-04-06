@@ -3,41 +3,38 @@ const CodeSubmission = require('../models/CodeSubmission');
 const { protect } = require('../middleware/auth');
 const router = express.Router();
 
-// POST /api/code-submissions - Submit code (with optional Judge0 execution)
+// Judge0 CE self-hosted URL (docker-compose -f judge0-docker-compose.yml up -d)
+const JUDGE0_URL = process.env.JUDGE0_API_URL || 'http://localhost:2358';
+
+// POST /api/code-submissions - Submit code via self-hosted Judge0 CE
 router.post('/', protect, async (req, res) => {
     try {
         const { mockInterview, question, code, language } = req.body;
 
         let output = '';
         let error = '';
+        let score = 0;
 
-        // Try Judge0 execution if API key is configured
-        if (process.env.JUDGE0_API_KEY && process.env.JUDGE0_API_KEY !== 'your_judge0_api_key_here') {
-            try {
-                const langMap = { 'javascript': 63, 'python': 71, 'java': 62, 'cpp': 54, 'c': 50 };
-                const languageId = langMap[language] || 63;
+        const langMap = { 'javascript': 63, 'python': 71, 'java': 62, 'cpp': 54, 'c': 50 };
+        const languageId = langMap[language] || 63;
 
-                const response = await fetch(`${process.env.JUDGE0_API_URL}/submissions?base64_encoded=false&wait=true`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-RapidAPI-Key': process.env.JUDGE0_API_KEY,
-                        'X-RapidAPI-Host': 'judge0-ce.p.rapidapi.com'
-                    },
-                    body: JSON.stringify({ source_code: code, language_id: languageId, stdin: '' })
-                });
-                const result = await response.json();
-                output = result.stdout || '';
-                error = result.stderr || result.compile_output || '';
-            } catch (execErr) {
-                error = `Execution service unavailable: ${execErr.message}`;
-            }
-        } else {
-            output = 'Code execution service not configured. Set JUDGE0_API_KEY in .env';
+        try {
+            // Submit to self-hosted Judge0 (no API key needed)
+            const response = await fetch(`${JUDGE0_URL}/submissions?base64_encoded=false&wait=true`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source_code: code, language_id: languageId, stdin: '' })
+            });
+            const result = await response.json();
+            output = result.stdout || '';
+            error = result.stderr || result.compile_output || '';
+            score = (result.status && result.status.id === 3) ? 100 : 0; // 3 = Accepted
+        } catch (execErr) {
+            error = `Judge0 service unavailable. Run: docker-compose -f judge0-docker-compose.yml up -d | Error: ${execErr.message}`;
         }
 
         const submission = await CodeSubmission.create({
-            mockInterview, question, user: req.user._id, code, language, output, error
+            mockInterview, question, user: req.user._id, code, language, output, error, score
         });
 
         res.status(201).json({ success: true, submission });

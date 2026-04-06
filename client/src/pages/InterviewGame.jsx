@@ -296,7 +296,29 @@ const InterviewGame = () => {
             setGdLoading(false);
             submitAnswers = [{ contributions: gdUserCount, topic: gdTopic }];
         }
-        if (round.type === 'hr') { submitAnswers = hrAnswers; aiScore = Math.min(100, Math.max(20, Math.round(hrAnswers.reduce((s, a) => s + (a.response?.length || 0), 0) / 8))); }
+        if (round.type === 'hr') {
+            submitAnswers = hrAnswers;
+            // Use AI to evaluate HR answers quality instead of length-based scoring
+            try {
+                const hrConversation = hrAnswers.map(a => [
+                    { role: 'assistant', content: a.questionId },
+                    { role: 'user', content: a.response || 'No response' }
+                ]).flat();
+                const { data } = await evaluateAIInterview({
+                    conversationContext: [
+                        { role: 'system', content: 'You are an HR interviewer evaluating behavioral responses.' },
+                        ...hrConversation
+                    ],
+                    type: 'hr'
+                });
+                aiScore = data.evaluation?.overallScore || 60;
+                setAiEval(data.evaluation);
+            } catch {
+                // Fallback: score based on answer completeness (not just length)
+                const answeredCount = hrAnswers.filter(a => a.response && a.response.length > 30).length;
+                aiScore = Math.min(100, Math.max(20, Math.round((answeredCount / Math.max(hrAnswers.length, 1)) * 85)));
+            }
+        }
 
         try {
             const { data } = await submitGameRound({ gameId: game._id, roundIndex: currentRound, answers: submitAnswers, aiScore });
