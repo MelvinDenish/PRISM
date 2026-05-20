@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getResources, getTopics, completeResource, uncompleteResource, getProgress, createResource, summarizeArticle } from '../services/api';
-import { FiSearch, FiFilter, FiPlay, FiExternalLink, FiCheckCircle, FiPlus, FiX, FiBook, FiFileText, FiZap, FiChevronDown, FiChevronUp } from 'react-icons/fi';
+import { FiSearch, FiFilter, FiPlay, FiExternalLink, FiCheckCircle, FiPlus, FiX, FiBook, FiFileText, FiZap, FiChevronDown, FiChevronUp, FiGlobe } from 'react-icons/fi';
 
 const Resources = () => {
     const { user } = useAuth();
@@ -14,8 +14,7 @@ const Resources = () => {
     const [expandedId, setExpandedId] = useState(null);
     const [summary, setSummary] = useState('');
     const [summarizing, setSummarizing] = useState(false);
-    const [articleContent, setArticleContent] = useState('');
-    const [extracting, setExtracting] = useState(false);
+    const [summaryError, setSummaryError] = useState('');
     const [newResource, setNewResource] = useState({ title: '', description: '', topic: '', level: 'beginner', resourceType: 'video', link: '' });
 
     useEffect(() => {
@@ -61,28 +60,26 @@ const Resources = () => {
     };
 
     const toggleExpand = (id) => {
-        if (expandedId === id) { setExpandedId(null); setSummary(''); setArticleContent(''); }
-        else { setExpandedId(id); setSummary(''); setArticleContent(''); }
+        if (expandedId === id) { setExpandedId(null); setSummary(''); setSummaryError(''); }
+        else { setExpandedId(id); setSummary(''); setSummaryError(''); }
     };
 
     const handleSummarize = async (resource, e) => {
         e.stopPropagation();
         setSummarizing(true);
+        setSummary('');
+        setSummaryError('');
         try {
             const { data } = await summarizeArticle({ url: resource.link });
             setSummary(data.summary);
-        } catch { setSummary('Could not generate summary. The GROQ_API_KEY may not be configured.'); }
+        } catch (err) {
+            setSummaryError(err.response?.data?.message || 'Could not summarize this article. Try again later.');
+        }
         setSummarizing(false);
     };
 
-    const extractArticle = async (resource, e) => {
-        e.stopPropagation();
-        setExtracting(true);
-        try {
-            const { data } = await summarizeArticle({ url: resource.link });
-            setArticleContent(data.summary);
-        } catch { setArticleContent('Could not extract article content.'); }
-        setExtracting(false);
+    const getDomain = (url) => {
+        try { return new URL(url).hostname.replace('www.', ''); } catch { return 'external link'; }
     };
 
     const getYouTubeId = (url) => {
@@ -168,31 +165,78 @@ const Resources = () => {
                                             </div>
                                         )}
 
-                                        {/* Article Content / Summary */}
+                                        {/* Article Content — In-App Card */}
                                         {isArticle && (
                                             <div style={{ marginBottom: 16 }}>
-                                                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                                                    <button className="btn btn-primary btn-sm" onClick={e => handleSummarize(r, e)} disabled={summarizing}>
-                                                        <FiZap /> {summarizing ? 'Summarizing...' : 'AI Summary'}
-                                                    </button>
-                                                    <a href={r.link} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm" onClick={e => e.stopPropagation()}>
-                                                        <FiExternalLink /> Open Original
-                                                    </a>
+                                                {/* Article Preview Card */}
+                                                <div style={{ padding: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', marginBottom: 16 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                                                        <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(6,182,212,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-info)' }}>
+                                                            <FiGlobe />
+                                                        </div>
+                                                        <div>
+                                                            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{r.title}</p>
+                                                            <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{getDomain(r.link)}</p>
+                                                        </div>
+                                                    </div>
+                                                    {r.description && <p style={{ color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.7, marginBottom: 16 }}>{r.description}</p>}
+                                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                                        <button className="btn btn-primary btn-sm" onClick={e => handleSummarize(r, e)} disabled={summarizing}>
+                                                            <FiZap /> {summarizing ? 'Summarizing...' : '✨ AI Summary'}
+                                                        </button>
+                                                        <a href={r.link} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm" onClick={e => e.stopPropagation()}>
+                                                            <FiExternalLink /> Read Full Article
+                                                        </a>
+                                                    </div>
                                                 </div>
+                                                {/* AI Summary Result */}
                                                 {summary && (
                                                     <div style={{ padding: 16, background: 'rgba(16,185,129,0.04)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(16,185,129,0.15)' }}>
                                                         <h4 style={{ color: 'var(--accent-primary)', marginBottom: 8, fontSize: 13 }}>🤖 AI-Generated Summary</h4>
                                                         <div style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{summary}</div>
                                                     </div>
                                                 )}
+                                                {summaryError && (
+                                                    <div style={{ padding: 12, background: 'rgba(248,113,113,0.06)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--accent-danger)', fontSize: 13 }}>
+                                                        {summaryError}
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
 
-                                        {/* Non-video, non-article */}
+                                        {/* Non-video, non-article (link type) */}
                                         {!isVideo && !isArticle && r.link && (
-                                            <a href={r.link} target="_blank" rel="noreferrer" className="btn btn-primary btn-sm">
-                                                <FiExternalLink /> Open Resource
-                                            </a>
+                                            <div style={{ padding: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', marginBottom: 16 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                                                    <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(16,185,129,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)' }}>
+                                                        <FiGlobe />
+                                                    </div>
+                                                    <div>
+                                                        <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{r.title}</p>
+                                                        <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{getDomain(r.link)}</p>
+                                                    </div>
+                                                </div>
+                                                {r.description && <p style={{ color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.7, marginBottom: 16 }}>{r.description}</p>}
+                                                <div style={{ display: 'flex', gap: 8 }}>
+                                                    <button className="btn btn-primary btn-sm" onClick={e => handleSummarize(r, e)} disabled={summarizing}>
+                                                        <FiZap /> {summarizing ? 'Summarizing...' : '✨ AI Summary'}
+                                                    </button>
+                                                    <a href={r.link} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm" onClick={e => e.stopPropagation()}>
+                                                        <FiExternalLink /> Open Resource
+                                                    </a>
+                                                </div>
+                                                {summary && (
+                                                    <div style={{ marginTop: 12, padding: 16, background: 'rgba(16,185,129,0.04)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(16,185,129,0.15)' }}>
+                                                        <h4 style={{ color: 'var(--accent-primary)', marginBottom: 8, fontSize: 13 }}>🤖 AI-Generated Summary</h4>
+                                                        <div style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{summary}</div>
+                                                    </div>
+                                                )}
+                                                {summaryError && (
+                                                    <div style={{ marginTop: 12, padding: 12, background: 'rgba(248,113,113,0.06)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--accent-danger)', fontSize: 13 }}>
+                                                        {summaryError}
+                                                    </div>
+                                                )}
+                                            </div>
                                         )}
 
                                         {r.description && <p style={{ color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.7, marginTop: 8 }}>{r.description}</p>}

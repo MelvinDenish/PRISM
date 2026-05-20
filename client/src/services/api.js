@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const api = axios.create({
     baseURL: API_URL,
@@ -12,6 +12,18 @@ api.interceptors.request.use((config) => {
     if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
 });
+
+// Handle expired JWT — redirect to login
+api.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response?.status === 401 && window.location.pathname !== '/login') {
+            localStorage.removeItem('prism_token');
+            window.location.href = '/login?expired=1';
+        }
+        return Promise.reject(error);
+    }
+);
 
 // Auth
 export const registerUser = (data) => api.post('/auth/register', data);
@@ -61,33 +73,16 @@ export const rateSession = (id, data) => api.patch(`/mentorship/${id}/rate`, dat
 export const getAvailability = (mentorId) => api.get(`/availability/${mentorId}`);
 export const setAvailability = (data) => api.post('/availability', data);
 
-// Mock Interviews
-export const getMockInterviews = (params) => api.get('/mock-interviews', { params });
-export const getMockInterview = (id) => api.get(`/mock-interviews/${id}`);
-export const createMockInterview = (data) => api.post('/mock-interviews', data);
-export const joinMockInterview = (id) => api.patch(`/mock-interviews/${id}/join`);
-export const updateMockStatus = (id, data) => api.patch(`/mock-interviews/${id}/status`, data);
+
 
 // Coding Questions
 export const getCodingQuestions = (params) => api.get('/coding-questions', { params });
 export const getCodingQuestion = (id) => api.get(`/coding-questions/${id}`);
 export const createCodingQuestion = (data) => api.post('/coding-questions', data);
 
-// Code Submissions
-export const submitCode = (data) => api.post('/code-submissions', data);
-export const getSubmissions = (interviewId) => api.get(`/code-submissions/interview/${interviewId}`);
-export const getMySubmissions = () => api.get('/code-submissions/my');
 
-// Mock Feedback
-export const submitMockFeedback = (data) => api.post('/mock-feedback', data);
-export const getInterviewFeedback = (id) => api.get(`/mock-feedback/interview/${id}`);
-export const getUserFeedback = (userId) => api.get(`/mock-feedback/user/${userId}`);
 
-// GD Rooms
-export const getGDRooms = (params) => api.get('/gd-rooms', { params });
-export const createGDRoom = (data) => api.post('/gd-rooms', data);
-export const joinGDRoom = (id) => api.patch(`/gd-rooms/${id}/join`);
-export const updateGDStatus = (id, data) => api.patch(`/gd-rooms/${id}/status`, data);
+
 
 // Resume Analysis
 export const analyzeResume = (data) => api.post('/resume-analysis', data);
@@ -110,14 +105,18 @@ export const getGameQuestions = (round) => api.get(`/interview-game/questions/${
 export const submitGameRound = (data) => api.post('/interview-game/submit-round', data);
 export const getGameHistory = () => api.get('/interview-game/history');
 export const getGame = (id) => api.get(`/interview-game/${id}`);
+export const getLeaderboard = () => api.get('/interview-game/leaderboard/top');
 
-// AI Interview
+
+// AI Interview (used by InterviewGame & TechnicalInterview)
 export const startAIInterview = (data) => api.post('/ai-interview/start', data);
 export const chatAIInterview = (data) => api.post('/ai-interview/chat', data);
 export const evaluateAIInterview = (data) => api.post('/ai-interview/evaluate', data);
 
 // Summarize
 export const summarizeArticle = (data) => api.post('/summarize', data);
+
+
 
 // Resume Builder
 export const getResumeDrafts = () => api.get('/resume-builder/drafts');

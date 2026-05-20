@@ -17,11 +17,10 @@ import CodingQuestions from './pages/CodingQuestions';
 import Admin from './pages/Admin';
 import Topics from './pages/Topics';
 import InterviewGame from './pages/InterviewGame';
-import AIInterview from './pages/AIInterview';
-import VideoCall from './pages/VideoCall';
 import ResumeBuilder from './pages/ResumeBuilder';
 import LearningPaths from './pages/LearningPaths';
-import GDRooms from './pages/GDRooms';
+import NotFound from './pages/NotFound';
+import VideoCall from './pages/VideoCall';
 import './index.css';
 
 const ProtectedRoute = ({ children }) => {
@@ -49,16 +48,15 @@ const App = () => {
             <Route path="mentor/:id" element={<MentorProfile />} />
             <Route path="sessions" element={<Sessions />} />
             <Route path="interview-game" element={<InterviewGame />} />
-            <Route path="ai-interview" element={<AIInterview />} />
             <Route path="resume-builder" element={<ResumeBuilder />} />
             <Route path="resume-analysis" element={<ResumeAnalysis />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="notifications" element={<Notifications />} />
             <Route path="companies" element={<Companies />} />
             <Route path="coding-questions" element={<CodingQuestions />} />
-            <Route path="gd-rooms" element={<GDRooms />} />
             <Route path="admin" element={<Admin />} />
           </Route>
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

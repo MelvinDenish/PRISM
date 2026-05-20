@@ -1,23 +1,37 @@
 import { useState, useEffect } from 'react';
-import { getTopics, getLearningPaths, generateLearningPath, updatePathProgress, deleteLearningPath } from '../services/api';
-import { FiMap, FiPlus, FiTrash2, FiCheckCircle, FiCircle, FiArrowLeft, FiZap, FiExternalLink } from 'react-icons/fi';
+import { getTopics, getResources, getLearningPaths, generateLearningPath, updatePathProgress, deleteLearningPath } from '../services/api';
+import { FiMap, FiPlus, FiTrash2, FiCheckCircle, FiCircle, FiArrowLeft, FiZap, FiExternalLink, FiAlertCircle } from 'react-icons/fi';
 
 const LearningPaths = () => {
     const [paths, setPaths] = useState([]);
     const [topics, setTopics] = useState([]);
+    const [topicResourceCounts, setTopicResourceCounts] = useState({});
     const [selectedPath, setSelectedPath] = useState(null);
     const [creating, setCreating] = useState(false);
     const [newPath, setNewPath] = useState({ topicId: '', level: 'beginner' });
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
+    const [generateError, setGenerateError] = useState('');
 
     useEffect(() => { loadData(); }, []);
 
     const loadData = async () => {
         try {
-            const [pathsRes, topicsRes] = await Promise.all([getLearningPaths(), getTopics()]);
+            const [pathsRes, topicsRes, resourcesRes] = await Promise.all([
+                getLearningPaths(), getTopics(), getResources()
+            ]);
             setPaths(pathsRes.data.paths || []);
-            setTopics(topicsRes.data.topics || []);
+            const topicList = topicsRes.data.topics || [];
+            setTopics(topicList);
+
+            // Count resources per topic
+            const resources = resourcesRes.data.resources || [];
+            const counts = {};
+            resources.forEach(r => {
+                const tid = typeof r.topic === 'object' ? r.topic?._id : r.topic;
+                if (tid) counts[tid] = (counts[tid] || 0) + 1;
+            });
+            setTopicResourceCounts(counts);
         } catch {}
         setLoading(false);
     };
@@ -25,12 +39,16 @@ const LearningPaths = () => {
     const createPath = async () => {
         if (!newPath.topicId) return;
         setGenerating(true);
+        setGenerateError('');
         try {
             const { data } = await generateLearningPath(newPath);
             setPaths(prev => [data.path, ...prev]);
             setCreating(false);
             setSelectedPath(data.path);
-        } catch (err) { console.error(err); }
+        } catch (err) {
+            const msg = err.response?.data?.message || 'Failed to generate path. Check that GROQ_API_KEY is configured on the server.';
+            setGenerateError(msg);
+        }
         setGenerating(false);
     };
 
@@ -91,11 +109,18 @@ const LearningPaths = () => {
         );
     }
 
+    // Sort topics: ones with resources first
+    const sortedTopics = [...topics].sort((a, b) => {
+        const ca = topicResourceCounts[a._id] || 0;
+        const cb = topicResourceCounts[b._id] || 0;
+        return cb - ca;
+    });
+
     return (
         <div className="page">
             <div className="page-header">
                 <h1 className="page-title">🗺️ <span>Learning Paths</span></h1>
-                <button className="btn btn-primary" onClick={() => setCreating(true)}><FiPlus /> New Path</button>
+                <button className="btn btn-primary" onClick={() => { setCreating(true); setGenerateError(''); }}><FiPlus /> New Path</button>
             </div>
 
             {creating && (
@@ -107,7 +132,14 @@ const LearningPaths = () => {
                             <label>Select Topic</label>
                             <select className="form-select" value={newPath.topicId} onChange={e => setNewPath(prev => ({ ...prev, topicId: e.target.value }))}>
                                 <option value="">Choose a topic...</option>
-                                {topics.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+                                {sortedTopics.map(t => {
+                                    const count = topicResourceCounts[t._id] || 0;
+                                    return (
+                                        <option key={t._id} value={t._id} disabled={count === 0}>
+                                            {t.name} {count > 0 ? `(${count} resources)` : '— no resources yet'}
+                                        </option>
+                                    );
+                                })}
                             </select>
                         </div>
                         <div className="form-group">
@@ -118,6 +150,11 @@ const LearningPaths = () => {
                                 <option value="advanced">Advanced</option>
                             </select>
                         </div>
+                        {generateError && (
+                            <div style={{ padding: '10px 14px', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 'var(--radius-sm)', color: 'var(--accent-danger)', fontSize: 13, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <FiAlertCircle /> {generateError}
+                            </div>
+                        )}
                         <button className="btn btn-primary btn-lg" style={{ width: '100%' }} onClick={createPath} disabled={generating || !newPath.topicId}>
                             <FiZap /> {generating ? 'AI is generating your path...' : 'Generate Path'}
                         </button>

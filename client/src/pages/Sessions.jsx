@@ -89,16 +89,26 @@ const Sessions = () => {
 
                                 {/* START VIDEO CALL — once session is approved */}
                                 {s.status === 'approved' && (
-                                    <button className="btn btn-primary btn-sm" onClick={() => handleStartCall(s._id)} style={{ background: 'var(--gradient-primary)', border: 'none' }}>
-                                        <FiVideo /> Start Video Call
-                                    </button>
+                                    <>
+                                        <button className="btn btn-primary btn-sm" onClick={() => handleStartCall(s._id)} style={{ background: 'var(--gradient-primary)', border: 'none' }}>
+                                            <FiVideo /> Start Video Call
+                                        </button>
+                                        <button className="btn btn-danger btn-sm" onClick={() => handleStatusUpdate(s._id, 'completed')}>
+                                            <FiPhoneOff /> End Session
+                                        </button>
+                                    </>
                                 )}
 
-                                {/* In progress — go to call */}
+                                {/* In progress — go to call or end */}
                                 {s.status === 'in-progress' && (
-                                    <button className="btn btn-primary btn-sm" onClick={() => handleStartCall(s._id)}>
-                                        <FiVideo /> Rejoin Call
-                                    </button>
+                                    <>
+                                        <button className="btn btn-primary btn-sm" onClick={() => handleStartCall(s._id)}>
+                                            <FiVideo /> Rejoin Call
+                                        </button>
+                                        <button className="btn btn-danger btn-sm" onClick={() => handleStatusUpdate(s._id, 'completed')}>
+                                            <FiPhoneOff /> End Session
+                                        </button>
+                                    </>
                                 )}
 
                                 {/* Completed — rate */}

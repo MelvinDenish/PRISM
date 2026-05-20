@@ -1,0 +1,109 @@
+╔══════════════════════════════════════════════════════════════════╗
+║             PRISM - Setup & Startup Commands                     ║
+║        Placement Resources & Interview Skill Manager             ║
+╚══════════════════════════════════════════════════════════════════╝
+
+========================================
+  PREREQUISITES
+========================================
+1. Node.js (v18+)     → https://nodejs.org
+2. MongoDB Atlas       → Already configured (cloud DB)
+3. Docker (optional)   → For Judge0 code execution engine
+
+========================================
+  FIRST-TIME SETUP (Run once)
+========================================
+
+Step 1: Install Server Dependencies
+   cd server
+   npm install
+
+Step 2: Install Client Dependencies
+   cd client
+   npm install
+
+Step 3: Seed the Database (populates sample data & users)
+   cd server
+   node seeds/seedAll.js
+
+Step 4: (Optional) Seed Question Bank for Interview Game
+   cd server
+   node seeds/seedQuestionBank.js
+
+Step 5: (Optional) Start Judge0 Code Execution Engine
+   docker-compose -f judge0-docker-compose.yml up -d
+
+========================================
+  START THE APPLICATION
+========================================
+
+Terminal 1 — Start Backend Server:
+   cd server
+   npm run dev
+
+   → Server runs on: http://localhost:5000
+   → Connects to MongoDB Atlas automatically
+
+Terminal 2 — Start Frontend Client:
+   cd client
+   npm run dev
+
+   → Client runs on: http://localhost:5173
+   → Open this URL in your browser
+
+========================================
+  STOP THE APPLICATION
+========================================
+
+Press Ctrl+C in each terminal to stop the server/client.
+
+========================================
+  OTHER USEFUL COMMANDS
+========================================
+
+Build Client for Production:
+   cd client
+   npm run build
+
+Re-seed Database (wipes & repopulates all data):
+   cd server
+   node seeds/seedAll.js
+
+Generate Project Documents (DOCX):
+   node generate-docs.js
+   node generate-submission.js
+
+========================================
+  PROJECT STRUCTURE
+========================================
+
+PRISM/
+├── client/               ← React frontend (Vite)
+│   ├── src/
+│   │   ├── pages/        ← All page components
+│   │   ├── components/   ← Sidebar, Layout
+│   │   ├── context/      ← AuthContext (JWT auth)
+│   │   ├── services/     ← API service layer
+│   │   └── index.css     ← Global styles
+│   └── package.json
+├── server/               ← Express.js backend
+│   ├── models/           ← 18 MongoDB schemas
+│   ├── routes/           ← 18 API route files
+│   ├── middleware/       ← JWT auth middleware
+│   ├── socket/           ← Socket.IO handlers
+│   ├── utils/            ← Email service
+│   ├── seeds/            ← Database seed scripts
+│   ├── server.js         ← Main server entry
+│   └── package.json
+└── judge0-docker-compose.yml  ← Code execution engine
+
+========================================
+  TECH STACK
+========================================
+
+Frontend : React 18, Vite, React Router, Recharts, React Icons
+Backend  : Node.js, Express.js, Socket.IO, PeerJS
+Database : MongoDB Atlas (Mongoose ODM)
+AI       : Groq (LLaMA 3.1), Google Gemini
+Auth     : JWT (JSON Web Token) + bcryptjs
+Code Exec: Judge0 CE (Docker, optional)

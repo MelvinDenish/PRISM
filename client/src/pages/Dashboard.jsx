@@ -70,9 +70,9 @@ const Dashboard = () => {
 
     const quickActions = [
         { icon: '🎮', title: 'Interview Game', desc: 'Start a mock interview', path: '/interview-game', color: '#10b981' },
-        { icon: '🤖', title: 'AI Interview', desc: 'Practice with AI', path: '/ai-interview', color: '#06b6d4' },
         { icon: '📚', title: 'Topics', desc: 'Learn by topic', path: '/topics', color: '#8b5cf6' },
         { icon: '📄', title: 'Resume Builder', desc: 'Build your resume', path: '/resume-builder', color: '#f59e0b' },
+        { icon: '📊', title: 'Resources', desc: 'Browse resources', path: '/resources', color: '#06b6d4' },
     ];
 
     return (
@@ -119,7 +119,7 @@ const Dashboard = () => {
                 </div>
                 <div className="stat-card">
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}><FiTrendingUp style={{ fontSize: 20, color: 'var(--accent-success)' }} /><span className="stat-label">Avg Game Score</span></div>
-                    <div className="stat-value">{games.length > 0 ? Math.round(games.reduce((s, g) => s + (g.totalScore || 0), 0) / games.length / 6) : 0}%</div>
+                    <div className="stat-value">{games.length > 0 ? Math.round(games.reduce((s, g) => s + ((g.totalScore || 0) / (g.maxTotalScore || 600) * 100), 0) / games.length) : 0}%</div>
                 </div>
                 <div className="stat-card">
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}><FiAward style={{ fontSize: 20, color: 'var(--accent-warning)' }} /><span className="stat-label">Learning Paths</span></div>
@@ -148,7 +148,7 @@ const Dashboard = () => {
                 {/* Skills Radar */}
                 <div className="glass-card">
                     <h3 style={{ marginBottom: 20 }}>🎯 Skills Radar</h3>
-                    {stats.totalMockInterviews > 0 ? (
+                    {games.length > 0 ? (
                         <ResponsiveContainer width="100%" height={220}>
                             <RadarChart data={radarData}>
                                 <PolarGrid stroke="var(--border-color)" />

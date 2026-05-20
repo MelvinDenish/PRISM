@@ -1,11 +1,20 @@
+const User = require('../models/User');
+
 const socketHandler = (io) => {
-    // Track rooms and participants
     const rooms = new Map();
-    // Track GD room video peers
-    const gdVideoRooms = new Map(); // roomId => [{ peerId, userId, name, socketId }]
+    const gdVideoRooms = new Map();
+    const sessionPeers = new Map(); // sessionId => [{ peerId, userId, userName, socketId }]
+    const userSockets = new Map(); // socketId => userId (for online tracking)
 
     io.on('connection', (socket) => {
         console.log(`🔌 User connected: ${socket.id}`);
+
+        // ==================== ONLINE TRACKING ====================
+        socket.on('register-user', async ({ userId, role }) => {
+            if (!userId) return;
+            userSockets.set(socket.id, userId);
+            try { await User.findByIdAndUpdate(userId, { isOnline: true }); } catch {}
+        });
 
         // ==================== INTERVIEW ROOMS ====================
 
@@ -60,9 +69,31 @@ const socketHandler = (io) => {
 
         // ==================== WEBRTC SIGNALING ====================
 
-        // Session peer ID exchange (for 1:1 video in technical interviews)
-        socket.on('session-peer-id', ({ sessionId, peerId }) => {
-            socket.to(sessionId).emit('peer-joined', { peerId, name: 'Participant' });
+        // Session peer ID exchange (for 1:1 video in mentorship sessions)
+        // Flow: New joiner sends peer-id → server tells new joiner to CALL existing peers
+        //       → server tells existing peers to WAIT (incoming-peer, don't call back)
+        socket.on('session-peer-id', ({ sessionId, peerId, userName }) => {
+            if (!sessionPeers.has(sessionId)) {
+                sessionPeers.set(sessionId, []);
+            }
+            const peers = sessionPeers.get(sessionId);
+            // Remove old entry for this socket (e.g. reconnect)
+            const filtered = peers.filter(p => p.socketId !== socket.id);
+            filtered.push({ peerId, userName: userName || 'Participant', socketId: socket.id });
+            sessionPeers.set(sessionId, filtered);
+
+            const existingPeers = filtered.filter(p => p.socketId !== socket.id);
+
+            // Tell the NEW joiner about existing peers → new joiner will CALL them
+            existingPeers.forEach(ep => {
+                socket.emit('call-peer', { peerId: ep.peerId, name: ep.userName });
+            });
+
+            // Tell EXISTING peers about the new joiner → they should NOT call,
+            // just update the name label and wait for the incoming call
+            socket.to(sessionId).emit('incoming-peer', { peerId, name: userName || 'Participant' });
+
+            console.log(`📹 Session ${sessionId}: ${userName} joined (peer: ${peerId}). Total: ${filtered.length}`);
         });
 
         // WebRTC offer
@@ -156,17 +187,20 @@ const socketHandler = (io) => {
         // ==================== CHAT ====================
 
         socket.on('send-message', ({ roomId, message, userName }) => {
-            io.to(roomId).emit('receive-message', { message, userName, timestamp: new Date() });
+            socket.to(roomId).emit('receive-message', { message, userName, timestamp: new Date() });
         });
 
         // ==================== SESSION EVENTS ====================
 
-        socket.on('join-session', ({ sessionId }) => {
+        socket.on('join-session', ({ sessionId, userId, userName }) => {
             socket.join(sessionId);
+            console.log(`📹 ${userName || 'User'} joined session room: ${sessionId}`);
         });
 
         socket.on('end-session', ({ sessionId }) => {
             io.to(sessionId).emit('session-ended');
+            // Clean up session peers
+            sessionPeers.delete(sessionId);
         });
 
         // ==================== DISCONNECT ====================
@@ -191,6 +225,28 @@ const socketHandler = (io) => {
                     io.to(`gd-${roomId}`).emit('gd-peer-left', { peerId: leaving.peerId, userId: leaving.userId });
                 }
             });
+
+            // Clean up from mentorship session rooms
+            sessionPeers.forEach((peers, sessionId) => {
+                const leaving = peers.find(p => p.socketId === socket.id);
+                if (leaving) {
+                    const filtered = peers.filter(p => p.socketId !== socket.id);
+                    sessionPeers.set(sessionId, filtered);
+                    io.to(sessionId).emit('session-peer-left', { userName: leaving.userName });
+                    if (filtered.length === 0) sessionPeers.delete(sessionId);
+                }
+            });
+
+            // Set user offline
+            const userId = userSockets.get(socket.id);
+            if (userId) {
+                userSockets.delete(socket.id);
+                // Only set offline if no other sockets for this user
+                const stillConnected = [...userSockets.values()].includes(userId);
+                if (!stillConnected) {
+                    User.findByIdAndUpdate(userId, { isOnline: false }).catch(() => {});
+                }
+            }
 
             console.log(`❌ User disconnected: ${socket.id}`);
         });

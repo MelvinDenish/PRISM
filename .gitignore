@@ -2,3 +2,9 @@ node_modules/
 .env
 dist/
 *.log
+
+# Generated submission documents (sources are generate-docs.js / generate-submission.js)
+*.docx
+
+# Local Claude Code config (per-machine, not for sharing)
+.claude/

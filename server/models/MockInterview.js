@@ -9,7 +9,7 @@ const mockInterviewSchema = new mongoose.Schema({
     scheduledDate: Date,
     duration: Number,
     meetingLink: String,
-    status: { type: String, enum: ['scheduled', 'ongoing', 'completed'], default: 'scheduled' },
+    status: { type: String, enum: ['scheduled', 'ongoing', 'completed', 'cancelled'], default: 'scheduled' },
     createdAt: { type: Date, default: Date.now }
 });
 

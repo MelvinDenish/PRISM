@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { startInterviewGame, getGameQuestions, submitGameRound, startAIInterview, chatAIInterview, evaluateAIInterview, runTestCases, runCustomCode, startGroupDiscussion, respondGroupDiscussion, evaluateGroupDiscussion } from '../services/api';
+import { startInterviewGame, getGameQuestions, submitGameRound, startAIInterview, chatAIInterview, evaluateAIInterview, runTestCases, runCustomCode, startGroupDiscussion, respondGroupDiscussion, evaluateGroupDiscussion, getLeaderboard, getGameHistory } from '../services/api';
 import { FiPlay, FiClock, FiAward, FiCheck, FiArrowRight, FiRotateCcw, FiSend, FiCpu, FiUser, FiAlertTriangle, FiMapPin, FiCode, FiTerminal } from 'react-icons/fi';
 import Editor from '@monaco-editor/react';
 
@@ -34,6 +34,10 @@ const InterviewGame = () => {
     const [singleRound, setSingleRound] = useState(null);
     const [failSuggestions, setFailSuggestions] = useState(null);
     const [loadingQuestions, setLoadingQuestions] = useState(false);
+    const [menuTab, setMenuTab] = useState('play'); // play | leaderboard | history
+    const [leaderboard, setLeaderboard] = useState([]);
+    const [history, setHistory] = useState([]);
+    const [lbLoading, setLbLoading] = useState(false);
 
     // Coding round state
     const [selectedLang, setSelectedLang] = useState('python');
@@ -74,14 +78,14 @@ const InterviewGame = () => {
     useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [aiMessages]);
 
     useEffect(() => {
-        if (timer > 0 && phase === 'playing') {
+        if (phase === 'playing' && timer > 0) {
             timerRef.current = setInterval(() => setTimer(t => {
                 if (t <= 1) { clearInterval(timerRef.current); handleSubmitRound(); return 0; }
                 return t - 1;
             }), 1000);
             return () => clearInterval(timerRef.current);
         }
-    }, [timer, phase]);
+    }, [phase]);
 
     // Initialize boilerplate when questions loaded (for coding)
     useEffect(() => {
@@ -325,9 +329,9 @@ const InterviewGame = () => {
             setGame(data.game);
             setRoundScore(data.roundScore);
 
-            if (mode === 'full' && data.roundScore < round.passScore) {
+            if (mode === 'full' && data.roundScore < ROUNDS[currentRound].passScore) {
                 setPhase('failed');
-                generateFailSuggestions(round, data.roundScore);
+                generateFailSuggestions(ROUNDS[currentRound], data.roundScore);
             } else {
                 setPhase('round-result');
             }
@@ -371,41 +375,140 @@ const InterviewGame = () => {
     //  MENU
     // ═══════════════════════════════════════════
     if (phase === 'menu') {
+        const loadLeaderboard = async () => { if (leaderboard.length) return; setLbLoading(true); try { const { data } = await getLeaderboard(); setLeaderboard(data.leaderboard || []); } catch {} setLbLoading(false); };
+        const loadHistory = async () => { if (history.length) return; setLbLoading(true); try { const { data } = await getGameHistory(); setHistory(data.games || []); } catch {} setLbLoading(false); };
+
         return (
             <div className="page">
-                <div style={{ maxWidth: 800, margin: '0 auto', textAlign: 'center', paddingTop: 32 }}>
-                    <div style={{ fontSize: 64, marginBottom: 16 }}>🎮</div>
-                    <h1 className="page-title" style={{ fontSize: 36, marginBottom: 8 }}><span>Interview Simulator</span></h1>
-                    <p style={{ color: 'var(--text-muted)', fontSize: 16, marginBottom: 40, lineHeight: 1.8 }}>
-                        Experience a realistic placement interview. Play the full game or practice individual rounds.
-                    </p>
-
-                    <div className="glass-card" style={{ padding: 32, marginBottom: 32 }}>
-                        <h2 style={{ marginBottom: 8 }}>🏆 Full Interview Game</h2>
-                        <p style={{ color: 'var(--text-muted)', marginBottom: 20, fontSize: 14 }}>
-                            6 sequential rounds — just like a real placement drive. Score below the cutoff and you're eliminated!
+                <div style={{ maxWidth: 800, margin: '0 auto', paddingTop: 32 }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 64, marginBottom: 16 }}>🎮</div>
+                        <h1 className="page-title" style={{ fontSize: 36, marginBottom: 8 }}><span>Interview Simulator</span></h1>
+                        <p style={{ color: 'var(--text-muted)', fontSize: 16, marginBottom: 24, lineHeight: 1.8 }}>
+                            Experience a realistic placement interview. Play the full game or practice individual rounds.
                         </p>
-                        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 20 }}>
-                            {ROUNDS.map((r, i) => (<span key={r.type} className="badge badge-info" style={{ fontSize: 12 }}>{i + 1}. {r.name}</span>))}
-                        </div>
-                        <button className="btn btn-primary btn-lg" onClick={() => startGame('full')}><FiPlay /> Start Full Interview</button>
                     </div>
 
-                    <h3 style={{ marginBottom: 16, textAlign: 'left' }}>🎯 Practice Individual Rounds</h3>
-                    <div className="grid grid-3" style={{ textAlign: 'left' }}>
-                        {ROUNDS.map((r, i) => (
-                            <div key={r.type} className="glass-card" style={{ padding: 20, cursor: 'pointer' }} onClick={() => startGame('single', i)}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                                    <div style={{ fontSize: 28 }}>{r.icon}</div>
-                                    <div><h4 style={{ fontSize: 14 }}>{r.name}</h4><p style={{ color: 'var(--text-muted)', fontSize: 11 }}>{r.desc}</p></div>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)' }}>
-                                    <span>⏱ {Math.floor(r.time / 60)} min</span>
-                                    <span>Pass: {r.passScore}%</span>
-                                </div>
-                            </div>
+                    {/* Tabs */}
+                    <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: 'rgba(255,255,255,0.03)', borderRadius: 12, padding: 4 }}>
+                        {[['play', '🎮 Play'], ['leaderboard', '🏆 Leaderboard'], ['history', '📊 My History']].map(([key, label]) => (
+                            <button key={key} onClick={() => { setMenuTab(key); if (key === 'leaderboard') loadLeaderboard(); if (key === 'history') loadHistory(); }}
+                                style={{ flex: 1, padding: '10px 16px', borderRadius: 10, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 14,
+                                    background: menuTab === key ? 'var(--accent-primary)' : 'transparent',
+                                    color: menuTab === key ? '#fff' : 'var(--text-muted)', transition: 'all 0.2s' }}>
+                                {label}
+                            </button>
                         ))}
                     </div>
+
+                    {/* Play Tab */}
+                    {menuTab === 'play' && (
+                        <>
+                            <div className="glass-card" style={{ padding: 32, marginBottom: 32, textAlign: 'center' }}>
+                                <h2 style={{ marginBottom: 8 }}>🏆 Full Interview Game</h2>
+                                <p style={{ color: 'var(--text-muted)', marginBottom: 20, fontSize: 14 }}>
+                                    6 sequential rounds — just like a real placement drive. Score below the cutoff and you're eliminated!
+                                </p>
+                                <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 20 }}>
+                                    {ROUNDS.map((r, i) => (<span key={r.type} className="badge badge-info" style={{ fontSize: 12 }}>{i + 1}. {r.name}</span>))}
+                                </div>
+                                <button className="btn btn-primary btn-lg" onClick={() => startGame('full')}><FiPlay /> Start Full Interview</button>
+                            </div>
+                            <h3 style={{ marginBottom: 16 }}>🎯 Practice Individual Rounds</h3>
+                            <div className="grid grid-3">
+                                {ROUNDS.map((r, i) => (
+                                    <div key={r.type} className="glass-card" style={{ padding: 20, cursor: 'pointer' }} onClick={() => startGame('single', i)}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                                            <div style={{ fontSize: 28 }}>{r.icon}</div>
+                                            <div><h4 style={{ fontSize: 14 }}>{r.name}</h4><p style={{ color: 'var(--text-muted)', fontSize: 11 }}>{r.desc}</p></div>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)' }}>
+                                            <span>⏱ {Math.floor(r.time / 60)} min</span>
+                                            <span>Pass: {r.passScore}%</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    )}
+
+                    {/* Leaderboard Tab */}
+                    {menuTab === 'leaderboard' && (
+                        <div className="glass-card" style={{ padding: 24 }}>
+                            <h3 style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>🏆 Top Performers</h3>
+                            {lbLoading ? <div className="spinner" /> : leaderboard.length === 0 ? (
+                                <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 40 }}>No completed games yet. Be the first!</p>
+                            ) : (
+                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                    <thead>
+                                        <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: 12, textTransform: 'uppercase' }}>
+                                            <th style={{ padding: '8px 12px', textAlign: 'left' }}>Rank</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'left' }}>Name</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'right' }}>Best Score</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'right' }}>Games</th>
+                                            <th style={{ padding: '8px 12px', textAlign: 'right' }}>Avg</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {leaderboard.map((p, i) => (
+                                            <tr key={p._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                                <td style={{ padding: '10px 12px', fontWeight: 700, color: i < 3 ? ['#FFD700','#C0C0C0','#CD7F32'][i] : 'var(--text-primary)' }}>
+                                                    {i < 3 ? ['🥇','🥈','🥉'][i] : `#${i+1}`}
+                                                </td>
+                                                <td style={{ padding: '10px 12px', fontWeight: 600 }}>{p.name}</td>
+                                                <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                                                    <span style={{ color: 'var(--accent-primary)', fontWeight: 700 }}>{p.bestPercent}%</span>
+                                                    <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 4 }}>({p.bestScore}/{p.maxPossible || 600})</span>
+                                                </td>
+                                                <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--text-muted)' }}>{p.gamesPlayed}</td>
+                                                <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--text-muted)' }}>{p.avgScore}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+                    )}
+
+                    {/* History Tab */}
+                    {menuTab === 'history' && (
+                        <div>
+                            {lbLoading ? <div className="spinner" /> : history.length === 0 ? (
+                                <div className="glass-card" style={{ textAlign: 'center', padding: 40 }}>
+                                    <div style={{ fontSize: 48, marginBottom: 12 }}>📊</div>
+                                    <p style={{ color: 'var(--text-muted)' }}>No games played yet. Start your first interview!</p>
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                    {history.map(g => (
+                                        <div key={g._id} className="glass-card" style={{ padding: 20 }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                                <div>
+                                                    <span style={{ fontWeight: 700, fontSize: 16 }}>
+                                                        {Math.round((g.totalScore / (g.maxTotalScore || 600)) * 100)}%
+                                                    </span>
+                                                    <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 13 }}>{g.totalScore}/{g.maxTotalScore || 600}</span>
+                                                </div>
+                                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                                    <span className={`badge ${g.status === 'completed' ? 'badge-success' : 'badge-warning'}`}>{g.status}</span>
+                                                    <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>{new Date(g.startedAt).toLocaleDateString()}</span>
+                                                </div>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                                {g.rounds?.map((r, i) => (
+                                                    <div key={i} style={{ padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                                        background: r.status === 'completed' ? (r.score >= (ROUNDS[i]?.passScore || 40) ? 'rgba(52,211,153,0.15)' : 'rgba(239,68,68,0.15)') : 'rgba(255,255,255,0.04)',
+                                                        color: r.status === 'completed' ? (r.score >= (ROUNDS[i]?.passScore || 40) ? 'var(--accent-success)' : '#ef4444') : 'var(--text-muted)' }}>
+                                                        {ROUNDS[i]?.icon} {r.score}%
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
         );

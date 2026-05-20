@@ -23,7 +23,6 @@ router.get('/', protect, async (req, res) => {
         if (req.query.status) filter.status = req.query.status;
         const rooms = await GDRoom.find(filter)
             .populate('participants', 'name')
-            .populate('topic', 'name')
             .sort({ createdAt: -1 });
         res.json({ success: true, rooms });
     } catch (error) {

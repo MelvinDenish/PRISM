@@ -41,6 +41,10 @@ router.patch('/book/:slotIndex', protect, async (req, res) => {
             return res.status(400).json({ success: false, message: 'Invalid slot index' });
         }
 
+        if (availability.availableSlots[slotIdx].isBooked) {
+            return res.status(409).json({ success: false, message: 'This slot is already booked' });
+        }
+
         availability.availableSlots[slotIdx].isBooked = true;
         await availability.save();
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getTopics, getResources, getProgressStats, getProgress, completeResource, uncompleteResource, summarizeArticle } from '../services/api';
+import { getTopics, getResources, getProgress, completeResource, uncompleteResource } from '../services/api';
 import { FiBook, FiVideo, FiFileText, FiSearch, FiCheckCircle, FiExternalLink, FiArrowLeft, FiX, FiZap } from 'react-icons/fi';
 
 const Topics = () => {
@@ -68,10 +68,7 @@ const Topics = () => {
 
     const handleSummarize = async (resource) => {
         setSummarizing(true);
-        try {
-            const { data } = await summarizeArticle({ url: resource.link });
-            setSummary(data.summary);
-        } catch { setSummary('Could not summarize this article. Please try again.'); }
+        setSummary('Open the resource to read the full article. AI summarization is planned for a future update.');
         setSummarizing(false);
     };
 

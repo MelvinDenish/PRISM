@@ -145,39 +145,69 @@ Return as JSON array:
   }
 };
 
+const QuestionBank = require('../models/QuestionBank');
+
 // ─── ROUTES ───
 
-// GET questions for a round (generated dynamically via Groq)
+// GET questions for a round (from curated bank, AI fallback for GD)
 router.get('/questions/:round', protect, async (req, res) => {
   const round = req.params.round;
   try {
     let questions = [];
     switch (round) {
       case 'aptitude': {
-        const mcqs = await generateMCQs('aptitude', 15);
-        questions = mcqs.map((q, i) => ({ id: `apt_${i}`, ...q }));
+        // Random 15 from curated bank
+        const docs = await QuestionBank.aggregate([
+          { $match: { type: 'aptitude', verified: true } },
+          { $sample: { size: 15 } }
+        ]);
+        questions = docs.map((q, i) => ({ id: `apt_${i}`, q: q.q, opts: q.opts, ans: q.ans, explanation: q.explanation }));
+        // AI fallback if bank is empty
+        if (questions.length < 5) {
+          const mcqs = await generateMCQs('aptitude', 15);
+          questions = mcqs.map((q, i) => ({ id: `apt_${i}`, ...q }));
+        }
         break;
       }
       case 'technical1':
       case 'technical2': {
-        const mcqs = await generateMCQs('technical', 10);
-        questions = mcqs.map((q, i) => ({ id: `tech_${i}`, ...q }));
+        const docs = await QuestionBank.aggregate([
+          { $match: { type: 'technical', verified: true } },
+          { $sample: { size: 10 } }
+        ]);
+        questions = docs.map((q, i) => ({ id: `tech_${i}`, q: q.q, opts: q.opts, ans: q.ans, explanation: q.explanation }));
+        if (questions.length < 5) {
+          const mcqs = await generateMCQs('technical', 10);
+          questions = mcqs.map((q, i) => ({ id: `tech_${i}`, ...q }));
+        }
         break;
       }
       case 'hr': {
-        const hrQs = await generateHRQuestions(10);
-        questions = hrQs.map((q, i) => ({ id: `hr_${i}`, q, type: 'open' }));
+        // Random 10 HR from bank
+        const docs = await QuestionBank.aggregate([
+          { $match: { type: 'hr', verified: true } },
+          { $sample: { size: 10 } }
+        ]);
+        questions = docs.map((q, i) => ({ id: `hr_${i}`, q: q.q, type: 'open' }));
+        if (questions.length < 5) {
+          const hrQs = await generateHRQuestions(10);
+          questions = hrQs.map((q, i) => ({ id: `hr_${i}`, q, type: 'open' }));
+        }
         break;
       }
       case 'gd': {
+        // GD topics are always AI-generated for freshness
         const topic = await generateGDTopic();
         questions = [{ id: 'gd_0', topic }];
         break;
       }
       case 'coding': {
-        const problems = await generateCodingProblems(2, 'medium');
-        questions = problems.map(p => ({
-          id: p.id,
+        const docs = await QuestionBank.aggregate([
+          { $match: { type: 'coding', verified: true } },
+          { $sample: { size: 2 } }
+        ]);
+        questions = docs.map(p => ({
+          id: p._id.toString(),
           title: p.title,
           difficulty: p.difficulty,
           description: p.description,
@@ -185,6 +215,14 @@ router.get('/questions/:round', protect, async (req, res) => {
           testCases: p.testCases,
           boilerplate: p.boilerplate,
         }));
+        if (questions.length < 1) {
+          const problems = await generateCodingProblems(2, 'medium');
+          questions = problems.map(p => ({
+            id: p.id, title: p.title, difficulty: p.difficulty,
+            description: p.description, examples: p.examples,
+            testCases: p.testCases, boilerplate: p.boilerplate,
+          }));
+        }
         break;
       }
       default:
@@ -192,8 +230,8 @@ router.get('/questions/:round', protect, async (req, res) => {
     }
     res.json({ success: true, questions });
   } catch (err) {
-    console.error('Question generation error:', err.message);
-    res.status(500).json({ success: false, message: 'Failed to generate questions: ' + err.message });
+    console.error('Question fetch error:', err.message);
+    res.status(500).json({ success: false, message: 'Failed to load questions: ' + err.message });
   }
 });
 
@@ -279,6 +317,38 @@ router.get('/:id', protect, async (req, res) => {
     const game = await InterviewGame.findById(req.params.id);
     if (!game) return res.status(404).json({ success: false, message: 'Game not found' });
     res.json({ success: true, game });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+// GET leaderboard — top performers across all games
+router.get('/leaderboard/top', protect, async (req, res) => {
+  try {
+    const leaderboard = await InterviewGame.aggregate([
+      { $match: { status: 'completed' } },
+      { $group: {
+        _id: '$user',
+        bestScore: { $max: '$totalScore' },
+        maxPossible: { $first: '$maxTotalScore' },
+        gamesPlayed: { $sum: 1 },
+        avgScore: { $avg: '$totalScore' },
+        lastPlayed: { $max: '$completedAt' }
+      }},
+      { $sort: { bestScore: -1 } },
+      { $limit: 50 },
+      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'userInfo' } },
+      { $unwind: '$userInfo' },
+      { $project: {
+        _id: 1,
+        name: '$userInfo.name',
+        bestScore: 1,
+        maxPossible: 1,
+        bestPercent: { $round: [{ $multiply: [{ $divide: ['$bestScore', { $ifNull: ['$maxPossible', 600] }] }, 100] }, 1] },
+        gamesPlayed: 1,
+        avgScore: { $round: ['$avgScore', 0] },
+        lastPlayed: 1
+      }}
+    ]);
+    res.json({ success: true, leaderboard });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 

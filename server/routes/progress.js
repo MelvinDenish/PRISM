@@ -38,12 +38,7 @@ router.patch('/complete/:resourceId', protect, async (req, res) => {
         if (resource && resource.topic) {
             const topicId = resource.topic.toString();
             const totalForTopic = await Resource.countDocuments({ topic: resource.topic });
-            const completedForTopic = progress.completedResources.filter(async (rId) => {
-                const r = await Resource.findById(rId);
-                return r && r.topic && r.topic.toString() === topicId;
-            });
 
-            // More efficient: count directly
             const completedResourceDocs = await Resource.find({
                 _id: { $in: progress.completedResources },
                 topic: resource.topic
@@ -80,6 +75,24 @@ router.patch('/uncomplete/:resourceId', protect, async (req, res) => {
         progress.completedResources = progress.completedResources.filter(
             (id) => id.toString() !== req.params.resourceId
         );
+
+        // Recalculate topic progress after uncomplete
+        const resource = await Resource.findById(req.params.resourceId);
+        if (resource && resource.topic) {
+            const topicId = resource.topic.toString();
+            const totalForTopic = await Resource.countDocuments({ topic: resource.topic });
+            const completedResourceDocs = await Resource.find({
+                _id: { $in: progress.completedResources },
+                topic: resource.topic
+            });
+            const percentage = totalForTopic > 0 ? Math.round((completedResourceDocs.length / totalForTopic) * 100) : 0;
+            const topicIdx = progress.topicProgress.findIndex(
+                (tp) => tp.topic && tp.topic.toString() === topicId
+            );
+            if (topicIdx >= 0) {
+                progress.topicProgress[topicIdx].percentage = percentage;
+            }
+        }
 
         progress.updatedAt = Date.now();
         await progress.save();
