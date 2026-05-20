@@ -4,10 +4,10 @@ import { useAuth } from '../context/AuthContext';
 import Editor from '@monaco-editor/react';
 import { io } from 'socket.io-client';
 import Peer from 'peerjs';
-import { getMockInterview, getCodingQuestions, submitCode, submitMockFeedback, startAIInterview, chatAIInterview, evaluateAIInterview, runTestCases, runCustomCode } from '../services/api';
+import { getCodingQuestions, submitCodeExecution, startAIInterview, chatAIInterview, evaluateAIInterview, runTestCases, runCustomCode } from '../services/api';
 import { FiPlay, FiSend, FiVideo, FiVideoOff, FiMic, FiMicOff, FiMessageSquare, FiPhoneOff, FiMonitor, FiClock, FiCpu, FiUser, FiZap, FiHelpCircle, FiCheck, FiTerminal, FiCode } from 'react-icons/fi';
 
-const SOCKET_URL = 'http://localhost:5000';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
 
 const LANGUAGES = [
     { id: 'javascript', name: 'JavaScript', monacoLang: 'javascript' },
@@ -76,11 +76,7 @@ const TechnicalInterview = () => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const [iRes, qRes] = await Promise.all([
-                    getMockInterview(id),
-                    getCodingQuestions()
-                ]);
-                setInterview(iRes.data.interview);
+                const qRes = await getCodingQuestions();
                 setQuestions(qRes.data.questions || []);
             } catch (err) { console.error(err); }
         };
@@ -220,9 +216,8 @@ Give a helpful HINT — don't give the full solution. Suggest an approach, data 
         setRunning(true);
         setOutput('Running...');
         try {
-            const res = await submitCode({ mockInterview: id, question: selectedQ?._id, code, language });
-            const sub = res.data.submission;
-            setOutput(sub.error || sub.output || 'No output');
+            const res = await submitCodeExecution({ sourceCode: code, language, stdin: '' });
+            setOutput(res.data.stderr || res.data.stdout || 'No output');
         } catch (err) {
             setOutput(`Error: ${err.message}`);
         }

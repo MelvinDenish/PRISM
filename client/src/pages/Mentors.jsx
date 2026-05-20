@@ -90,17 +90,31 @@ const Mentors = () => {
             const today = new Date();
             const todayDay = (today.getDay() + 6) % 7; // Monday=0
             let daysUntil = dayIndex - todayDay;
-            if (daysUntil <= 0) daysUntil += 7;
+            if (daysUntil < 0) daysUntil += 7;
+            if (daysUntil === 0) daysUntil = 7; // Book for next week if same day
             const nextDate = new Date(today);
             nextDate.setDate(today.getDate() + daysUntil);
+
+            // Combine date with start time to get proper scheduledDate
+            if (bookingSlot.slot.startTime) {
+                const [hours, minutes] = bookingSlot.slot.startTime.split(':').map(Number);
+                nextDate.setHours(hours, minutes, 0, 0);
+            }
+
+            // Calculate duration from start/end time
+            let duration = 60;
+            if (bookingSlot.slot.startTime && bookingSlot.slot.endTime) {
+                const [sh, sm] = bookingSlot.slot.startTime.split(':').map(Number);
+                const [eh, em] = bookingSlot.slot.endTime.split(':').map(Number);
+                duration = (eh * 60 + em) - (sh * 60 + sm);
+                if (duration <= 0) duration = 60;
+            }
 
             await bookSession({
                 mentor: bookingSlot.mentor._id,
                 scheduledDate: nextDate.toISOString(),
-                startTime: bookingSlot.slot.startTime,
-                endTime: bookingSlot.slot.endTime,
                 agenda: bookingAgenda || `Session with ${bookingSlot.mentor.name}`,
-                duration: 60
+                duration
             });
 
             setBookingSuccess(`Session booked with ${bookingSlot.mentor.name} for ${bookingSlot.slot.day} ${bookingSlot.slot.startTime}-${bookingSlot.slot.endTime}`);
@@ -108,7 +122,8 @@ const Mentors = () => {
             setBookingAgenda('');
         } catch (err) {
             console.error(err);
-            setBookingSuccess('Failed to book session. Try again.');
+            const msg = err.response?.data?.message || 'Failed to book session. Try again.';
+            setBookingSuccess(`❌ ${msg}`);
         }
     };
 

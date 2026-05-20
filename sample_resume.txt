@@ -1,0 +1,95 @@
+ADITYA KUMAR
+Full Stack Developer | CSE Undergraduate
+Email: aditya.kumar@gmail.com | Phone: +91 98765 43210
+LinkedIn: linkedin.com/in/adityakumar | GitHub: github.com/adityakumar
+Location: Chennai, Tamil Nadu, India
+
+════════════════════════════════════════
+PROFESSIONAL SUMMARY
+════════════════════════════════════════
+Passionate Computer Science student with hands-on experience in full-stack web development, data structures, and algorithms. Completed a software engineering internship at Google, contributing to production-grade microservices. Strong problem-solver with 500+ LeetCode problems solved and a keen interest in system design and cloud computing.
+
+════════════════════════════════════════
+EDUCATION
+════════════════════════════════════════
+B.Tech in Computer Science and Engineering
+National Institute of Technology, Tiruchirappalli (NIT Trichy)
+2021 - 2025 | CGPA: 9.1/10
+
+Higher Secondary (Class XII) - CBSE
+DAV Public School, Chennai
+2021 | Percentage: 95.4%
+
+════════════════════════════════════════
+EXPERIENCE
+════════════════════════════════════════
+Software Engineering Intern | Google, Bangalore
+May 2024 - July 2024
+- Developed RESTful APIs for the Google Cloud Console using Go and gRPC, serving 10M+ daily requests
+- Optimized database query performance by 35% through index tuning on Cloud Spanner
+- Built an internal dashboard using React and TypeScript for monitoring service health metrics
+- Collaborated with a cross-functional team of 8 engineers following agile methodology
+- Wrote 120+ unit tests achieving 94% code coverage using Go testing framework
+
+Full Stack Developer Intern | Zoho Corporation, Chennai
+Jan 2024 - Apr 2024
+- Designed and implemented a customer feedback module using Java, Spring Boot, and MySQL
+- Created responsive UI components with React.js reducing page load time by 40%
+- Integrated OAuth 2.0 authentication and role-based access control for 3 user types
+- Deployed microservices on AWS EC2 with auto-scaling and load balancing
+- Participated in daily standups, sprint planning, and code review sessions
+
+════════════════════════════════════════
+TECHNICAL SKILLS
+════════════════════════════════════════
+Languages:        Java, Python, JavaScript, TypeScript, C++, Go, SQL
+Frontend:         React.js, Next.js, HTML5, CSS3, Tailwind CSS, Redux
+Backend:          Node.js, Express.js, Spring Boot, Django, FastAPI
+Databases:        MongoDB, PostgreSQL, MySQL, Redis, Cloud Spanner
+Cloud & DevOps:   AWS (EC2, S3, Lambda), Docker, Kubernetes, CI/CD, GitHub Actions
+Tools:            Git, Postman, Jira, Figma, VS Code, IntelliJ IDEA
+Concepts:         Data Structures, Algorithms, System Design, OOP, DBMS, OS, Computer Networks
+
+════════════════════════════════════════
+PROJECTS
+════════════════════════════════════════
+1. PRISM - Placement Resources & Interview Skill Manager
+   Tech: React, Node.js, Express, MongoDB, Socket.IO, Groq AI
+   - Built a full-stack placement preparation platform with AI-powered mock interviews
+   - Implemented 6-round interview simulation game with real-time scoring and leaderboard
+   - Integrated Groq LLaMA 3.1 for AI question generation and evaluation
+   - Features: Resume builder with ATS analysis, video mentorship, coding playground
+   - GitHub: github.com/adityakumar/prism
+
+2. E-Commerce Microservices Platform
+   Tech: Java, Spring Boot, PostgreSQL, RabbitMQ, Docker, Kubernetes
+   - Architected a microservices-based e-commerce system handling 5000+ concurrent users
+   - Implemented event-driven architecture using RabbitMQ for order processing
+   - Built payment gateway integration with Razorpay and Stripe
+   - Deployed on AWS EKS with auto-scaling and monitoring via Prometheus + Grafana
+   - GitHub: github.com/adityakumar/ecommerce-ms
+
+3. Real-Time Code Collaboration Tool
+   Tech: React, Node.js, Socket.IO, Monaco Editor, WebRTC
+   - Developed a Google Docs-like collaborative code editor supporting 10+ simultaneous users
+   - Implemented operational transform (OT) algorithm for conflict-free real-time editing
+   - Added video/audio chat using WebRTC and screen sharing capabilities
+   - GitHub: github.com/adityakumar/colab-code
+
+════════════════════════════════════════
+ACHIEVEMENTS & CERTIFICATIONS
+════════════════════════════════════════
+- LeetCode: 500+ problems solved | Rating: 2100+ (Knight badge)
+- Codeforces: 1600+ rating (Expert)
+- Google Code Jam 2024: Advanced to Round 2 (Top 3%)
+- AWS Certified Cloud Practitioner (2024)
+- Winner - Smart India Hackathon 2023 (Software Edition)
+- Published research paper on "Optimizing Distributed Query Processing" at IEEE ICSE 2024
+
+════════════════════════════════════════
+EXTRACURRICULAR
+════════════════════════════════════════
+- Technical Lead, Computer Science Society, NIT Trichy (2023-24)
+- Mentor, Competitive Programming Club - trained 50+ juniors
+- Open Source Contributor - 15+ merged PRs on React and Node.js projects
+- Organized CodeFest 2024 - annual coding competition with 1000+ participants

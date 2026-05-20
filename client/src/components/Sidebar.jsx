@@ -3,15 +3,20 @@ import { useAuth } from '../context/AuthContext';
 import {
     FiHome, FiBook, FiUsers, FiCalendar,
     FiFileText, FiBarChart2, FiBell, FiLogOut, FiSettings, FiCode, FiBriefcase,
-    FiMap, FiCpu, FiPlay, FiEdit, FiMessageSquare
+    FiMap, FiPlay, FiEdit, FiX
 } from 'react-icons/fi';
 import './Sidebar.css';
 
-const Sidebar = () => {
+const Sidebar = ({ isOpen, onClose }) => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
 
     const handleLogout = () => { logout(); navigate('/login'); };
+
+    const handleNavClick = () => {
+        // Close sidebar on mobile after navigation
+        if (window.innerWidth <= 768 && onClose) onClose();
+    };
 
     const menteeLinks = [
         { to: '/dashboard', icon: <FiHome />, label: 'Dashboard' },
@@ -21,10 +26,8 @@ const Sidebar = () => {
         { to: '/mentors', icon: <FiUsers />, label: 'Find Mentors' },
         { to: '/sessions', icon: <FiCalendar />, label: 'My Sessions' },
         { to: '/interview-game', icon: <FiPlay />, label: 'Interview Game' },
-        { to: '/ai-interview', icon: <FiCpu />, label: 'AI Interview' },
         { to: '/resume-builder', icon: <FiEdit />, label: 'Resume Builder' },
         { to: '/resume-analysis', icon: <FiFileText />, label: 'Resume Analysis' },
-        { to: '/gd-rooms', icon: <FiMessageSquare />, label: 'GD Rooms' },
         { to: '/coding-questions', icon: <FiCode />, label: 'Coding Questions' },
         { to: '/analytics', icon: <FiBarChart2 />, label: 'Analytics' },
         { to: '/notifications', icon: <FiBell />, label: 'Notifications' },
@@ -36,8 +39,6 @@ const Sidebar = () => {
         { to: '/resources', icon: <FiFileText />, label: 'Resources' },
         { to: '/sessions', icon: <FiCalendar />, label: 'Sessions' },
         { to: '/coding-questions', icon: <FiCode />, label: 'Questions' },
-        { to: '/gd-rooms', icon: <FiMessageSquare />, label: 'GD Rooms' },
-        { to: '/companies', icon: <FiBriefcase />, label: 'Companies' },
         { to: '/notifications', icon: <FiBell />, label: 'Notifications' },
     ];
 
@@ -53,15 +54,18 @@ const Sidebar = () => {
     const links = user?.role === 'admin' ? adminLinks : user?.role === 'mentor' ? mentorLinks : menteeLinks;
 
     return (
-        <aside className="sidebar">
+        <aside className={`sidebar ${isOpen ? 'sidebar-open' : ''}`}>
             <div className="sidebar-brand">
                 <div className="brand-icon">P</div>
                 <span className="brand-text">PRISM</span>
+                <button className="sidebar-close-btn" onClick={onClose}>
+                    <FiX />
+                </button>
             </div>
 
             <nav className="sidebar-nav">
                 {links.map((link) => (
-                    <NavLink key={link.to} to={link.to} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                    <NavLink key={link.to} to={link.to} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} onClick={handleNavClick}>
                         <span className="nav-icon">{link.icon}</span>
                         <span className="nav-label">{link.label}</span>
                     </NavLink>

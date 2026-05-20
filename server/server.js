@@ -10,12 +10,13 @@ const app = express();
 const server = http.createServer(app);
 
 // Socket.io setup
+const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:5173').split(',');
 const io = new Server(server, {
-    cors: { origin: ['http://localhost:5173', 'http://localhost:3000'], methods: ['GET', 'POST'] }
+    cors: { origin: allowedOrigins, methods: ['GET', 'POST'] }
 });
 
 // Middleware
-app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:3000'], credentials: true }));
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -31,21 +32,18 @@ app.use('/api/resources', require('./routes/resources'));
 app.use('/api/progress', require('./routes/progress'));
 app.use('/api/mentorship', require('./routes/mentorship'));
 app.use('/api/availability', require('./routes/availability'));
-app.use('/api/mock-interviews', require('./routes/mockInterviews'));
 app.use('/api/coding-questions', require('./routes/codingQuestions'));
-app.use('/api/code-submissions', require('./routes/codeSubmissions'));
-app.use('/api/mock-feedback', require('./routes/mockFeedback'));
-app.use('/api/gd-rooms', require('./routes/gdRooms'));
+
 app.use('/api/resume-analysis', require('./routes/resumeAnalysis'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/interview-game', require('./routes/interviewGame'));
 app.use('/api/ai-interview', require('./routes/aiInterview'));
-app.use('/api/summarize', require('./routes/summarize'));
 app.use('/api/resume-builder', require('./routes/resumeBuilder'));
 app.use('/api/learning-paths', require('./routes/learningPaths'));
 app.use('/api/code-execution', require('./routes/codeExecution'));
 app.use('/api/group-discussion', require('./routes/groupDiscussion'));
+app.use('/api/summarize', require('./routes/summarize'));
 
 // Health check
 app.get('/api/health', (req, res) => {

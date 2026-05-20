@@ -28,7 +28,7 @@ const sendSessionRequestEmail = async (mentorEmail, mentorName, menteeInfo) => {
                     <p style="color: #94a3b8;"><strong style="color: #e2e8f0;">${menteeInfo.name}</strong> has requested a mentorship session with you.</p>
                     ${menteeInfo.agenda ? `<p style="color: #94a3b8;"><strong>Agenda:</strong> ${menteeInfo.agenda}</p>` : ''}
                     ${menteeInfo.scheduledDate ? `<p style="color: #94a3b8;"><strong>Requested Date:</strong> ${new Date(menteeInfo.scheduledDate).toLocaleString()}</p>` : ''}
-                    <a href="http://localhost:5173/sessions" style="display: inline-block; margin-top: 16px; padding: 12px 24px; background: linear-gradient(135deg, #10b981, #14b8a6); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">View & Respond</a>
+                    <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/sessions" style="display: inline-block; margin-top: 16px; padding: 12px 24px; background: linear-gradient(135deg, #10b981, #14b8a6); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">View & Respond</a>
                     <p style="color: #64748b; font-size: 12px; margin-top: 24px;">— PRISM Platform</p>
                 </div>`
         });

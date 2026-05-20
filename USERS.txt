@@ -1,0 +1,104 @@
+╔══════════════════════════════════════════════════════════════════╗
+║             PRISM - Sample User Accounts                         ║
+║        All passwords: password123                                ║
+╚══════════════════════════════════════════════════════════════════╝
+
+════════════════════════════════════════
+  🔴 ADMIN (1 user)
+════════════════════════════════════════
+  Access: Full platform management (users, topics, companies)
+
+  Name              Email                    Password
+  ─────────────────────────────────────────────────────────
+  PRISM Admin       admin@prism.dev          password123
+
+
+════════════════════════════════════════
+  🟢 MENTORS (5 users)
+════════════════════════════════════════
+  Access: Dashboard, Topics, Resources, Sessions, Questions, Notifications
+
+  Name              Email                         Password       Company      Expertise
+  ──────────────────────────────────────────────────────────────────────────────────────────────
+  Rahul Sharma      rahul.mentor@prism.dev        password123    Google       DSA, Algorithms, System Design
+  Priya Patel       priya.mentor@prism.dev        password123    Microsoft    Web Dev, React, Node.js, DBMS
+  Arjun Reddy       arjun.mentor@prism.dev        password123    Amazon       CP, Algorithms, OS, Networks
+  Sneha Iyer        sneha.mentor@prism.dev        password123    Meta         ML, Python, Data Science, OOP
+  Vikram Singh      vikram.mentor@prism.dev       password123    Flipkart     System Design, Backend, Java
+
+
+════════════════════════════════════════
+  🔵 MENTEES (15 users)
+════════════════════════════════════════
+  Access: Dashboard, Topics, Resources, Learning Paths, Find Mentors,
+          My Sessions, Interview Game, Resume Builder, Resume Analysis,
+          Coding Questions, Analytics, Notifications
+
+  Name              Email                    Password       College              Target Company
+  ──────────────────────────────────────────────────────────────────────────────────────────────
+  Aditya Kumar      aditya@prism.dev         password123    NIT Trichy           Google
+  Kavya Nair        kavya@prism.dev          password123    VIT Vellore          Microsoft
+  Rohit Gupta       rohit@prism.dev          password123    BITS Pilani          Amazon
+  Ananya Mehta      ananya@prism.dev         password123    IIIT Hyderabad       Google
+  Siddharth Jain    siddharth@prism.dev      password123    DTU                  Flipkart
+  Meera Krishnan    meera@prism.dev          password123    IIT Madras           Google
+  Aryan Thakur      aryan@prism.dev          password123    NSUT                 Microsoft
+  Divya Sharma      divya@prism.dev          password123    PES University       Amazon
+  Karthik Rajan     karthik@prism.dev        password123    NIT Surathkal        Meta
+  Nisha Patel       nisha@prism.dev          password123    COEP Pune            Flipkart
+  Tanmay Desai      tanmay@prism.dev         password123    RVCE Bangalore       Amazon
+  Shruti Bose       shruti@prism.dev         password123    Jadavpur University  Google
+  Varun Malhotra    varun@prism.dev          password123    MNNIT Allahabad      Microsoft
+  Ishita Verma      ishita@prism.dev         password123    IIIT Delhi           Flipkart
+  Pranav Kulkarni   pranav@prism.dev         password123    VJTI Mumbai          Oracle
+
+
+════════════════════════════════════════
+  SAMPLE DATA INCLUDED
+════════════════════════════════════════
+
+  Category                Count   Description
+  ──────────────────────────────────────────────────────────
+  Users                   21      5 mentors + 15 mentees + 1 admin
+  Companies               15      Google, Microsoft, Amazon, Meta, etc.
+  Topics                  20      DSA, Algorithms, System Design, OS, etc.
+  Resources               50      Videos, articles, and links per topic
+  Coding Questions        25      Easy, medium, hard with test cases
+  Mentorship Sessions     25      Pending, approved, and completed
+  Mock Interviews         20      Technical, HR, and GD types
+  Mock Feedback           40+     Scores and suggestions
+  GD Rooms                8       Various discussion topics
+  Interview Games         10      6-round game histories
+  Learning Paths          8       AI-generated and manual paths
+  Resume Drafts           6       Pre-filled resume templates
+  Resume Analyses         8       ATS scores with feedback
+  Notifications           60      Welcome, resource, session alerts
+  Availability Slots      5/mentor  Weekly schedule + bookable slots
+
+
+════════════════════════════════════════
+  QUICK START LOGIN GUIDE
+════════════════════════════════════════
+
+  1. Open http://localhost:5173
+  2. Login with any of the above credentials
+  3. Recommended first logins to test each role:
+
+     MENTEE  → aditya@prism.dev / password123
+               (Has progress data, sessions, resume draft)
+
+     MENTOR  → rahul.mentor@prism.dev / password123
+               (Has sessions, availability, feedback)
+
+     ADMIN   → admin@prism.dev / password123
+               (Full admin panel with user/topic management)
+
+
+════════════════════════════════════════
+  NOTE
+════════════════════════════════════════
+  To reload sample data, run:
+    cd server
+    node seeds/seedAll.js
+
+  This will CLEAR all existing data and re-populate everything fresh.

@@ -6,8 +6,79 @@ const os = require('os');
 const { protect } = require('../middleware/auth');
 const router = express.Router();
 
-// Execute code locally using child_process
-const executeCode = (language, sourceCode, stdin = '') => {
+// Execute code via Judge0 CE (primary) with local fallback
+const JUDGE0_URL = process.env.JUDGE0_API_URL || 'http://localhost:2358';
+const LANG_MAP = { 'javascript': 63, 'python': 71, 'java': 62, 'cpp': 54, 'c': 50 };
+const MAX_CODE_LENGTH = 50000; // 50KB max code size
+const EXEC_TIMEOUT = 10000; // 10s max execution time
+
+// Security: Block dangerous code patterns
+const DANGEROUS_PATTERNS = {
+    javascript: [
+        /require\s*\(\s*['"](?:fs|child_process|net|http|https|os|cluster|dgram|dns|tls|vm|worker_threads|perf_hooks)['"]\s*\)/i,
+        /process\.env/i,
+        /process\.exit/i,
+        /eval\s*\(/i,
+        /Function\s*\(/i,
+        /import\s*\(/i,
+        /\bexecSync\b|\bspawnSync\b|\bexec\b.*require/i,
+    ],
+    python: [
+        /import\s+(?:os|subprocess|sys|shutil|socket|http|urllib|requests|ctypes)\b/i,
+        /from\s+(?:os|subprocess|sys|shutil|socket)\s+import/i,
+        /exec\s*\(/i,
+        /__import__\s*\(/i,
+        /open\s*\(.*['"]\s*(?:\/etc|\/proc|\.\.)/i,
+    ],
+    cpp: [/system\s*\(/i, /popen\s*\(/i, /exec[lv]?p?\s*\(/i],
+    c: [/system\s*\(/i, /popen\s*\(/i, /exec[lv]?p?\s*\(/i],
+    java: [/Runtime\.getRuntime\(\)\.exec/i, /ProcessBuilder/i, /System\.exit/i],
+};
+
+const validateCode = (language, sourceCode) => {
+    if (sourceCode.length > MAX_CODE_LENGTH) {
+        return 'Code exceeds maximum length of 50KB';
+    }
+    const patterns = DANGEROUS_PATTERNS[language] || [];
+    for (const pattern of patterns) {
+        if (pattern.test(sourceCode)) {
+            return 'Code contains restricted operations (file system access, network calls, or system commands are not allowed)';
+        }
+    }
+    return null;
+};
+
+const executeCode = async (language, sourceCode, stdin = '') => {
+    // Validate code first
+    const validationError = validateCode(language, sourceCode);
+    if (validationError) {
+        return { stdout: '', stderr: validationError, exitCode: 1 };
+    }
+
+    // Try Judge0 first
+    try {
+        const languageId = LANG_MAP[language];
+        if (!languageId) return { stdout: '', stderr: `Language "${language}" not supported`, exitCode: 1 };
+
+        const response = await fetch(`${JUDGE0_URL}/submissions?base64_encoded=false&wait=true`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source_code: sourceCode, language_id: languageId, stdin: stdin || '' })
+        });
+        const result = await response.json();
+        return {
+            stdout: result.stdout || '',
+            stderr: result.stderr || result.compile_output || '',
+            exitCode: (result.status && result.status.id === 3) ? 0 : 1
+        };
+    } catch (judge0Err) {
+        // Judge0 unavailable — fallback to local execution
+        return executeLocal(language, sourceCode, stdin);
+    }
+};
+
+// Local fallback using child_process (only if Judge0 is down)
+const executeLocal = (language, sourceCode, stdin = '') => {
     return new Promise((resolve) => {
         const tmpDir = os.tmpdir();
         const id = `prism_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -20,14 +91,15 @@ const executeCode = (language, sourceCode, stdin = '') => {
                     fs.writeFileSync(filePath, sourceCode);
                     cleanupFiles.push(filePath);
                     command = 'node';
-                    args = [filePath];
+                    args = ['--max-old-space-size=128', filePath];
                     break;
                 }
                 case 'python': {
                     filePath = path.join(tmpDir, `${id}.py`);
                     fs.writeFileSync(filePath, sourceCode);
                     cleanupFiles.push(filePath);
-                    command = 'python';
+                    // Fix 13: Try python3 first, then python
+                    command = process.platform === 'win32' ? 'python' : 'python3';
                     args = [filePath];
                     break;
                 }
@@ -36,12 +108,8 @@ const executeCode = (language, sourceCode, stdin = '') => {
                     const outPath = path.join(tmpDir, `${id}.exe`);
                     fs.writeFileSync(filePath, sourceCode);
                     cleanupFiles.push(filePath, outPath);
-                    // Compile then run
                     exec(`g++ "${filePath}" -o "${outPath}" 2>&1`, { timeout: 10000 }, (compErr, compOut, compStderr) => {
-                        if (compErr) {
-                            cleanup(cleanupFiles);
-                            return resolve({ stdout: '', stderr: compOut || compStderr || compErr.message, exitCode: 1 });
-                        }
+                        if (compErr) { cleanup(cleanupFiles); return resolve({ stdout: '', stderr: compOut || compStderr || compErr.message, exitCode: 1 }); }
                         const child = execFile(outPath, [], { timeout: 5000 }, (err, stdout, stderr) => {
                             cleanup(cleanupFiles);
                             resolve({ stdout: stdout || '', stderr: stderr || '', exitCode: err ? err.code || 1 : 0 });
@@ -49,7 +117,7 @@ const executeCode = (language, sourceCode, stdin = '') => {
                         if (stdin) child.stdin.write(stdin);
                         child.stdin.end();
                     });
-                    return; // async handled above
+                    return;
                 }
                 case 'c': {
                     filePath = path.join(tmpDir, `${id}.c`);
@@ -57,10 +125,7 @@ const executeCode = (language, sourceCode, stdin = '') => {
                     fs.writeFileSync(filePath, sourceCode);
                     cleanupFiles.push(filePath, outPathC);
                     exec(`gcc "${filePath}" -o "${outPathC}" 2>&1`, { timeout: 10000 }, (compErr, compOut, compStderr) => {
-                        if (compErr) {
-                            cleanup(cleanupFiles);
-                            return resolve({ stdout: '', stderr: compOut || compStderr || compErr.message, exitCode: 1 });
-                        }
+                        if (compErr) { cleanup(cleanupFiles); return resolve({ stdout: '', stderr: compOut || compStderr || compErr.message, exitCode: 1 }); }
                         const child = execFile(outPathC, [], { timeout: 5000 }, (err, stdout, stderr) => {
                             cleanup(cleanupFiles);
                             resolve({ stdout: stdout || '', stderr: stderr || '', exitCode: err ? err.code || 1 : 0 });
@@ -71,7 +136,6 @@ const executeCode = (language, sourceCode, stdin = '') => {
                     return;
                 }
                 case 'java': {
-                    // Java needs class name = Main
                     const javaCode = sourceCode.includes('class Main') ? sourceCode : sourceCode.replace(/class\s+\w+/, 'class Main');
                     const javaDir = path.join(tmpDir, id);
                     fs.mkdirSync(javaDir, { recursive: true });
@@ -79,10 +143,7 @@ const executeCode = (language, sourceCode, stdin = '') => {
                     fs.writeFileSync(filePath, javaCode);
                     cleanupFiles.push(javaDir);
                     exec(`javac "${filePath}" 2>&1`, { timeout: 15000 }, (compErr, compOut, compStderr) => {
-                        if (compErr) {
-                            cleanupDir(javaDir);
-                            return resolve({ stdout: '', stderr: compOut || compStderr || compErr.message, exitCode: 1 });
-                        }
+                        if (compErr) { cleanupDir(javaDir); return resolve({ stdout: '', stderr: compOut || compStderr || compErr.message, exitCode: 1 }); }
                         const child = exec(`java -cp "${javaDir}" Main`, { timeout: 5000 }, (err, stdout, stderr) => {
                             cleanupDir(javaDir);
                             resolve({ stdout: stdout || '', stderr: stderr || '', exitCode: err ? err.code || 1 : 0 });
@@ -93,17 +154,15 @@ const executeCode = (language, sourceCode, stdin = '') => {
                     return;
                 }
                 default:
-                    return resolve({ stdout: '', stderr: `Language "${language}" not supported for local execution`, exitCode: 1 });
+                    return resolve({ stdout: '', stderr: `Language "${language}" not supported`, exitCode: 1 });
             }
 
-            // For interpreted languages (JS, Python)
             const child = execFile(command, args, { timeout: 5000 }, (err, stdout, stderr) => {
                 cleanup(cleanupFiles);
                 resolve({ stdout: stdout || '', stderr: stderr || '', exitCode: err ? err.code || 1 : 0 });
             });
             if (stdin) child.stdin.write(stdin);
             child.stdin.end();
-
         } catch (err) {
             cleanup(cleanupFiles);
             resolve({ stdout: '', stderr: err.message, exitCode: 1 });

@@ -84,18 +84,32 @@ router.post('/chat', protect, async (req, res) => {
 router.post('/evaluate', protect, async (req, res) => {
   try {
     const { conversationContext, type = 'technical' } = req.body;
+
+    // Validate: user must have sent at least 2 messages
+    const userMessages = (conversationContext || []).filter(m => m.role === 'user');
+    if (userMessages.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'You need to answer at least 2 questions before getting an evaluation. Keep going!'
+      });
+    }
+
     const groq = getGroq();
 
-    const evalPrompt = `Based on this ${type} interview conversation, provide a detailed evaluation in JSON format:
+    // Build a strict evaluation prompt that accounts for actual conversation length
+    const evalPrompt = `Based on this ${type} interview conversation, provide a detailed evaluation in JSON format.
+The candidate answered ${userMessages.length} questions. Score STRICTLY based on the quality and depth of their actual responses — do NOT assume or hallucinate answers they didn't give.
+If answers were short, vague, or off-topic, score LOW (20-40). Only give 70+ for genuinely strong, detailed responses.
+
 {
   "overallScore": (0-100),
   "technicalSkill": (0-100),
   "communication": (0-100),
   "problemSolving": (0-100),
   "confidence": (0-100),
-  "strengths": ["list of strengths"],
-  "improvements": ["list of areas to improve"],
-  "detailedFeedback": "2-3 paragraph detailed feedback",
+  "strengths": ["list of strengths based on actual responses"],
+  "improvements": ["list of areas to improve based on actual responses"],
+  "detailedFeedback": "2-3 paragraph detailed feedback referencing specific answers",
   "recommendation": "Strong Hire / Hire / Maybe / No Hire"
 }
 Only respond with the JSON, no extra text.`;

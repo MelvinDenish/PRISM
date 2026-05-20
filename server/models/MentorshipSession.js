@@ -10,7 +10,7 @@ const mentorshipSessionSchema = new mongoose.Schema({
     meetingLink: String,
     status: {
         type: String,
-        enum: ['pending', 'approved', 'rejected', 'completed', 'cancelled'],
+        enum: ['pending', 'approved', 'in-progress', 'rejected', 'completed', 'cancelled'],
         default: 'pending'
     },
     mentorFeedback: String,

@@ -50,13 +50,15 @@ const AIInterview = () => {
     };
 
     const endInterview = async () => {
+        if (questionCount < 2) return;
         setLoading(true);
         try {
             const { data } = await evaluateAIInterview({ conversationContext: context, type });
             setEvaluation(data.evaluation);
             setPhase('results');
-        } catch {
-            setEvaluation({ overallScore: 0, detailedFeedback: 'Could not generate evaluation.', recommendation: 'N/A' });
+        } catch (err) {
+            const msg = err.response?.data?.message || 'Could not generate evaluation.';
+            setEvaluation({ overallScore: 0, detailedFeedback: msg, recommendation: 'N/A' });
             setPhase('results');
         }
         setLoading(false);
@@ -152,7 +154,10 @@ const AIInterview = () => {
                     <h3 style={{ fontSize: 16 }}>🤖 AI {type.charAt(0).toUpperCase() + type.slice(1)} Interview</h3>
                     <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Questions asked: {questionCount} • Topic: {topic}</p>
                 </div>
-                <button className="btn btn-danger" onClick={endInterview} disabled={loading}>End & Evaluate</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    {questionCount < 2 && <span style={{ fontSize: 12, color: 'var(--accent-warning)' }}>Answer {2 - questionCount} more to evaluate</span>}
+                    <button className="btn btn-danger" onClick={endInterview} disabled={loading || questionCount < 2}>End & Evaluate</button>
+                </div>
             </div>
             <div className="chat-messages">
                 {messages.map((msg, i) => (

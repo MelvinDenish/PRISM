@@ -1,8 +1,7 @@
 const express = require('express');
 const Progress = require('../models/Progress');
-const MockFeedback = require('../models/MockFeedback');
+const InterviewGame = require('../models/InterviewGame');
 const Resource = require('../models/Resource');
-const CodeSubmission = require('../models/CodeSubmission');
 const { protect } = require('../middleware/auth');
 const router = express.Router();
 
@@ -12,30 +11,42 @@ router.get('/dashboard', protect, async (req, res) => {
         const progress = await Progress.findOne({ mentee: req.user._id })
             .populate('topicProgress.topic', 'name');
 
-        const feedbacks = await MockFeedback.find({ user: req.user._id });
-        const submissions = await CodeSubmission.find({ user: req.user._id });
         const totalResources = await Resource.countDocuments();
 
-        // Calculate averages
-        const avgScores = { technical: 0, communication: 0, confidence: 0, problemSolving: 0, overall: 0 };
-        if (feedbacks.length > 0) {
-            feedbacks.forEach((f) => {
-                avgScores.technical += f.technicalScore || 0;
-                avgScores.communication += f.communicationScore || 0;
-                avgScores.confidence += f.confidenceScore || 0;
-                avgScores.problemSolving += f.problemSolvingScore || 0;
-                avgScores.overall += f.overallScore || 0;
-            });
-            Object.keys(avgScores).forEach((k) => {
-                avgScores[k] = Math.round(avgScores[k] / feedbacks.length);
-            });
-        }
+        // ── Compute real scores from InterviewGame rounds ──
+        const completedGames = await InterviewGame.find({
+            user: req.user._id,
+            status: 'completed'
+        }).sort({ completedAt: -1 }).limit(20);
 
-        // Weakness detection
+        // Aggregate scores by round type across all completed games
+        const roundScores = { aptitude: [], technical: [], coding: [], gd: [], hr: [] };
+        completedGames.forEach(game => {
+            game.rounds.forEach(r => {
+                if (r.status !== 'completed') return;
+                const pct = r.maxScore > 0 ? Math.round((r.score / r.maxScore) * 100) : 0;
+                if (r.type === 'aptitude') roundScores.aptitude.push(pct);
+                else if (r.type === 'technical1' || r.type === 'technical2') roundScores.technical.push(pct);
+                else if (r.type === 'coding') roundScores.coding.push(pct);
+                else if (r.type === 'gd') roundScores.gd.push(pct);
+                else if (r.type === 'hr') roundScores.hr.push(pct);
+            });
+        });
+
+        const avg = arr => arr.length > 0 ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
+
+        const averageScores = {
+            technical: avg([...roundScores.technical, ...roundScores.coding]),
+            communication: avg([...roundScores.gd, ...roundScores.hr]),
+            confidence: avg(roundScores.hr),
+            problemSolving: avg([...roundScores.aptitude, ...roundScores.coding]),
+        };
+
+        // Weakness detection from actual game performance
         const weakAreas = [];
         if (progress && progress.topicProgress.length > 0) {
-            const maxProgress = Math.max(...progress.topicProgress.map((t) => t.percentage));
-            progress.topicProgress.forEach((tp) => {
+            const maxProgress = Math.max(...progress.topicProgress.map(t => t.percentage));
+            progress.topicProgress.forEach(tp => {
                 if (tp.percentage < maxProgress - 20 && tp.topic) {
                     weakAreas.push({
                         topic: tp.topic.name,
@@ -46,15 +57,21 @@ router.get('/dashboard', protect, async (req, res) => {
             });
         }
 
-        // Score-based weakness detection
+        // Score-based weakness detection from real game data
         const scoreAreas = [];
-        if (avgScores.technical > 0) {
-            const maxScore = Math.max(avgScores.technical, avgScores.communication, avgScores.confidence, avgScores.problemSolving);
-            if (avgScores.technical < maxScore - 20) scoreAreas.push({ area: 'Technical', score: avgScores.technical });
-            if (avgScores.communication < maxScore - 20) scoreAreas.push({ area: 'Communication', score: avgScores.communication });
-            if (avgScores.confidence < maxScore - 20) scoreAreas.push({ area: 'Confidence', score: avgScores.confidence });
-            if (avgScores.problemSolving < maxScore - 20) scoreAreas.push({ area: 'Problem Solving', score: avgScores.problemSolving });
+        const maxScore = Math.max(averageScores.technical, averageScores.communication, averageScores.confidence, averageScores.problemSolving);
+        if (maxScore > 0) {
+            if (averageScores.technical < maxScore - 15) scoreAreas.push({ area: 'Technical', score: averageScores.technical });
+            if (averageScores.communication < maxScore - 15) scoreAreas.push({ area: 'Communication', score: averageScores.communication });
+            if (averageScores.confidence < maxScore - 15) scoreAreas.push({ area: 'Confidence', score: averageScores.confidence });
+            if (averageScores.problemSolving < maxScore - 15) scoreAreas.push({ area: 'Problem Solving', score: averageScores.problemSolving });
         }
+
+        // Best/recent game stats
+        const bestGame = completedGames.reduce((best, g) => {
+            const pct = g.maxTotalScore > 0 ? (g.totalScore / g.maxTotalScore) * 100 : 0;
+            return pct > (best?.pct || 0) ? { pct, score: g.totalScore, max: g.maxTotalScore } : best;
+        }, null);
 
         res.json({
             success: true,
@@ -64,13 +81,18 @@ router.get('/dashboard', protect, async (req, res) => {
                 overallProgress: totalResources > 0 && progress
                     ? Math.round((progress.completedResources.length / totalResources) * 100) : 0,
                 topicProgress: progress ? progress.topicProgress : [],
-                mockInterviewStats: progress ? progress.mockInterviewStats : {},
-                averageScores: avgScores,
-                totalMockInterviews: feedbacks.length,
-                totalSubmissions: submissions.length,
+                averageScores,
+                totalGamesPlayed: completedGames.length,
+                bestGameScore: bestGame ? Math.round(bestGame.pct) : 0,
                 weakAreas,
                 scoreWeaknesses: scoreAreas,
-                recentFeedbacks: feedbacks.slice(-5)
+                roundAverages: {
+                    aptitude: avg(roundScores.aptitude),
+                    technical: avg(roundScores.technical),
+                    coding: avg(roundScores.coding),
+                    gd: avg(roundScores.gd),
+                    hr: avg(roundScores.hr)
+                }
             }
         });
     } catch (error) {
