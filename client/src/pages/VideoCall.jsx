@@ -116,8 +116,10 @@ const VideoCall = () => {
                 streamRef.current = stream;
                 if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
-                // ─── 2. Socket ───
-                const socket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000');
+                // ─── 2. Socket (authenticated via JWT handshake) ───
+                const socket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000', {
+                    auth: { token: localStorage.getItem('prism_token') },
+                });
                 socketRef.current = socket;
 
                 socket.on('connect', () => {

@@ -4,6 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { protect } = require('../middleware/auth');
+const { codeExecLimiter } = require('../middleware/rateLimit');
+const { config } = require('../config/env');
 const router = express.Router();
 
 // Execute code via Judge0 CE (primary) with local fallback
@@ -72,7 +74,18 @@ const executeCode = async (language, sourceCode, stdin = '') => {
             exitCode: (result.status && result.status.id === 3) ? 0 : 1
         };
     } catch (judge0Err) {
-        // Judge0 unavailable — fallback to local execution
+        // Judge0 unavailable. The local child_process fallback is NOT sandboxed and
+        // its regex allowlist is bypassable (string obfuscation, dynamic imports) —
+        // running it on a public deployment is effectively RCE. So in production we
+        // refuse rather than fall back. Self-host Judge0 (see JUDGE0_API_URL).
+        if (config.isProduction()) {
+            return {
+                stdout: '',
+                stderr: 'Code execution service is temporarily unavailable. Please try again later.',
+                exitCode: 1,
+            };
+        }
+        // Development convenience only.
         return executeLocal(language, sourceCode, stdin);
     }
 };
@@ -179,7 +192,7 @@ const cleanupDir = (dir) => {
 };
 
 // POST /api/code-execution/submit
-router.post('/submit', protect, async (req, res) => {
+router.post('/submit', codeExecLimiter, protect, async (req, res) => {
     try {
         const { sourceCode, language, stdin } = req.body;
         if (!sourceCode || !language) {
@@ -201,7 +214,7 @@ router.post('/submit', protect, async (req, res) => {
 });
 
 // POST /api/code-execution/run-tests
-router.post('/run-tests', protect, async (req, res) => {
+router.post('/run-tests', codeExecLimiter, protect, async (req, res) => {
     try {
         const { sourceCode, language, testCases } = req.body;
         if (!sourceCode || !language || !testCases?.length) {
@@ -240,7 +253,7 @@ router.post('/run-tests', protect, async (req, res) => {
 });
 
 // POST /api/code-execution/run-custom
-router.post('/run-custom', protect, async (req, res) => {
+router.post('/run-custom', codeExecLimiter, protect, async (req, res) => {
     try {
         const { sourceCode, language, stdin } = req.body;
         if (!sourceCode || !language) {

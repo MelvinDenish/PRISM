@@ -15,7 +15,7 @@ const Login = () => {
         try {
             await login(email, password);
             navigate('/dashboard');
-        } catch (err) { /* error is set in context */ }
+        } catch { /* error is set in context */ }
         setLoading(false);
     };
 
@@ -38,6 +38,9 @@ const Login = () => {
                         {loading ? 'Signing in...' : 'Sign In'}
                     </button>
                 </form>
+                <div className="auth-link" style={{ marginTop: 12 }}>
+                    <Link to="/forgot-password">Forgot password?</Link>
+                </div>
                 <div className="auth-link">
                     Don't have an account? <Link to="/register">Create one</Link>
                 </div>

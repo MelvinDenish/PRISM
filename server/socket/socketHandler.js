@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const socketAuth = require('./socketAuth');
 
 const socketHandler = (io) => {
     const rooms = new Map();
@@ -6,20 +7,29 @@ const socketHandler = (io) => {
     const sessionPeers = new Map(); // sessionId => [{ peerId, userId, userName, socketId }]
     const userSockets = new Map(); // socketId => userId (for online tracking)
 
+    // Reject unauthenticated connections; attaches socket.user (real identity).
+    io.use(socketAuth);
+
     io.on('connection', (socket) => {
-        console.log(`🔌 User connected: ${socket.id}`);
+        // socket.user is guaranteed by socketAuth — use it as the source of truth
+        // for identity. Client-sent userId/userName are ignored for identity.
+        const authUserId = socket.user._id.toString();
+        const authUserName = socket.user.name;
+        console.log(`🔌 User connected: ${socket.id} (${authUserName})`);
 
         // ==================== ONLINE TRACKING ====================
-        socket.on('register-user', async ({ userId, role }) => {
-            if (!userId) return;
-            userSockets.set(socket.id, userId);
-            try { await User.findByIdAndUpdate(userId, { isOnline: true }); } catch {}
+        socket.on('register-user', async () => {
+            userSockets.set(socket.id, authUserId);
+            try { await User.findByIdAndUpdate(authUserId, { isOnline: true }); } catch {}
         });
 
         // ==================== INTERVIEW ROOMS ====================
 
         // Join an interview room
-        socket.on('join-room', ({ roomId, userId, userName }) => {
+        socket.on('join-room', ({ roomId }) => {
+            if (!roomId) return;
+            const userId = authUserId;
+            const userName = authUserName;
             socket.join(roomId);
 
             if (!rooms.has(roomId)) {
@@ -72,14 +82,16 @@ const socketHandler = (io) => {
         // Session peer ID exchange (for 1:1 video in mentorship sessions)
         // Flow: New joiner sends peer-id → server tells new joiner to CALL existing peers
         //       → server tells existing peers to WAIT (incoming-peer, don't call back)
-        socket.on('session-peer-id', ({ sessionId, peerId, userName }) => {
+        socket.on('session-peer-id', ({ sessionId, peerId }) => {
+            if (!sessionId || !peerId) return;
+            const userName = authUserName || 'Participant';
             if (!sessionPeers.has(sessionId)) {
                 sessionPeers.set(sessionId, []);
             }
             const peers = sessionPeers.get(sessionId);
             // Remove old entry for this socket (e.g. reconnect)
             const filtered = peers.filter(p => p.socketId !== socket.id);
-            filtered.push({ peerId, userName: userName || 'Participant', socketId: socket.id });
+            filtered.push({ peerId, userName, socketId: socket.id });
             sessionPeers.set(sessionId, filtered);
 
             const existingPeers = filtered.filter(p => p.socketId !== socket.id);
@@ -91,7 +103,7 @@ const socketHandler = (io) => {
 
             // Tell EXISTING peers about the new joiner → they should NOT call,
             // just update the name label and wait for the incoming call
-            socket.to(sessionId).emit('incoming-peer', { peerId, name: userName || 'Participant' });
+            socket.to(sessionId).emit('incoming-peer', { peerId, name: userName });
 
             console.log(`📹 Session ${sessionId}: ${userName} joined (peer: ${peerId}). Total: ${filtered.length}`);
         });
@@ -114,13 +126,17 @@ const socketHandler = (io) => {
         // ==================== GD ROOM EVENTS ====================
 
         // Join GD room
-        socket.on('join-gd', ({ roomId, userId, userName }) => {
+        socket.on('join-gd', ({ roomId }) => {
+            if (!roomId) return;
             socket.join(`gd-${roomId}`);
-            socket.to(`gd-${roomId}`).emit('gd-user-joined', { userId, userName, socketId: socket.id });
+            socket.to(`gd-${roomId}`).emit('gd-user-joined', { userId: authUserId, userName: authUserName, socketId: socket.id });
         });
 
         // GD Video: Join with PeerJS peer ID
-        socket.on('gd-video-join', ({ roomId, peerId, name, userId }) => {
+        socket.on('gd-video-join', ({ roomId, peerId }) => {
+            if (!roomId || !peerId) return;
+            const userId = authUserId;
+            const name = authUserName;
             const gdRoom = `gd-${roomId}`;
 
             if (!gdVideoRooms.has(roomId)) {
@@ -192,9 +208,10 @@ const socketHandler = (io) => {
 
         // ==================== SESSION EVENTS ====================
 
-        socket.on('join-session', ({ sessionId, userId, userName }) => {
+        socket.on('join-session', ({ sessionId }) => {
+            if (!sessionId) return;
             socket.join(sessionId);
-            console.log(`📹 ${userName || 'User'} joined session room: ${sessionId}`);
+            console.log(`📹 ${authUserName || 'User'} joined session room: ${sessionId}`);
         });
 
         socket.on('end-session', ({ sessionId }) => {

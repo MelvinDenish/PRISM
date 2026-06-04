@@ -16,10 +16,13 @@ router.get('/', protect, async (req, res) => {
     }
 });
 
-// PATCH /api/notifications/:id/read
+// PATCH /api/notifications/:id/read — scoped to the owner (no cross-user writes)
 router.patch('/:id/read', protect, async (req, res) => {
     try {
-        await Notification.findByIdAndUpdate(req.params.id, { isRead: true });
+        const result = await Notification.findOneAndUpdate(
+            { _id: req.params.id, user: req.user._id }, { isRead: true }, { new: true }
+        );
+        if (!result) return res.status(404).json({ success: false, message: 'Notification not found' });
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

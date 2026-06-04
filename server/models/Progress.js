@@ -15,4 +15,7 @@ const progressSchema = new mongoose.Schema({
     updatedAt: { type: Date, default: Date.now }
 });
 
+// Index (plan §3): progress is looked up per mentee.
+progressSchema.index({ mentee: 1 });
+
 module.exports = mongoose.model('Progress', progressSchema);

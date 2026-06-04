@@ -1,8 +1,12 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
 const InterviewGame = require('../models/InterviewGame');
+const { gradeMcqRound, sanitizeGame } = require('../utils/interviewGameScoring');
 const Groq = require('groq-sdk');
 const router = express.Router();
+
+// Round types graded server-side from the stored answer key (MCQ rounds).
+const MCQ_ROUNDS = ['aptitude', 'technical1', 'technical2'];
 
 const getGroq = () => {
   if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY not configured');
@@ -228,6 +232,25 @@ router.get('/questions/:round', protect, async (req, res) => {
       default:
         return res.status(400).json({ success: false, message: 'Invalid round' });
     }
+
+    // For MCQ rounds, persist the served questions + correct answers on the game
+    // so submit-round can grade server-side, then STRIP answers from the response.
+    if (MCQ_ROUNDS.includes(round)) {
+      const { gameId } = req.query;
+      if (gameId) {
+        const game = await InterviewGame.findById(gameId);
+        if (game && game.user.equals(req.user._id)) {
+          const gameRound = game.rounds.find(r => r.type === round);
+          if (gameRound) {
+            gameRound.servedQuestions = questions.map(q => ({ questionId: q.id, ans: q.ans }));
+            await game.save();
+          }
+        }
+      }
+      // Never leak the answer key (or explanations) to the client.
+      questions = questions.map(({ ans, explanation, ...rest }) => rest);
+    }
+
     res.json({ success: true, questions });
   } catch (err) {
     console.error('Question fetch error:', err.message);
@@ -251,16 +274,21 @@ router.post('/start', protect, async (req, res) => {
         { type: 'hr', maxScore: 100 }
       ]
     });
-    res.status(201).json({ success: true, game });
+    res.status(201).json({ success: true, game: sanitizeGame(game) });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
-// SUBMIT a round — use Groq to evaluate MCQ answers
+// SUBMIT a round
 router.post('/submit-round', protect, async (req, res) => {
   try {
     const { gameId, roundIndex, answers } = req.body;
     const game = await InterviewGame.findById(gameId);
     if (!game) return res.status(404).json({ success: false, message: 'Game not found' });
+
+    // Ownership: a user may only submit rounds to their own game.
+    if (!game.user.equals(req.user._id)) {
+      return res.status(403).json({ success: false, message: 'Not authorized for this game' });
+    }
 
     const round = game.rounds[roundIndex];
     if (!round) return res.status(400).json({ success: false, message: 'Invalid round' });
@@ -268,28 +296,25 @@ router.post('/submit-round', protect, async (req, res) => {
     let score = 0;
     const roundType = round.type;
 
-    if (['aptitude', 'technical1', 'technical2'].includes(roundType)) {
-      // For Groq-generated MCQs, we sent the correct answer with the question
-      // Client-side matching: answers contain { questionId, question, selectedAnswer }
-      // The correct answer was embedded in the question data
-      // Score directly from aiScore sent by client
-      score = req.body.aiScore || 0;
-
-      // Or count correct from answers if provided with isCorrect
-      if (!req.body.aiScore && answers?.length) {
-        const correct = answers.filter(a => a.isCorrect).length;
-        score = Math.round((correct / answers.length) * 100);
-      }
-    } else if (roundType === 'coding') {
-      score = req.body.aiScore || answers.reduce((sum, a) => sum + (a.passed ? 50 : 0), 0);
-    } else if (roundType === 'gd' || roundType === 'hr') {
-      score = req.body.aiScore || 70;
+    if (['aptitude', 'technical1'].includes(roundType)) {
+      // SERVER-AUTHORITATIVE: grade against the stored answer key from /questions.
+      // The client-supplied aiScore / isCorrect flags are ignored entirely.
+      const result = gradeMcqRound(round.servedQuestions, answers);
+      score = result.score;
+      round.answers = result.gradedAnswers;
+    } else {
+      // Rounds still scored from a client/AI-supplied value (coding tests, live AI
+      // interview, GD, HR). These remain client-trusted until the code-exec sandbox
+      // and server-persisted transcripts land — clamp defensively to 0..100.
+      const claimed = Number(req.body.aiScore);
+      score = Number.isFinite(claimed) ? claimed : 0;
+      if (Array.isArray(answers)) round.answers = answers;
     }
 
-    round.score = Math.min(score, 100);
+    round.score = Math.max(0, Math.min(score, 100));
     round.status = 'completed';
     round.completedAt = new Date();
-    round.feedback = req.body.feedback || '';
+    round.feedback = typeof req.body.feedback === 'string' ? req.body.feedback : '';
 
     game.currentRound = roundIndex + 1;
     game.totalScore = game.rounds.reduce((sum, r) => sum + r.score, 0);
@@ -299,7 +324,7 @@ router.post('/submit-round', protect, async (req, res) => {
       game.completedAt = new Date();
     }
     await game.save();
-    res.json({ success: true, game, roundScore: round.score });
+    res.json({ success: true, game: sanitizeGame(game), roundScore: round.score });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
@@ -307,7 +332,7 @@ router.post('/submit-round', protect, async (req, res) => {
 router.get('/history', protect, async (req, res) => {
   try {
     const games = await InterviewGame.find({ user: req.user._id }).sort({ startedAt: -1 }).limit(20);
-    res.json({ success: true, games });
+    res.json({ success: true, games: games.map(sanitizeGame) });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
@@ -316,7 +341,11 @@ router.get('/:id', protect, async (req, res) => {
   try {
     const game = await InterviewGame.findById(req.params.id);
     if (!game) return res.status(404).json({ success: false, message: 'Game not found' });
-    res.json({ success: true, game });
+    // Ownership: only the owner may view a game (answer keys live on it).
+    if (!game.user.equals(req.user._id)) {
+      return res.status(403).json({ success: false, message: 'Not authorized for this game' });
+    }
+    res.json({ success: true, game: sanitizeGame(game) });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 

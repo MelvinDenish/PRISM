@@ -155,7 +155,7 @@ const InterviewGame = () => {
         }
 
         try {
-            const { data } = await getGameQuestions(round.type);
+            const { data } = await getGameQuestions(round.type, game._id);
             setQuestions(data.questions || []);
             setCurrentQ(0);
             setAnswers([]);

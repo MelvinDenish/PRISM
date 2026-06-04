@@ -1,0 +1,98 @@
+/**
+ * Centralized environment configuration & boot-time validation.
+ *
+ * Phase 0 foundation (see plan §4): the server must refuse to start if a
+ * REQUIRED variable is missing, and must clearly warn when an OPTIONAL,
+ * feature-gating variable is absent (the related feature is then disabled).
+ *
+ * Dependency-free on purpose — boot safety should not wait on the team's
+ * choice of a schema library (zod/envalid). New code should import `config`
+ * from here instead of reading `process.env` directly.
+ */
+
+require('dotenv').config();
+
+// --- Schema ---------------------------------------------------------------
+// required: server exits if unset.
+// default:  used when unset (never fatal).
+// feature:  optional; when unset the named capability is disabled (warn only).
+const SCHEMA = {
+  MONGODB_URI: { required: true, secret: true },
+  JWT_SECRET: { required: true, secret: true, minLength: 16 },
+
+  JWT_EXPIRE: { default: '7d' },
+  PORT: { default: '5000' },
+  CLIENT_URL: { default: 'http://localhost:5173' },
+  NODE_ENV: { default: 'development' },
+  JUDGE0_API_URL: { default: 'http://localhost:2358' },
+
+  GROQ_API_KEY: { feature: 'AI features (interview, game, GD, resume, summarize, learning paths)', secret: true },
+  GEMINI_API_KEY: { feature: 'Resume ATS analysis (falls back to keyword matching)', secret: true },
+  EMAIL_USER: { feature: 'Email notifications (Gmail SMTP)', secret: true },
+  EMAIL_PASS: { feature: 'Email notifications (Gmail SMTP)', secret: true },
+};
+
+/**
+ * Validate process.env against SCHEMA.
+ * @returns {{ errors: string[], warnings: string[] }}
+ */
+function inspectEnv() {
+  const errors = [];
+  const warnings = [];
+
+  for (const [key, rule] of Object.entries(SCHEMA)) {
+    const raw = process.env[key];
+    const present = raw !== undefined && raw !== '';
+
+    if (!present) {
+      if (rule.required) {
+        errors.push(`Missing required env var: ${key}`);
+      } else if (rule.feature) {
+        warnings.push(`${key} not set — ${rule.feature} is DISABLED.`);
+      } else if (rule.default !== undefined) {
+        process.env[key] = rule.default; // apply default in place
+      }
+      continue;
+    }
+
+    if (rule.minLength && raw.length < rule.minLength) {
+      errors.push(`${key} is too short (min ${rule.minLength} chars) — use a strong secret.`);
+    }
+  }
+
+  return { errors, warnings };
+}
+
+/**
+ * Validate env and exit(1) on any error. Call once, early in server boot.
+ */
+function validateEnv() {
+  const { errors, warnings } = inspectEnv();
+
+  warnings.forEach((w) => console.warn(`⚠️  ${w}`));
+
+  if (errors.length) {
+    console.error('\n❌ Environment validation failed:');
+    errors.forEach((e) => console.error(`   • ${e}`));
+    console.error('\nSet the missing variables (see server/.env.example) and restart.\n');
+    process.exit(1);
+  }
+}
+
+// Build a typed, frozen config object for the rest of the app to consume.
+const config = Object.freeze({
+  mongoUri: () => process.env.MONGODB_URI,
+  jwtSecret: () => process.env.JWT_SECRET,
+  jwtExpire: () => process.env.JWT_EXPIRE || '7d',
+  port: () => parseInt(process.env.PORT, 10) || 5000,
+  nodeEnv: () => process.env.NODE_ENV || 'development',
+  isProduction: () => (process.env.NODE_ENV || 'development') === 'production',
+  clientOrigins: () => (process.env.CLIENT_URL || 'http://localhost:5173').split(',').map((s) => s.trim()).filter(Boolean),
+  judge0Url: () => process.env.JUDGE0_API_URL || 'http://localhost:2358',
+
+  hasGroq: () => Boolean(process.env.GROQ_API_KEY),
+  hasGemini: () => Boolean(process.env.GEMINI_API_KEY),
+  hasEmail: () => Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS),
+});
+
+module.exports = { validateEnv, inspectEnv, config, SCHEMA };

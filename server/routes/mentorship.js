@@ -144,6 +144,13 @@ router.patch('/:id/rate', protect, async (req, res) => {
         const session = await MentorshipSession.findById(req.params.id);
         if (!session) return res.status(404).json({ success: false, message: 'Session not found' });
 
+        // Authorization: only a participant of THIS session may rate it.
+        const isMentor = session.mentor.equals(req.user._id);
+        const isMentee = session.mentee.equals(req.user._id);
+        if (!isMentor && !isMentee) {
+            return res.status(403).json({ success: false, message: 'Not authorized for this session' });
+        }
+
         // Only completed sessions can be rated
         if (session.status !== 'completed') {
             return res.status(400).json({ success: false, message: 'Can only rate completed sessions' });
@@ -155,7 +162,7 @@ router.patch('/:id/rate', protect, async (req, res) => {
         }
 
         session.ratingGiven = rating;
-        if (req.user.role === 'mentee') {
+        if (isMentee) {
             session.menteeFeedback = feedback;
             // Update mentor's average rating
             const mentor = await User.findById(session.mentor);

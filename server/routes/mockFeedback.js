@@ -1,11 +1,11 @@
 const express = require('express');
 const MockFeedback = require('../models/MockFeedback');
 const Progress = require('../models/Progress');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 const router = express.Router();
 
-// POST /api/mock-feedback
-router.post('/', protect, async (req, res) => {
+// POST /api/mock-feedback — only mentors/admins give feedback
+router.post('/', protect, authorize('mentor', 'admin'), async (req, res) => {
     try {
         const feedback = await MockFeedback.create(req.body);
 
@@ -47,9 +47,12 @@ router.get('/interview/:interviewId', protect, async (req, res) => {
     }
 });
 
-// GET /api/mock-feedback/user/:userId
+// GET /api/mock-feedback/user/:userId — a user may only read their own feedback
 router.get('/user/:userId', protect, async (req, res) => {
     try {
+        if (req.user.role !== 'admin' && req.params.userId !== String(req.user._id)) {
+            return res.status(403).json({ success: false, message: 'Not authorized' });
+        }
         const feedbacks = await MockFeedback.find({ user: req.params.userId })
             .populate('mockInterview', 'type companyFocus')
             .sort({ createdAt: -1 });

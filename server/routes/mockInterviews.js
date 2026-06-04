@@ -1,7 +1,7 @@
 const express = require('express');
 const MockInterview = require('../models/MockInterview');
 const Notification = require('../models/Notification');
-const { protect, authorize } = require('../middleware/auth');
+const { protect, authorize, isOwner } = require('../middleware/auth');
 const router = express.Router();
 
 // GET /api/mock-interviews
@@ -54,9 +54,14 @@ router.patch('/:id/join', protect, async (req, res) => {
 // PATCH /api/mock-interviews/:id/status
 router.patch('/:id/status', protect, async (req, res) => {
     try {
-        const interview = await MockInterview.findByIdAndUpdate(
-            req.params.id, { status: req.body.status }, { new: true }
-        );
+        const interview = await MockInterview.findById(req.params.id);
+        if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
+        // Only the hosting mentor (or an admin) may change an interview's status.
+        if (!isOwner(interview, req, 'mentor')) {
+            return res.status(403).json({ success: false, message: 'Not authorized' });
+        }
+        interview.status = req.body.status;
+        await interview.save();
         res.json({ success: true, interview });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

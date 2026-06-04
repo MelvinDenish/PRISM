@@ -13,4 +13,9 @@ const resourceSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
+// Indexes (plan §3): resources are filtered by topic/level/type and sorted newest-first.
+resourceSchema.index({ topic: 1, level: 1 });
+resourceSchema.index({ uploadedBy: 1 });
+resourceSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model('Resource', resourceSchema);

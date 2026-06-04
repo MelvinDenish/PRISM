@@ -82,9 +82,9 @@ const TechnicalInterview = () => {
         };
         fetchData();
 
-        // Socket connection
-        socketRef.current = io(SOCKET_URL);
-        socketRef.current.emit('join-room', { roomId: id, userId: user._id, userName: user.name });
+        // Socket connection (authenticated via JWT handshake)
+        socketRef.current = io(SOCKET_URL, { auth: { token: localStorage.getItem('prism_token') } });
+        socketRef.current.emit('join-room', { roomId: id });
 
         socketRef.current.on('code-update', ({ code: newCode }) => {
             isRemote.current = true;

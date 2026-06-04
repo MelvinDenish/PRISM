@@ -19,4 +19,9 @@ const mentorshipSessionSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
+// Indexes (plan §3): the GET sessions query filters by mentor/mentee + status, sorts by date.
+mentorshipSessionSchema.index({ mentor: 1, status: 1 });
+mentorshipSessionSchema.index({ mentee: 1, status: 1 });
+mentorshipSessionSchema.index({ scheduledDate: -1 });
+
 module.exports = mongoose.model('MentorshipSession', mentorshipSessionSchema);

@@ -1,6 +1,6 @@
 const express = require('express');
 const Resource = require('../models/Resource');
-const { protect, authorize } = require('../middleware/auth');
+const { protect, authorize, isOwner } = require('../middleware/auth');
 const router = express.Router();
 
 // GET /api/resources
@@ -48,20 +48,32 @@ router.post('/', protect, authorize('admin', 'mentor'), async (req, res) => {
     }
 });
 
-// PUT /api/resources/:id
+// PUT /api/resources/:id — only the uploader (or an admin) may edit
 router.put('/:id', protect, authorize('admin', 'mentor'), async (req, res) => {
     try {
-        const resource = await Resource.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        const existing = await Resource.findById(req.params.id);
+        if (!existing) return res.status(404).json({ success: false, message: 'Resource not found' });
+        if (!isOwner(existing, req, 'uploadedBy')) {
+            return res.status(403).json({ success: false, message: 'Not authorized' });
+        }
+        // Don't allow reassigning the uploader.
+        const { uploadedBy, ...updates } = req.body;
+        const resource = await Resource.findByIdAndUpdate(req.params.id, updates, { new: true });
         res.json({ success: true, resource });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
-// DELETE /api/resources/:id
+// DELETE /api/resources/:id — only the uploader (or an admin) may delete
 router.delete('/:id', protect, authorize('admin', 'mentor'), async (req, res) => {
     try {
-        await Resource.findByIdAndDelete(req.params.id);
+        const existing = await Resource.findById(req.params.id);
+        if (!existing) return res.status(404).json({ success: false, message: 'Resource not found' });
+        if (!isOwner(existing, req, 'uploadedBy')) {
+            return res.status(403).json({ success: false, message: 'Not authorized' });
+        }
+        await existing.deleteOne();
         res.json({ success: true, message: 'Resource deleted' });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

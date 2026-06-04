@@ -29,6 +29,8 @@ api.interceptors.response.use(
 export const registerUser = (data) => api.post('/auth/register', data);
 export const loginUser = (data) => api.post('/auth/login', data);
 export const getMe = () => api.get('/auth/me');
+export const forgotPassword = (email) => api.post('/auth/forgot-password', { email });
+export const resetPassword = (token, password) => api.post('/auth/reset-password', { token, password });
 
 // Users
 export const getProfile = () => api.get('/users/profile');
@@ -101,7 +103,7 @@ export const markAllNotificationsRead = () => api.patch('/notifications/read-all
 
 // Interview Game
 export const startInterviewGame = (data) => api.post('/interview-game/start', data);
-export const getGameQuestions = (round) => api.get(`/interview-game/questions/${round}`);
+export const getGameQuestions = (round, gameId) => api.get(`/interview-game/questions/${round}`, { params: { gameId } });
 export const submitGameRound = (data) => api.post('/interview-game/submit-round', data);
 export const getGameHistory = () => api.get('/interview-game/history');
 export const getGame = (id) => api.get(`/interview-game/${id}`);

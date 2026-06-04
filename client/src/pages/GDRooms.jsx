@@ -76,9 +76,9 @@ const GDRooms = () => {
             setActiveRoom(joined);
             setGdParticipants(joined.participants || []);
 
-            // Connect socket
-            socketRef.current = io(SOCKET_URL);
-            socketRef.current.emit('join-gd', { roomId: room._id, userId: user._id, userName: user.name });
+            // Connect socket (authenticated via JWT handshake)
+            socketRef.current = io(SOCKET_URL, { auth: { token: localStorage.getItem('prism_token') } });
+            socketRef.current.emit('join-gd', { roomId: room._id });
 
             socketRef.current.on('receive-message', (msg) => {
                 setMessages((prev) => [...prev, msg]);

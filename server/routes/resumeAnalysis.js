@@ -1,6 +1,6 @@
 const express = require('express');
 const ResumeAnalysis = require('../models/ResumeAnalysis');
-const { protect } = require('../middleware/auth');
+const { protect, isOwner } = require('../middleware/auth');
 const rateLimit = require('express-rate-limit');
 const router = express.Router();
 
@@ -17,6 +17,12 @@ router.post('/', protect, analysisLimiter, async (req, res) => {
 
         if (!resumeText || !jobDescription) {
             return res.status(400).json({ success: false, message: 'Resume text and job description are required' });
+        }
+
+        // Cap user input before it reaches the AI prompt (cost/abuse + prompt-injection surface).
+        const MAX_INPUT = 20000; // ~20KB each is plenty for a resume / JD
+        if (resumeText.length > MAX_INPUT || jobDescription.length > MAX_INPUT) {
+            return res.status(400).json({ success: false, message: `Resume and job description must each be under ${MAX_INPUT} characters` });
         }
 
         let matchScore = 0;
@@ -116,6 +122,8 @@ router.get('/:id', protect, async (req, res) => {
     try {
         const analysis = await ResumeAnalysis.findById(req.params.id);
         if (!analysis) return res.status(404).json({ success: false, message: 'Analysis not found' });
+        // Ownership: prevent IDOR — only the owner (or an admin) may view an analysis.
+        if (!isOwner(analysis, req)) return res.status(403).json({ success: false, message: 'Not authorized' });
         res.json({ success: true, analysis });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });

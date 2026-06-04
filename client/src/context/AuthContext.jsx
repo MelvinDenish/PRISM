@@ -16,9 +16,12 @@ export const AuthProvider = ({ children }) => {
     const registerSocket = (userData) => {
         if (!userData) return;
         if (!socketRef.current) {
-            socketRef.current = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000');
+            socketRef.current = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000', {
+                auth: { token: localStorage.getItem('prism_token') },
+            });
         }
-        socketRef.current.emit('register-user', { userId: userData._id, role: userData.role });
+        // Identity is derived server-side from the JWT; no need to send userId.
+        socketRef.current.emit('register-user');
     };
 
     useEffect(() => {
