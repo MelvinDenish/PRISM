@@ -16,31 +16,34 @@ router.post('/', protect, authorize('mentee'), async (req, res) => {
             return res.status(400).json({ success: false, message: 'Mentor, scheduled date, and agenda are required' });
         }
 
-        // Reject past dates
+        // Reject past dates / invalid dates
         const schedDate = new Date(scheduledDate);
-        if (schedDate <= new Date()) {
+        if (Number.isNaN(schedDate.getTime()) || schedDate <= new Date()) {
             return res.status(400).json({ success: false, message: 'Cannot book a session in the past' });
         }
 
-        // Prevent double-booking — only block if same mentor, same time, still active
-        const sessionDuration = duration || 60;
-        const sessionEnd = new Date(schedDate.getTime() + sessionDuration * 60000);
-        const conflict = await MentorshipSession.findOne({
-            mentor,
-            status: { $in: ['pending', 'approved', 'in-progress'] },
-            $and: [
-                { scheduledDate: { $lt: sessionEnd } },
-                { scheduledDate: { $gte: new Date(schedDate.getTime() - sessionDuration * 60000) } },
-                { scheduledDate: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }
-            ]
-        });
-        if (conflict) {
-            return res.status(409).json({ success: false, message: 'Mentor has a conflicting session at that time. Please choose another slot.' });
-        }
-
-        // Prevent mentee self-booking
+        // Prevent mentee self-booking (check before any DB work)
         if (mentor === req.user._id.toString()) {
             return res.status(400).json({ success: false, message: 'Cannot book a session with yourself' });
+        }
+
+        // Prevent double-booking via true interval overlap. Pull the mentor's still-active
+        // future sessions, then reject if [start,end) overlaps any existing [start,end).
+        const sessionDuration = duration || 60;
+        const sessionEnd = new Date(schedDate.getTime() + sessionDuration * 60000);
+        const activeSessions = await MentorshipSession.find({
+            mentor,
+            status: { $in: ['pending', 'approved', 'in-progress'] },
+            scheduledDate: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+        }).select('scheduledDate duration');
+
+        const overlaps = activeSessions.some((s) => {
+            const existStart = new Date(s.scheduledDate).getTime();
+            const existEnd = existStart + (s.duration || 60) * 60000;
+            return existStart < sessionEnd.getTime() && existEnd > schedDate.getTime();
+        });
+        if (overlaps) {
+            return res.status(409).json({ success: false, message: 'Mentor has a conflicting session at that time. Please choose another slot.' });
         }
 
         const session = await MentorshipSession.create({
@@ -63,7 +66,7 @@ router.post('/', protect, authorize('mentee'), async (req, res) => {
 
         res.status(201).json({ success: true, session });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -84,7 +87,7 @@ router.get('/', protect, async (req, res) => {
 
         res.json({ success: true, sessions });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -127,7 +130,7 @@ router.patch('/:id/status', protect, async (req, res) => {
 
         res.json({ success: true, session });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -156,15 +159,16 @@ router.patch('/:id/rate', protect, async (req, res) => {
             return res.status(400).json({ success: false, message: 'Can only rate completed sessions' });
         }
 
-        // Prevent double-rating
-        if (session.ratingGiven) {
-            return res.status(400).json({ success: false, message: 'Session has already been rated' });
-        }
-
-        session.ratingGiven = rating;
+        // Each party may rate once — tracked per role so the mentee's rating
+        // doesn't block the mentor's feedback (and vice-versa).
         if (isMentee) {
+            if (session.menteeRated) {
+                return res.status(400).json({ success: false, message: 'You have already rated this session' });
+            }
+            session.menteeRated = true;
+            session.ratingGiven = rating;
             session.menteeFeedback = feedback;
-            // Update mentor's average rating
+            // Update mentor's average rating from the mentee's score.
             const mentor = await User.findById(session.mentor);
             if (mentor) {
                 const newTotal = mentor.totalReviews + 1;
@@ -173,13 +177,17 @@ router.patch('/:id/rate', protect, async (req, res) => {
                 await mentor.save();
             }
         } else {
+            if (session.mentorRated) {
+                return res.status(400).json({ success: false, message: 'You have already rated this session' });
+            }
+            session.mentorRated = true;
             session.mentorFeedback = feedback;
         }
         await session.save();
 
         res.json({ success: true, session });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 

@@ -16,26 +16,31 @@ router.get('/', protect, async (req, res) => {
         }
         res.json({ success: true, progress });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
 // PATCH /api/progress/complete/:resourceId - Mark a resource as complete
 router.patch('/complete/:resourceId', protect, async (req, res) => {
     try {
+        // Only allow completing a resource that actually exists.
+        const resource = await Resource.findById(req.params.resourceId);
+        if (!resource) {
+            return res.status(404).json({ success: false, message: 'Resource not found' });
+        }
+
         let progress = await Progress.findOne({ mentee: req.user._id });
         if (!progress) {
             progress = await Progress.create({ mentee: req.user._id });
         }
 
         // Avoid duplicates
-        if (!progress.completedResources.includes(req.params.resourceId)) {
+        if (!progress.completedResources.some(id => id.toString() === req.params.resourceId)) {
             progress.completedResources.push(req.params.resourceId);
         }
 
         // Recalculate topic progress
-        const resource = await Resource.findById(req.params.resourceId);
-        if (resource && resource.topic) {
+        if (resource.topic) {
             const topicId = resource.topic.toString();
             const totalForTopic = await Resource.countDocuments({ topic: resource.topic });
 
@@ -62,7 +67,7 @@ router.patch('/complete/:resourceId', protect, async (req, res) => {
 
         res.json({ success: true, progress });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -99,7 +104,7 @@ router.patch('/uncomplete/:resourceId', protect, async (req, res) => {
 
         res.json({ success: true, progress });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -126,7 +131,7 @@ router.get('/stats', protect, async (req, res) => {
             }
         });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 

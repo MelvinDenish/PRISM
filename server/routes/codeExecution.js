@@ -209,7 +209,7 @@ router.post('/submit', codeExecLimiter, protect, async (req, res) => {
             }
         });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
     }
 });
 
@@ -248,7 +248,7 @@ router.post('/run-tests', codeExecLimiter, protect, async (req, res) => {
             score: Math.round((passedCount / testCases.length) * 100)
         });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
     }
 });
 
@@ -267,7 +267,7 @@ router.post('/run-custom', codeExecLimiter, protect, async (req, res) => {
             exitCode: result.exitCode
         });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
     }
 });
 
@@ -285,4 +285,7 @@ router.get('/languages', protect, async (req, res) => {
     });
 });
 
+// Expose the sandboxed runner so the Interview Game can grade coding rounds
+// server-side against hidden test cases (router stays the default export).
+router.executeCode = executeCode;
 module.exports = router;

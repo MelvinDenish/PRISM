@@ -1,0 +1,65 @@
+/* AuroraBackground — quiet warm glow (gold + faint orange). transform/opacity only. */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -1; /* sit behind content WITHOUT forcing main-content to a z-index
+                  (which would trap fixed modals beneath the sidebar) */
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+}
+
+.aurora__blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.4;
+  will-change: transform;
+}
+
+/* gold — primary */
+.aurora__blob--teal {
+  width: 44vw; height: 44vw;
+  top: -14vw; left: -8vw;
+  background: radial-gradient(circle at 30% 30%, rgba(201, 162, 75, 0.5), transparent 66%);
+  animation: auroraDriftA 30s ease-in-out infinite;
+}
+/* orange — faint accent */
+.aurora__blob--amber {
+  width: 38vw; height: 38vw;
+  bottom: -16vw; right: -8vw;
+  background: radial-gradient(circle at 60% 40%, rgba(226, 104, 42, 0.32), transparent 66%);
+  animation: auroraDriftB 36s ease-in-out infinite;
+}
+/* dropped third blob — keep it minimal */
+.aurora__blob--sky { display: none; }
+.aurora__grain { display: none; }
+
+/* App pages: barely-there wash so dense content stays readable */
+.aurora--app .aurora__blob { opacity: 0.14; filter: blur(100px); }
+
+/* Hero/auth/404: a touch stronger for first impression */
+.aurora--hero .aurora__blob { opacity: 0.42; }
+
+[data-theme="dark"] .aurora__blob { opacity: 0.3; mix-blend-mode: screen; }
+[data-theme="dark"] .aurora--app .aurora__blob { opacity: 0.16; }
+[data-theme="dark"] .aurora--hero .aurora__blob { opacity: 0.4; }
+[data-theme="dark"] .aurora__blob--teal {
+  background: radial-gradient(circle at 30% 30%, rgba(201, 162, 75, 0.45), transparent 66%);
+}
+[data-theme="dark"] .aurora__blob--amber {
+  background: radial-gradient(circle at 60% 40%, rgba(226, 104, 42, 0.34), transparent 66%);
+}
+
+@keyframes auroraDriftA {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(5vw, 4vw, 0) scale(1.1); }
+}
+@keyframes auroraDriftB {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(-4vw, -3vw, 0) scale(1.12); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora__blob { animation: none !important; }
+}

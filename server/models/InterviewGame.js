@@ -9,6 +9,13 @@ const roundSchema = new mongoose.Schema({
     // (with correct answers) so submit-round can grade without trusting the client.
     // SECURITY: must never be sent to the client — always strip via sanitizeGame().
     servedQuestions: [{ questionId: String, ans: String, _id: false }],
+    // Server-authoritative coding test cases (with expected outputs) for the
+    // coding round, so submit-round can run the user's code and grade it without
+    // trusting the client. SECURITY: stripped by sanitizeGame(), never sent out.
+    servedCoding: {
+        testCases: [{ input: String, expectedOutput: String, _id: false }],
+        _id: false,
+    },
     status: { type: String, enum: ['pending', 'in-progress', 'completed', 'skipped'], default: 'pending' },
     feedback: String,
     completedAt: Date

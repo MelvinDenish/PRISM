@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { MotionConfig } from 'framer-motion';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -23,6 +24,7 @@ import ResumeBuilder from './pages/ResumeBuilder';
 import LearningPaths from './pages/LearningPaths';
 import NotFound from './pages/NotFound';
 import VideoCall from './pages/VideoCall';
+import GDRooms from './pages/GDRooms';
 import './index.css';
 
 const ProtectedRoute = ({ children }) => {
@@ -43,6 +45,7 @@ const RoleRoute = ({ roles, children }) => {
 const App = () => {
   return (
     <AuthProvider>
+      <MotionConfig reducedMotion="user">
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -60,6 +63,7 @@ const App = () => {
             <Route path="mentors" element={<Mentors />} />
             <Route path="mentor/:id" element={<MentorProfile />} />
             <Route path="sessions" element={<Sessions />} />
+            <Route path="gd-rooms" element={<GDRooms />} />
             <Route path="interview-game" element={<InterviewGame />} />
             <Route path="resume-builder" element={<ResumeBuilder />} />
             <Route path="resume-analysis" element={<ResumeAnalysis />} />
@@ -72,6 +76,7 @@ const App = () => {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
+      </MotionConfig>
     </AuthProvider>
   );
 };

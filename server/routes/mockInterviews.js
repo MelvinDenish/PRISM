@@ -20,7 +20,7 @@ router.get('/', protect, async (req, res) => {
 
         res.json({ success: true, interviews });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -30,7 +30,7 @@ router.post('/', protect, authorize('mentor', 'admin'), async (req, res) => {
         const interview = await MockInterview.create({ ...req.body, mentor: req.user._id });
         res.status(201).json({ success: true, interview });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -47,7 +47,7 @@ router.patch('/:id/join', protect, async (req, res) => {
 
         res.json({ success: true, interview });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -64,7 +64,7 @@ router.patch('/:id/status', protect, async (req, res) => {
         await interview.save();
         res.json({ success: true, interview });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -79,7 +79,7 @@ router.get('/:id', protect, async (req, res) => {
         if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
         res.json({ success: true, interview });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 

@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PRISM — Week 1 Internship Review</title>
+
+<!-- Fonts: IBM Plex — a serious, document-grade engineering pairing (not flashy). -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap" rel="stylesheet" />
+
+<style>
+/* ===========================================
+   VIEWPORT FITTING: MANDATORY BASE STYLES
+   =========================================== */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; overflow-x: hidden; margin: 0; }
+html { scroll-snap-type: y mandatory; scroll-behavior: smooth; }
+
+:root {
+    /* Type scale (all clamped → never overflows) */
+    --title-size: clamp(1.6rem, 5vw, 4rem);
+    --h2-size:    clamp(1.25rem, 3.2vw, 2.3rem);
+    --h3-size:    clamp(1rem, 2.2vw, 1.5rem);
+    --body-size:  clamp(0.8rem, 1.45vw, 1.05rem);
+    --small-size: clamp(0.68rem, 1.05vw, 0.85rem);
+    --kicker-size:clamp(0.6rem, 0.95vw, 0.78rem);
+
+    --slide-padding: clamp(1.25rem, 4.5vw, 4.5rem);
+    --content-gap: clamp(0.6rem, 2vh, 1.6rem);
+    --element-gap: clamp(0.35rem, 1vh, 0.9rem);
+
+    /* Palette — warm paper, charcoal ink, ONE restrained desaturated teal accent.
+       Deliberately not a startup gradient / neon. */
+    --paper:   #f6f5f1;   /* warm off-white background */
+    --surface: #ffffff;   /* card surface */
+    --ink:     #1b2327;   /* near-black charcoal text */
+    --ink-soft:#48555d;   /* secondary text */
+    --ink-mute:#7b858c;   /* tertiary / captions */
+    --line:    #e2dfd6;   /* hairline borders */
+    --line-2:  #d4d0c4;   /* stronger rule */
+    --accent:  #0f6e63;   /* muted teal-700 — the single accent */
+    --accent-soft:#e4efec;/* teal wash for fills */
+    --slate:   #34434c;   /* structural secondary (diagrams) */
+    --good:    #2f6f4f;   /* restrained green for "verified" */
+    --shadow: 0 1px 2px rgba(27,35,39,.05), 0 8px 24px rgba(27,35,39,.06);
+}
+
+body {
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.45;
+}
+
+.slide {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    border-bottom: 1px solid var(--line);
+}
+
+.slide-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    max-height: 100%;
+    overflow: hidden;
+    padding: var(--slide-padding);
+    width: 100%;
+    max-width: 1320px;
+    margin: 0 auto;
+}
+
+/* ---- Section kicker (lets a reviewer tick off the 5 mandatory sections) ---- */
+.kicker {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: var(--kicker-size);
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    margin-bottom: var(--element-gap);
+}
+.kicker::before {
+    content: "";
+    width: clamp(18px, 2.5vw, 34px);
+    height: 2px;
+    background: var(--accent);
+    display: inline-block;
+}
+
+h1, h2, h3 { margin: 0; line-height: 1.12; letter-spacing: -0.01em; }
+h2 { font-size: var(--h2-size); font-weight: 600; }
+h3 { font-size: var(--h3-size); font-weight: 600; }
+p  { margin: 0; font-size: var(--body-size); color: var(--ink-soft); }
+.lead { font-size: clamp(0.9rem, 1.7vw, 1.2rem); color: var(--ink-soft); max-width: 62ch; }
+strong { color: var(--ink); font-weight: 600; }
+.accent-text { color: var(--accent); }
+code { font-family: 'IBM Plex Mono', monospace; font-size: .9em; color: var(--slate); background: var(--accent-soft); padding: .05em .35em; border-radius: 4px; }
+
+/* ---- Cards / grids ---- */
+.grid { display: grid; gap: clamp(0.55rem, 1.4vw, 1rem); }
+.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.cols-3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 760px) { .cols-2, .cols-3 { grid-template-columns: 1fr; } }
+
+.card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: clamp(0.7rem, 1.5vw, 1.25rem);
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+    min-width: 0;
+}
+.card .num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: var(--small-size);
+    color: var(--accent);
+    font-weight: 600;
+}
+.card h3 { font-size: var(--h3-size); }
+.card p { font-size: var(--small-size); line-height: 1.4; }
+.card.accent-card { border-left: 3px solid var(--accent); }
+
+/* ---- Bullet lists ---- */
+ul.bul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: clamp(0.4rem, 1.1vh, 0.85rem); }
+ul.bul li { font-size: var(--body-size); color: var(--ink-soft); padding-left: 1.5rem; position: relative; line-height: 1.4; }
+ul.bul li::before {
+    content: ""; position: absolute; left: 0; top: .55em;
+    width: 7px; height: 7px; background: var(--accent); border-radius: 2px;
+}
+
+/* ---- Tables (used sparingly, kept ≤6 rows so they fit one viewport) ---- */
+table { width: 100%; border-collapse: collapse; font-size: var(--small-size); }
+th, td { text-align: left; padding: clamp(.4rem, 1vh, .7rem) clamp(.5rem, 1vw, .9rem); border-bottom: 1px solid var(--line); }
+th { font-family:'IBM Plex Mono', monospace; font-weight:600; color: var(--ink-mute); text-transform: uppercase; font-size: var(--kicker-size); letter-spacing:.08em; }
+td { color: var(--ink-soft); }
+td strong { color: var(--ink); }
+.matrix td.c, .matrix th.c { text-align: center; }
+.yes { color: var(--accent); font-weight: 700; }
+.no  { color: var(--ink-mute); }
+.matrix tbody tr:hover { background: var(--paper); }
+
+/* ---- Monospace diagram blocks ---- */
+.diagram {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: clamp(.62rem, 1.15vw, .92rem);
+    line-height: 1.5;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: clamp(.8rem, 2vw, 1.6rem);
+    color: var(--slate);
+    white-space: pre;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+}
+.diagram b { color: var(--accent); font-weight: 600; }
+.diagram .u { color: var(--ink); font-weight: 600; }
+
+/* ---- Numbered step flow ---- */
+ol.steps { list-style: none; counter-reset: s; margin: 0; padding: 0; display: flex; flex-direction: column; gap: clamp(.35rem, 1vh, .7rem); }
+ol.steps li { counter-increment: s; position: relative; padding-left: 2.4rem; font-size: var(--body-size); color: var(--ink-soft); line-height: 1.4; }
+ol.steps li::before {
+    content: counter(s); position: absolute; left: 0; top: -2px;
+    width: 1.6rem; height: 1.6rem; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent);
+    font-family:'IBM Plex Mono', monospace; font-weight: 600; font-size: var(--small-size);
+    display: grid; place-items: center;
+}
+
+/* ---- Stat / proof pills ---- */
+.stat-row { display: flex; flex-wrap: wrap; gap: clamp(.5rem, 1.4vw, 1rem); }
+.stat {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+    padding: clamp(.6rem,1.4vw,1rem) clamp(.8rem,1.6vw,1.3rem); box-shadow: var(--shadow);
+    display:flex; flex-direction:column; gap:.15rem; flex:1; min-width: 150px;
+}
+.stat .v { font-size: clamp(1.1rem, 2.6vw, 1.9rem); font-weight: 700; color: var(--ink); font-family:'IBM Plex Mono', monospace; }
+.stat .v small { color: var(--good); font-size: .55em; }
+.stat .l { font-size: var(--small-size); color: var(--ink-soft); }
+
+.tag {
+    display:inline-flex; align-items:center; gap:.4rem;
+    font-family:'IBM Plex Mono', monospace; font-size: var(--small-size);
+    color: var(--accent); background: var(--accent-soft);
+    padding: .25rem .6rem; border-radius: 6px; font-weight: 500;
+}
+
+.phase-row { display:flex; flex-wrap:wrap; gap:.5rem; align-items:stretch; }
+.phase {
+    flex:1; min-width: 120px; background: var(--surface); border:1px solid var(--line);
+    border-radius: 8px; padding: clamp(.5rem,1.2vw,.9rem); box-shadow: var(--shadow);
+}
+.phase .pn { font-family:'IBM Plex Mono',monospace; font-size:var(--kicker-size); color:var(--ink-mute); letter-spacing:.1em; }
+.phase .pt { font-size: var(--small-size); font-weight:600; color:var(--ink); margin-top:.15rem; }
+.phase.done { border-top: 3px solid var(--accent); }
+.phase.now  { border-top: 3px solid var(--slate); }
+
+/* ===== TITLE SLIDE ===== */
+.title-slide .slide-content { justify-content: center; }
+.title-mark {
+    font-family:'IBM Plex Mono', monospace; font-size: var(--kicker-size);
+    letter-spacing:.3em; text-transform: uppercase; color: var(--accent); font-weight:600;
+}
+.title-slide h1 {
+    font-family: 'IBM Plex Serif', serif;
+    font-size: var(--title-size); font-weight: 600; color: var(--ink);
+    margin: clamp(.6rem,1.6vh,1.2rem) 0 clamp(.3rem,.8vh,.6rem);
+    letter-spacing: -0.02em;
+}
+.title-slide .expand { font-size: clamp(.95rem,2vw,1.4rem); color: var(--ink-soft); font-weight:400; }
+.title-rule { width: clamp(60px, 10vw, 120px); height: 3px; background: var(--accent); margin: clamp(1rem,2.5vh,1.8rem) 0; }
+.title-meta { font-family:'IBM Plex Mono', monospace; font-size: var(--small-size); color: var(--ink-mute); letter-spacing:.04em; }
+.title-meta strong { color: var(--ink); }
+
+/* Subtle structural backdrop — a faint blueprint grid (restrained, not decorative noise) */
+.grid-bg::before {
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: clamp(40px,6vw,80px) clamp(40px,6vw,80px);
+    opacity:.4; -webkit-mask-image: radial-gradient(ellipse at 70% 40%, #000 0%, transparent 72%);
+    mask-image: radial-gradient(ellipse at 70% 40%, #000 0%, transparent 72%);
+}
+
+/* ===== CHROME: progress, counter, section, hint ===== */
+.progress { position: fixed; top: 0; left: 0; height: 3px; background: var(--accent); width: 0; z-index: 100; transition: width .25s ease; }
+.counter {
+    position: fixed; bottom: clamp(.8rem,2vh,1.4rem); right: clamp(.9rem,2.5vw,2rem); z-index: 90;
+    font-family:'IBM Plex Mono', monospace; font-size: var(--small-size); color: var(--ink-mute);
+}
+.counter b { color: var(--ink); }
+.section-tag {
+    position: fixed; bottom: clamp(.8rem,2vh,1.4rem); left: clamp(.9rem,2.5vw,2rem); z-index: 90;
+    font-family:'IBM Plex Mono', monospace; font-size: var(--small-size); color: var(--ink-mute); letter-spacing:.06em;
+}
+.nav-dots { position: fixed; top: 50%; right: clamp(.5rem,1.4vw,1rem); transform: translateY(-50%); z-index: 90; display:flex; flex-direction:column; gap:.55rem; }
+.nav-dots button { width: 8px; height: 8px; border-radius: 50%; border:none; background: var(--line-2); padding:0; cursor:pointer; transition: all .2s; }
+.nav-dots button.active { background: var(--accent); transform: scale(1.4); }
+.hint {
+    position: fixed; bottom: clamp(.8rem,2vh,1.4rem); left: 50%; transform: translateX(-50%); z-index: 90;
+    font-family:'IBM Plex Mono', monospace; font-size: var(--kicker-size); color: var(--ink-mute); letter-spacing:.08em;
+    opacity: .9; transition: opacity .4s;
+}
+.hint.hide { opacity: 0; }
+
+/* ---- Reveal animation ---- */
+.reveal { opacity: 0; transform: translateY(14px); transition: opacity .55s ease, transform .55s ease; }
+.reveal.in { opacity: 1; transform: none; }
+.slide-content > * { transition-delay: .04s; }
+[data-d="1"]{transition-delay:.10s}[data-d="2"]{transition-delay:.18s}[data-d="3"]{transition-delay:.26s}
+[data-d="4"]{transition-delay:.34s}[data-d="5"]{transition-delay:.42s}[data-d="6"]{transition-delay:.50s}
+
+.head { margin-bottom: var(--content-gap); }
+.foot-note { font-size: var(--small-size); color: var(--ink-mute); margin-top: var(--element-gap); }
+
+/* Short-screen density adjustments */
+@media (max-height: 720px) {
+    :root { --content-gap: .7rem; --slide-padding: clamp(1rem,3vw,2.2rem); }
+    .nav-dots { display:none; }
+}
+@media (max-height: 560px) {
+    :root { --title-size: clamp(1.3rem,4vw,2rem); --h2-size: clamp(1.05rem,3vw,1.5rem); --body-size: clamp(.72rem,1.2vw,.9rem); }
+    .hint, .grid-bg::before { display:none; }
+    .card { padding:.55rem .7rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration:.01ms !important; transition-duration:.2s !important; }
+    html { scroll-behavior:auto; }
+    .reveal { opacity:1; transform:none; }
+}
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+<nav class="nav-dots" id="dots" aria-label="Slide navigation"></nav>
+<div class="section-tag" id="sectionTag"></div>
+<div class="counter"><b id="cur">01</b> / <span id="total">19</span></div>
+<div class="hint" id="hint">↓ / → / SPACE to advance</div>
+
+<main>
+
+<!-- 01 · TITLE -->
+<section class="slide title-slide grid-bg" data-section="">
+    <div class="slide-content">
+        <div class="title-mark reveal">Week 1 · Internship Review</div>
+        <h1 class="reveal" data-d="1">PRISM</h1>
+        <div class="expand reveal" data-d="2">Placement Resources &amp; Interview Skill Manager</div>
+        <div class="title-rule reveal" data-d="3"></div>
+        <p class="lead reveal" data-d="4">A single, role-based platform for the entire campus-placement preparation journey — built to be owned by the department and handed to the next student batch.</p>
+        <div class="title-meta reveal" data-d="5" style="margin-top:clamp(1rem,3vh,2rem)">
+            <strong>L. Melvin Denish</strong> &nbsp;·&nbsp; CSE, 3rd Year &nbsp;·&nbsp; June 2026
+        </div>
+    </div>
+</section>
+
+<!-- 02 · AGENDA -->
+<section class="slide" data-section="Agenda">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">Agenda</div>
+            <h2>What this review covers</h2>
+        </div>
+        <div class="grid cols-2 reveal" data-d="1" style="gap:clamp(.5rem,1.2vw,1rem)">
+            <div class="card accent-card"><span class="num">01</span><h3>Understanding the project</h3><p>Problem, objectives, users and scope.</p></div>
+            <div class="card accent-card"><span class="num">02</span><h3>Proposed workflow</h3><p>The core mentorship loop and access model.</p></div>
+            <div class="card accent-card"><span class="num">03</span><h3>System requirements</h3><p>Functional, non-functional and the tech stack.</p></div>
+            <div class="card accent-card"><span class="num">04</span><h3>Database design</h3><p>Schema, relationships, indexing and integrity.</p></div>
+            <div class="card accent-card"><span class="num">05</span><h3>System architecture</h3><p>How the pieces fit and a request's lifecycle.</p></div>
+            <div class="card accent-card"><span class="num">06</span><h3>Implementation approach</h3><p>Plan, work completed, evidence and what's next.</p></div>
+        </div>
+    </div>
+</section>
+
+<!-- 03 · UNDERSTANDING — what is PRISM / the problem -->
+<section class="slide" data-section="01 · Understanding">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">01 · Understanding</div>
+            <h2>The problem PRISM solves</h2>
+        </div>
+        <p class="lead reveal" data-d="1" style="margin-bottom:var(--content-gap)">Campus placements are the most important outcome of an engineering degree — yet preparation for them is <strong>fragmented, unverified, and unmeasured.</strong></p>
+        <div class="grid cols-3 reveal" data-d="2">
+            <div class="card"><span class="num">Problem 01</span><h3>Fragmented</h3><p>Mentorship, mock interviews, résumé help, coding practice and study material live in separate, disconnected tools.</p></div>
+            <div class="card"><span class="num">Problem 02</span><h3>Unverified</h3><p>No curated, mentor-vetted source of resources or questions — anyone can share anything.</p></div>
+            <div class="card"><span class="num">Problem 03</span><h3>Unmeasured</h3><p>Neither the student nor the department can see whether preparation is actually improving readiness.</p></div>
+        </div>
+        <p class="foot-note reveal" data-d="3">PRISM answers all three: one <strong>role-based, auditable</strong> platform where mentors produce trusted content, mentees practise, and progress is recorded.</p>
+    </div>
+</section>
+
+<!-- 04 · UNDERSTANDING — objectives -->
+<section class="slide" data-section="01 · Understanding">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">01 · Understanding</div>
+            <h2>Project objectives</h2>
+        </div>
+        <div class="grid cols-2 reveal" data-d="1">
+            <ul class="bul">
+                <li><strong>Connect</strong> mentees with mentors — book, meet over video, get feedback, rate.</li>
+                <li><strong>Teach 1:1 and 1:many</strong> — mentorship sessions plus mock interviews and group discussions.</li>
+                <li><strong>Practise without a human present</strong> — AI interviewer, a 6-round Interview Game, AI-moderated GD.</li>
+            </ul>
+            <ul class="bul">
+                <li><strong>Build strong résumés</strong> — structured builder plus AI résumé-vs-job-description analysis.</li>
+                <li><strong>Trusted resources</strong> — mentor-uploaded material tagged by topic, company and level.</li>
+                <li><strong>Make progress visible</strong> — per-student tracking and analytics dashboards.</li>
+            </ul>
+        </div>
+        <div class="card accent-card reveal" data-d="2" style="margin-top:var(--content-gap)">
+            <h3 style="font-size:var(--h3-size)">O8 — Safe &amp; reliable enough for real, college-wide use</h3>
+            <p>Production hardening: authentication, access control and data integrity. <strong>This is the Week&nbsp;1 engineering focus.</strong></p>
+        </div>
+    </div>
+</section>
+
+<!-- 05 · UNDERSTANDING — users / 3 roles -->
+<section class="slide" data-section="01 · Understanding">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">01 · Understanding · Users</div>
+            <h2>Three roles, enforced on the server</h2>
+        </div>
+        <div class="grid cols-3 reveal" data-d="1">
+            <div class="card">
+                <span class="num">Mentee</span><h3>The student</h3>
+                <p>Books sessions, takes AI mocks &amp; the Interview Game, builds and analyses a résumé, solves coding problems, studies, and tracks where they stand.</p>
+            </div>
+            <div class="card">
+                <span class="num">Mentor</span><h3>Senior / placed / faculty</h3>
+                <p>Publishes availability, runs 1:1 and group sessions, uploads trusted resources, and leaves structured feedback that feeds a mentee's progress record.</p>
+            </div>
+            <div class="card">
+                <span class="num">Admin</span><h3>Placement coordinator</h3>
+                <p>Manages users, curates topics and companies, moderates content, and views platform-wide analytics and leaderboards.</p>
+            </div>
+        </div>
+        <p class="foot-note reveal" data-d="2">The <span class="accent-text">role</span> is stored on the user and checked on <strong>every protected action</strong> — never trusted from the client.</p>
+    </div>
+</section>
+
+<!-- 06 · WORKFLOW — core loop -->
+<section class="slide" data-section="02 · Workflow">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">02 · Proposed Workflow</div>
+            <h2>The core mentorship loop</h2>
+        </div>
+        <div class="grid cols-2 reveal" data-d="1" style="align-items:center">
+            <div class="diagram">  <span class="u">Mentor</span> publishes availability
+        │
+  <span class="u">Mentee</span> browses  →  books a slot
+        │           <b>(atomic: no double-booking)</b>
+        ▼
+  Mentor <b>approves / rejects</b>   →  notified
+        │
+        ▼
+  Both join a <b>peer-to-peer video call</b>
+        │
+        ▼
+  Session completed  →  both <b>rate</b>
+                       (updates mentor average)</div>
+            <div>
+                <ul class="bul">
+                    <li><strong>Booking is atomic</strong> — a single conditional database write guarantees two mentees can never grab the same slot.</li>
+                    <li><strong>Status machine</strong> — pending → approved → in-progress → completed, with rejection and cancellation paths.</li>
+                    <li><strong>Rate-once</strong> — a guard prevents double-rating; mentee ratings roll up into the mentor's average.</li>
+                </ul>
+                <p class="foot-note">Alongside this loop, <strong>solo practice</strong> — AI interview, Interview Game and résumé tools — is available any time, with no mentor required.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- 07 · WORKFLOW — access model (role + ownership) -->
+<section class="slide" data-section="02 · Workflow">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">02 · Workflow · Access Model</div>
+            <h2>Authorization = role <span class="accent-text">and</span> ownership</h2>
+        </div>
+        <div class="card reveal" data-d="1" style="padding:0;overflow:hidden">
+            <table class="matrix">
+                <thead>
+                    <tr><th>Action</th><th class="c">Mentee</th><th class="c">Mentor</th><th class="c">Admin</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Browse resources</td><td class="c yes">Yes</td><td class="c yes">Yes</td><td class="c yes">Yes</td></tr>
+                    <tr><td>Edit / delete a resource</td><td class="c no">—</td><td class="c yes">Own</td><td class="c yes">Any</td></tr>
+                    <tr><td>Book a session</td><td class="c yes">Yes</td><td class="c no">—</td><td class="c no">—</td></tr>
+                    <tr><td>Approve a session</td><td class="c no">—</td><td class="c yes">Yes</td><td class="c no">—</td></tr>
+                    <tr><td>Admin panel</td><td class="c no">—</td><td class="c no">—</td><td class="c yes">Yes</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="foot-note reveal" data-d="2"><strong>“Own”</strong> is an <span class="accent-text">ownership check</span>, not just a role check — a mentor may edit the resource they uploaded, not someone else's. This closes the most common class of access bug (IDOR).</p>
+    </div>
+</section>
+
+<!-- 08 · REQUIREMENTS — functional -->
+<section class="slide" data-section="03 · Requirements">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">03 · System Requirements</div>
+            <h2>Functional requirements</h2>
+        </div>
+        <div class="grid cols-3 reveal" data-d="1">
+            <div class="card"><span class="num">FR-A</span><h3>Auth &amp; accounts</h3><p>Register, login (JWT), strong-password policy, lockout, password reset, self-profile editing.</p></div>
+            <div class="card"><span class="num">FR-B</span><h3>Mentorship</h3><p>Publish availability, book without double-booking, approve/reject, video call, rate once.</p></div>
+            <div class="card"><span class="num">FR-C</span><h3>Interview practice</h3><p>AI interview, server-scored 6-round game, hidden answer keys, sandboxed code in 5 languages, group discussion.</p></div>
+            <div class="card"><span class="num">FR-D</span><h3>Résumé</h3><p>Structured builder, AI content generation, and ATS scoring against a job description.</p></div>
+            <div class="card"><span class="num">FR-E</span><h3>Resources &amp; learning</h3><p>Upload tagged resources, browse/filter, mark complete, AI-generated learning paths.</p></div>
+            <div class="card"><span class="num">FR-F</span><h3>Progress &amp; admin</h3><p>Per-student progress, analytics &amp; leaderboard, in-app/email notifications, admin management.</p></div>
+        </div>
+    </div>
+</section>
+
+<!-- 09 · REQUIREMENTS — non-functional -->
+<section class="slide" data-section="03 · Requirements">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">03 · Requirements · Non-Functional</div>
+            <h2>What turns a demo into a product</h2>
+        </div>
+        <div class="grid cols-2 reveal" data-d="1">
+            <div class="card accent-card"><h3>Security</h3><p>Auth on every endpoint · authorization by role <strong>and</strong> ownership · server-authoritative scoring (no tampering) · sandboxed code · authenticated realtime · secrets never leaked.</p></div>
+            <div class="card accent-card"><h3>Reliability</h3><p>Fail-fast on misconfiguration at boot · categorized errors (4xx vs 5xx, not all 500) · every request traceable by request-id.</p></div>
+            <div class="card accent-card"><h3>Performance</h3><p>Hot queries use indexes — no collection scans · list endpoints are paginated and bounded.</p></div>
+            <div class="card accent-card"><h3>Integrity &amp; scale</h3><p>No double-booking under concurrency (atomic writes) · abuse-resistant via tiered rate limits · stateless HTTP, designed for multiple processes.</p></div>
+        </div>
+        <p class="foot-note reveal" data-d="2">Each non-functional requirement maps to specific, verifiable Week&nbsp;1 engineering work.</p>
+    </div>
+</section>
+
+<!-- 10 · REQUIREMENTS — tech stack -->
+<section class="slide" data-section="03 · Requirements">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">03 · Requirements · Technology</div>
+            <h2>Technology stack</h2>
+        </div>
+        <div class="grid cols-3 reveal" data-d="1">
+            <div class="card"><span class="num">Client</span><p><strong>React&nbsp;19</strong> · Vite&nbsp;7 · React&nbsp;Router&nbsp;7 · axios · Socket.IO-client · PeerJS · Monaco editor · Recharts</p></div>
+            <div class="card"><span class="num">Server</span><p><strong>Node.js</strong> · Express&nbsp;4 · Socket.IO&nbsp;4 · <strong>Mongoose&nbsp;8</strong> · JWT · bcrypt · express-rate-limit</p></div>
+            <div class="card"><span class="num">Database</span><p><strong>MongoDB</strong> — document database, self-hosted via Docker locally; Atlas or self-hosted in production.</p></div>
+            <div class="card"><span class="num">AI</span><p><strong>Groq</strong> (Llama&nbsp;3.1) for interviews &amp; content · <strong>Gemini</strong> for résumé ATS analysis.</p></div>
+            <div class="card"><span class="num">Realtime &amp; exec</span><p><strong>WebRTC</strong> (PeerJS) video · <strong>Judge0</strong> sandbox for code execution.</p></div>
+            <div class="card"><span class="num">Infra</span><p>Docker · nginx (TLS) · PM2 · <span class="accent-text">Redis</span> for multi-process realtime <em>(planned)</em>.</p></div>
+        </div>
+        <p class="foot-note reveal" data-d="2">Deliberately simple — a two-package React + Express + MongoDB monorepo a <strong>student</strong> can run and extend, not microservices.</p>
+    </div>
+</section>
+
+<!-- 11 · DATABASE — principles -->
+<section class="slide" data-section="04 · Database">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">04 · Database Design</div>
+            <h2>MongoDB via Mongoose — design principles</h2>
+        </div>
+        <div class="grid cols-2 reveal" data-d="1">
+            <ul class="bul">
+                <li><strong>Document-shaped data</strong> — résumés, games and availability are naturally nested; one document replaces 4–5 SQL joins.</li>
+                <li><strong>Mongoose imposes a schema</strong> — types, <code>required</code>, <code>enum</code>, validation give flexibility <em>and</em> structural guarantees.</li>
+                <li><strong>Embed</strong> data owned by its parent (game rounds, résumé sections, availability slots).</li>
+            </ul>
+            <ul class="bul">
+                <li><strong>Reference</strong> shared entities (User, Topic, Company, Resource) that have their own lifecycle.</li>
+                <li><strong>Index</strong> only the fields real queries filter or sort on → <code>O(log n)</code>, not a full scan.</li>
+                <li><strong>Let the database enforce</strong> what it can: unique email, atomic single-document writes, a TTL index that auto-purges old notifications.</li>
+            </ul>
+        </div>
+        <p class="foot-note reveal" data-d="2"><strong>18 collections</strong>, centred on the <span class="accent-text">User</span> entity.</p>
+    </div>
+</section>
+
+<!-- 12 · DATABASE — entity map -->
+<section class="slide" data-section="04 · Database">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">04 · Database · Entity Map</div>
+            <h2>Everything relates to <span class="accent-text">User</span></h2>
+        </div>
+        <div class="diagram reveal" data-d="1" style="font-size:clamp(.58rem,1.05vw,.86rem)">     MentorshipSession ─┐                  ┌─ <b>InterviewGame</b> (embeds rounds)
+     Availability ──────┤                  ├─ ResumeDraft / ResumeAnalysis
+     MockInterview ─────┼──── <span class="u">USER</span> ────┤─ <b>LearningPath</b> (embeds steps)
+     MockFeedback ──────┤                  ├─ Progress / Notification (TTL)
+     Resource ──────────┘                  └─ CodeSubmission
+            │                                     │
+       Topic · Company  ◀──── tagging ────  QuestionBank · CodingQuestion</div>
+        <div class="grid cols-3 reveal" data-d="2" style="margin-top:var(--content-gap)">
+            <div class="card"><h3 style="font-size:var(--h3-size)">Reference</h3><p>ObjectId + <code>ref</code> for shared entities — User, Topic, Company, Resource.</p></div>
+            <div class="card"><h3 style="font-size:var(--h3-size)">Embed</h3><p>Nested sub-documents for data read only with its parent — rounds, slots, steps.</p></div>
+            <div class="card accent-card"><h3 style="font-size:var(--h3-size)">Security-shaped</h3><p>Hashed passwords, hashed reset tokens, and an answer key never sent to the client.</p></div>
+        </div>
+    </div>
+</section>
+
+<!-- 13 · DATABASE — integrity & indexing -->
+<section class="slide" data-section="04 · Database">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">04 · Database · Integrity</div>
+            <h2>Indexing &amp; atomic integrity</h2>
+        </div>
+        <div class="grid cols-2 reveal" data-d="1" style="align-items:start">
+            <div>
+                <h3 style="margin-bottom:var(--element-gap)">Indexing strategy</h3>
+                <ul class="bul">
+                    <li>A B-tree index turns <code>find()</code> from an <code>O(n)</code> scan into an <code>O(log&nbsp;n)</code> lookup.</li>
+                    <li>Compound indexes like <code>{ user, createdAt:-1 }</code> filter <em>and</em> return pre-sorted — no in-memory sort.</li>
+                    <li>Indexes added on <strong>8 collections</strong> covering the hot queries: logins, sessions, notifications, resources, games, leaderboard.</li>
+                    <li>A <strong>TTL index</strong> auto-deletes notifications after 90 days — no cron job.</li>
+                </ul>
+            </div>
+            <div>
+                <h3 style="margin-bottom:var(--element-gap)">No double-booking</h3>
+                <div class="diagram" style="font-size:clamp(.58rem,1.05vw,.82rem)">Availability.<b>findOneAndUpdate</b>(
+  { mentor, 'slots.i.isBooked': <b>false</b> },  <span style="color:var(--ink-mute)">// only if free</span>
+  { $set: { 'slots.i.isBooked': <b>true</b> } }, <span style="color:var(--ink-mute)">// claim it</span>
+  { new: true }
+)</div>
+                <p class="foot-note">Filter + write happen as <strong>one atomic operation</strong>. If two mentees race, exactly one matches and wins; the other is told “already booked.”</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- 14 · ARCHITECTURE — system architecture -->
+<section class="slide" data-section="05 · Architecture">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">05 · System Architecture</div>
+            <h2>How the pieces fit together</h2>
+        </div>
+        <div class="diagram reveal" data-d="1" style="font-size:clamp(.6rem,1.1vw,.9rem)">  <span class="u">Browser (React SPA)</span>  ──HTTPS REST──▶  <b>Express</b>  ─▶  Mongoose  ─▶  <b>MongoDB</b>
+        │              ──WebSocket───▶  <b>Socket.IO</b>  (realtime rooms · signaling)
+        │
+        └──────────  peer-to-peer video (WebRTC) ──────────┘</div>
+        <div class="grid cols-3 reveal" data-d="2" style="margin-top:var(--content-gap)">
+            <div class="card"><h3 style="font-size:var(--h3-size)">Layered server</h3><p>middleware → routing → auth/validate → handler → model → central error handler.</p></div>
+            <div class="card"><h3 style="font-size:var(--h3-size)">Stateless JWT auth</h3><p>No server session store — the same code can run as multiple processes and scale horizontally.</p></div>
+            <div class="card"><h3 style="font-size:var(--h3-size)">Isolated subsystems</h3><p>AI (Groq/Gemini), code execution (Judge0 sandbox) and video (WebRTC) are independent — one failing never takes the platform down.</p></div>
+        </div>
+    </div>
+</section>
+
+<!-- 15 · ARCHITECTURE — request lifecycle -->
+<section class="slide" data-section="05 · Architecture">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">05 · Architecture · Request Lifecycle</div>
+            <h2>Booking a slot, end to end</h2>
+        </div>
+        <ol class="steps reveal" data-d="1">
+            <li>axios attaches the JWT → <code>PATCH /api/availability/book/&lt;slot&gt;</code></li>
+            <li>CORS → body parse → <strong>request-id</strong> assigned → <strong>rate limit</strong> checked</li>
+            <li><code>protect</code> verifies the JWT signature <em>and</em> token freshness</li>
+            <li>Handler runs the <strong>atomic conditional update</strong> against the slot</li>
+            <li>MongoDB executes it atomically → returns the booked slot, or <code>null</code></li>
+            <li>Response: <span class="accent-text">200 booked</span> &nbsp;·&nbsp; <strong>409</strong> already taken</li>
+            <li>Any thrown error → the <strong>central handler</strong> maps it to the right status &amp; logs it with the request-id</li>
+        </ol>
+    </div>
+</section>
+
+<!-- 16 · IMPLEMENTATION — approach -->
+<section class="slide" data-section="06 · Implementation">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">06 · Implementation Approach</div>
+            <h2>Harden in place — don't rewrite</h2>
+        </div>
+        <div class="card accent-card reveal" data-d="1" style="margin-bottom:var(--content-gap)">
+            <p>The app is <strong>feature-complete but not yet safe</strong>. A rewrite would throw away working code and risk the student handoff. So the plan is to make the existing platform production-grade in small, verifiable steps.</p>
+        </div>
+        <h3 class="reveal" data-d="2" style="margin-bottom:var(--element-gap)">Methodology</h3>
+        <div class="grid cols-3 reveal" data-d="3" style="margin-bottom:var(--content-gap)">
+            <div class="card"><p><strong>Security-first</strong> — fix exploitable issues before polish.</p></div>
+            <div class="card"><p><strong>Small increments</strong> — each change is backward-compatible and reuses shared helpers.</p></div>
+            <div class="card"><p><strong>Evidence before “done”</strong> — nothing is claimed complete without an observed test pass.</p></div>
+        </div>
+        <div class="phase-row reveal" data-d="4">
+            <div class="phase done"><div class="pn">PHASE 0</div><div class="pt">Foundations</div></div>
+            <div class="phase done"><div class="pn">PHASE 1</div><div class="pt">Security</div></div>
+            <div class="phase now"><div class="pn">PHASE 2</div><div class="pt">Scale</div></div>
+            <div class="phase"><div class="pn">PHASE 3</div><div class="pt">Polish</div></div>
+            <div class="phase"><div class="pn">PHASE 4</div><div class="pt">Production</div></div>
+        </div>
+    </div>
+</section>
+
+<!-- 17 · IMPLEMENTATION — work completed -->
+<section class="slide" data-section="06 · Implementation">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">06 · Implementation · Work Completed</div>
+            <h2>Phases 0–2 delivered</h2>
+        </div>
+        <div class="grid cols-3 reveal" data-d="1">
+            <div class="card" style="border-top:3px solid var(--accent)">
+                <span class="num">Phase 0 · Foundations</span>
+                <p>Boot-time env validation · structured logging with request IDs · central error handling · reusable validation &amp; rate-limiting helpers.</p>
+            </div>
+            <div class="card" style="border-top:3px solid var(--accent)">
+                <span class="num">Phase 1 · Security</span>
+                <p>Server-authoritative game scoring · code-exec sandbox (no RCE in prod) · Socket.IO JWT auth · role + ownership access control (fixed IDORs) · stored-XSS fix · auth hardening.</p>
+            </div>
+            <div class="card" style="border-top:3px solid var(--slate)">
+                <span class="num">Phase 2 · Scale (started)</span>
+                <p>Indexes on 8 hot collections (+ 90-day TTL) · atomic slot booking · pagination helper · MongoDB in Docker for dev &amp; testing.</p>
+            </div>
+        </div>
+        <p class="foot-note reveal" data-d="2">Auth hardening = strong-password policy, brute-force lockout, time-limited reset, and JWT invalidation on password change.</p>
+    </div>
+</section>
+
+<!-- 18 · IMPLEMENTATION — proof -->
+<section class="slide" data-section="06 · Implementation · Proof">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">06 · Implementation · Evidence</div>
+            <h2>Everything was tested — and observed passing</h2>
+        </div>
+        <p class="lead reveal" data-d="1" style="margin-bottom:var(--content-gap)">Verified against a <strong>real, Dockerized MongoDB</strong> — not mocks.</p>
+        <div class="stat-row reveal" data-d="2">
+            <div class="stat"><div class="v">9 / 9 <small>&#10003;</small></div><div class="l">Auth: password policy, lockout, reset, token invalidation</div></div>
+            <div class="stat"><div class="v">6 / 6 <small>&#10003;</small></div><div class="l">Access control: ownership &amp; IDOR checks</div></div>
+            <div class="stat"><div class="v">200 / 409</div><div class="l">Concurrent booking: one wins, one rejected</div></div>
+            <div class="stat"><div class="v">8 <small>&#10003;</small></div><div class="l">Index builds created &amp; confirmed</div></div>
+        </div>
+        <p class="foot-note reveal" data-d="3">Server-side scoring and the answer-key sanitizer also pass every assertion — the client can never see correct answers or forge a score.</p>
+    </div>
+</section>
+
+<!-- 19 · WHAT'S NEXT + CLOSE -->
+<section class="slide" data-section="What's Next">
+    <div class="slide-content">
+        <div class="head reveal">
+            <div class="kicker">What's Next</div>
+            <h2>Toward college-wide deployment</h2>
+        </div>
+        <div class="grid cols-3 reveal" data-d="1">
+            <div class="card"><span class="num">Phase 2 · remaining</span><p>Redis for multi-process realtime · hardened AI JSON parsing · pagination rollout · remaining atomic writes.</p></div>
+            <div class="card"><span class="num">Phase 3 · polish</span><p>TURN-backed video for restrictive networks · reconnect broken wiring · UX refinement.</p></div>
+            <div class="card"><span class="num">Phase 4 · production</span><p>Backups · health &amp; metrics endpoints · automated test suite · deployment documentation.</p></div>
+        </div>
+        <div class="card accent-card reveal" data-d="2" style="margin-top:var(--content-gap)">
+            <p><strong>Target:</strong> a platform safe and reliable enough for the whole college — and maintainable by the next student batch.</p>
+        </div>
+        <p class="reveal" data-d="3" style="margin-top:var(--content-gap);font-family:'IBM Plex Mono',monospace;font-size:var(--small-size);color:var(--ink-mute)">
+            Understanding &#10003; &nbsp; Workflow &#10003; &nbsp; Requirements &#10003; &nbsp; Database &#10003; &nbsp; Architecture &#10003; &nbsp; Approach &#10003; &nbsp; — &nbsp; <span class="accent-text">secured &amp; tested foundations</span>
+        </p>
+    </div>
+</section>
+
+</main>
+
+<script>
+(function () {
+    "use strict";
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    const total = slides.length;
+    const progress = document.getElementById('progress');
+    const curEl = document.getElementById('cur');
+    const totalEl = document.getElementById('total');
+    const sectionTag = document.getElementById('sectionTag');
+    const dotsWrap = document.getElementById('dots');
+    const hint = document.getElementById('hint');
+    let current = 0;
+    let ticking = false;
+
+    totalEl.textContent = String(total).padStart(2, '0');
+
+    // Build nav dots
+    slides.forEach((s, i) => {
+        const b = document.createElement('button');
+        b.setAttribute('aria-label', 'Go to slide ' + (i + 1));
+        b.addEventListener('click', () => go(i));
+        dotsWrap.appendChild(b);
+    });
+    const dots = Array.from(dotsWrap.children);
+
+    // Reveal-on-enter via IntersectionObserver
+    const io = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+            if (e.isIntersecting) {
+                const idx = slides.indexOf(e.target);
+                if (idx !== -1) setActive(idx);
+                e.target.querySelectorAll('.reveal').forEach((el) => el.classList.add('in'));
+            }
+        });
+    }, { threshold: 0.55 });
+    slides.forEach((s) => io.observe(s));
+
+    function setActive(idx) {
+        current = idx;
+        const pct = total > 1 ? (idx / (total - 1)) * 100 : 100;
+        progress.style.width = pct + '%';
+        curEl.textContent = String(idx + 1).padStart(2, '0');
+        const sec = slides[idx].getAttribute('data-section') || '';
+        sectionTag.textContent = sec;
+        dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+    }
+
+    function go(idx) {
+        idx = Math.max(0, Math.min(total - 1, idx));
+        slides[idx].scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // Keyboard
+    window.addEventListener('keydown', (e) => {
+        switch (e.key) {
+            case 'ArrowDown': case 'ArrowRight': case 'PageDown': case ' ':
+                e.preventDefault(); go(current + 1); break;
+            case 'ArrowUp': case 'ArrowLeft': case 'PageUp':
+                e.preventDefault(); go(current - 1); break;
+            case 'Home': e.preventDefault(); go(0); break;
+            case 'End': e.preventDefault(); go(total - 1); break;
+        }
+    });
+
+    // Wheel — snap one slide per gesture (debounced)
+    window.addEventListener('wheel', (e) => {
+        if (ticking) return;
+        if (Math.abs(e.deltaY) < 18) return;
+        ticking = true;
+        go(current + (e.deltaY > 0 ? 1 : -1));
+        setTimeout(() => { ticking = false; }, 620);
+    }, { passive: true });
+
+    // Touch / swipe
+    let ty = null;
+    window.addEventListener('touchstart', (e) => { ty = e.touches[0].clientY; }, { passive: true });
+    window.addEventListener('touchend', (e) => {
+        if (ty === null) return;
+        const dy = ty - e.changedTouches[0].clientY;
+        if (Math.abs(dy) > 45) go(current + (dy > 0 ? 1 : -1));
+        ty = null;
+    }, { passive: true });
+
+    // Hide the hint once the user moves past the title
+    window.addEventListener('scroll', () => {
+        if (current > 0) hint.classList.add('hide');
+    }, { passive: true });
+
+    setActive(0);
+})();
+</script>
+</body>
+</html>

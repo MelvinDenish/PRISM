@@ -1,8 +1,19 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
+const { aiLimiter } = require('../middleware/rateLimit');
 const Groq = require('groq-sdk');
 const User = require('../models/User');
 const router = express.Router();
+
+// Cap client-supplied AI conversation context to bound Groq token cost and
+// limit the prompt-injection surface (the client echoes the whole transcript).
+const MAX_CONTEXT_MESSAGES = 40;
+const MAX_MESSAGE_CHARS = 8000;
+const sanitizeContext = (context) =>
+  (Array.isArray(context) ? context : [])
+    .slice(-MAX_CONTEXT_MESSAGES)
+    .filter((m) => m && typeof m.content === 'string' && typeof m.role === 'string')
+    .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_MESSAGE_CHARS) }));
 
 const getGroq = () => {
   if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY not configured');
@@ -10,7 +21,7 @@ const getGroq = () => {
 };
 
 // Start AI interview — check for online mentors first
-router.post('/start', protect, async (req, res) => {
+router.post('/start', protect, aiLimiter, async (req, res) => {
   try {
     const { type = 'technical', topic = 'general' } = req.body;
     // Check for online mentors (simplified: check recent activity)
@@ -50,18 +61,21 @@ router.post('/start', protect, async (req, res) => {
         { role: 'assistant', content: firstQuestion }
       ]
     });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // Chat with AI interviewer
-router.post('/chat', protect, async (req, res) => {
+router.post('/chat', protect, aiLimiter, async (req, res) => {
   try {
-    const { message, conversationContext } = req.body;
+    const { message } = req.body;
+    if (typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ success: false, message: 'Message is required' });
+    }
     const groq = getGroq();
 
     const messages = [
-      ...conversationContext,
-      { role: 'user', content: message }
+      ...sanitizeContext(req.body.conversationContext),
+      { role: 'user', content: message.slice(0, MAX_MESSAGE_CHARS) }
     ];
 
     const completion = await groq.chat.completions.create({
@@ -77,16 +91,17 @@ router.post('/chat', protect, async (req, res) => {
       aiMessage: aiResponse,
       updatedContext: [...messages, { role: 'assistant', content: aiResponse }]
     });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // Evaluate the full interview
-router.post('/evaluate', protect, async (req, res) => {
+router.post('/evaluate', protect, aiLimiter, async (req, res) => {
   try {
-    const { conversationContext, type = 'technical' } = req.body;
+    const { type = 'technical' } = req.body;
+    const conversationContext = sanitizeContext(req.body.conversationContext);
 
     // Validate: user must have sent at least 2 messages
-    const userMessages = (conversationContext || []).filter(m => m.role === 'user');
+    const userMessages = conversationContext.filter(m => m.role === 'user');
     if (userMessages.length < 2) {
       return res.status(400).json({
         success: false,
@@ -133,7 +148,7 @@ Only respond with the JSON, no extra text.`;
     }
 
     res.json({ success: true, evaluation });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 module.exports = router;

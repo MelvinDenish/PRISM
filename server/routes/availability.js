@@ -9,7 +9,7 @@ router.get('/:mentorId', protect, async (req, res) => {
         const availability = await Availability.findOne({ mentor: req.params.mentorId });
         res.json({ success: true, availability: availability || { availableSlots: [] } });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -25,7 +25,7 @@ router.post('/', protect, authorize('mentor'), async (req, res) => {
         }
         res.json({ success: true, availability });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -58,7 +58,7 @@ router.patch('/book/:slotIndex', protect, async (req, res) => {
 
         res.json({ success: true, availability });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 

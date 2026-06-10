@@ -30,6 +30,23 @@ const SCHEMA = {
   GEMINI_API_KEY: { feature: 'Resume ATS analysis (falls back to keyword matching)', secret: true },
   EMAIL_USER: { feature: 'Email notifications (Gmail SMTP)', secret: true },
   EMAIL_PASS: { feature: 'Email notifications (Gmail SMTP)', secret: true },
+
+  // File storage — adapter selected by STORAGE_DRIVER (local | s3). 'local'
+  // needs no extra vars (files under server/uploads). 's3' needs the S3_* vars;
+  // they are optional here so the local default never blocks boot.
+  STORAGE_DRIVER: { default: 'local' },
+  S3_BUCKET: { feature: 'S3 file storage (mentor uploads) when STORAGE_DRIVER=s3', secret: false },
+  S3_REGION: { default: 'us-east-1' },
+  S3_ACCESS_KEY_ID: { feature: 'S3 file storage credentials', secret: true },
+  S3_SECRET_ACCESS_KEY: { feature: 'S3 file storage credentials', secret: true },
+  S3_PUBLIC_BASE_URL: { feature: 'Custom public base URL / CDN for stored files (optional)', secret: false },
+  S3_ENDPOINT: { feature: 'Custom S3-compatible endpoint (MinIO/college server, optional)', secret: false },
+
+  // Live video (self-hosted LiveKit SFU). All three are needed for live mentoring
+  // video; when unset the /api/rtc/token endpoint returns 503 and video is disabled.
+  LIVEKIT_WS_URL: { feature: 'Live video (LiveKit SFU) — client signaling URL (ws/wss)', secret: false },
+  LIVEKIT_API_KEY: { feature: 'Live video (LiveKit SFU) — server token signing', secret: true },
+  LIVEKIT_API_SECRET: { feature: 'Live video (LiveKit SFU) — server token signing', secret: true },
 };
 
 /**
@@ -93,6 +110,23 @@ const config = Object.freeze({
   hasGroq: () => Boolean(process.env.GROQ_API_KEY),
   hasGemini: () => Boolean(process.env.GEMINI_API_KEY),
   hasEmail: () => Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS),
+
+  storageDriver: () => (process.env.STORAGE_DRIVER || 'local').toLowerCase(),
+  s3: () => ({
+    bucket: process.env.S3_BUCKET,
+    region: process.env.S3_REGION || 'us-east-1',
+    accessKeyId: process.env.S3_ACCESS_KEY_ID,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+    publicBaseUrl: process.env.S3_PUBLIC_BASE_URL || '',
+    endpoint: process.env.S3_ENDPOINT || '',
+  }),
+
+  hasLiveKit: () => Boolean(process.env.LIVEKIT_WS_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET),
+  livekit: () => ({
+    wsUrl: process.env.LIVEKIT_WS_URL || '',
+    apiKey: process.env.LIVEKIT_API_KEY || '',
+    apiSecret: process.env.LIVEKIT_API_SECRET || '',
+  }),
 });
 
 module.exports = { validateEnv, inspectEnv, config, SCHEMA };

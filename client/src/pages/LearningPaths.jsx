@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { getTopics, getResources, getLearningPaths, generateLearningPath, updatePathProgress, deleteLearningPath } from '../services/api';
 import { FiMap, FiPlus, FiTrash2, FiCheckCircle, FiCircle, FiArrowLeft, FiZap, FiExternalLink, FiAlertCircle } from 'react-icons/fi';
+import Reveal from '../components/motion/Reveal';
+import PageHero from '../components/ui/PageHero';
+import { SkeletonGrid } from '../components/ui/Skeleton';
+import Modal from '../components/ui/Modal';
 
 const LearningPaths = () => {
     const [paths, setPaths] = useState([]);
@@ -67,20 +71,22 @@ const LearningPaths = () => {
     if (selectedPath) {
         return (
             <div className="page">
-                <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', marginBottom: 24 }}>
-                    <button className="btn btn-secondary btn-sm" onClick={() => setSelectedPath(null)}><FiArrowLeft /></button>
-                    <div style={{ flex: 1 }}>
-                        <h1 className="page-title"><span>{selectedPath.title}</span></h1>
-                        <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>{selectedPath.description} • {selectedPath.completedSteps}/{selectedPath.totalSteps} completed</p>
-                    </div>
-                    <span className="badge badge-primary" style={{ fontSize: 16, padding: '8px 16px' }}>{selectedPath.progress}%</span>
-                </div>
+                <PageHero
+                    eyebrow="Learning path"
+                    title={selectedPath.title}
+                    subtitle={`${selectedPath.description} • ${selectedPath.completedSteps}/${selectedPath.totalSteps} completed`}
+                    icon={<FiArrowLeft />}
+                    actions={<>
+                        <span className="badge badge-primary" style={{ fontSize: 15, padding: '8px 16px' }}>{selectedPath.progress}%</span>
+                        <button className="btn btn-secondary" onClick={() => setSelectedPath(null)}><FiArrowLeft /> All paths</button>
+                    </>}
+                />
                 <div className="progress-bar" style={{ marginBottom: 32, height: 6 }}>
                     <div className="fill" style={{ width: `${selectedPath.progress}%` }}></div>
                 </div>
                 <div className="path-timeline">
                     {(selectedPath.steps || []).map((step, i) => (
-                        <div key={i} className={`path-step ${step.completed ? 'completed' : i === (selectedPath.steps?.findIndex(s => !s.completed) ?? 0) ? 'active' : ''}`}>
+                        <Reveal as="div" key={i} i={i} className={`path-step ${step.completed ? 'completed' : i === (selectedPath.steps?.findIndex(s => !s.completed) ?? 0) ? 'active' : ''}`}>
                             <div className="glass-card" style={{ display: 'flex', gap: 16, alignItems: 'flex-start', padding: 20 }}>
                                 <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: step.completed ? 'var(--accent-success)' : 'var(--text-muted)', fontSize: 22, marginTop: 2, flexShrink: 0 }}
                                     onClick={() => toggleStep(selectedPath._id, i, step.completed)}>
@@ -102,7 +108,7 @@ const LearningPaths = () => {
                                     )}
                                 </div>
                             </div>
-                        </div>
+                        </Reveal>
                     ))}
                 </div>
             </div>
@@ -118,15 +124,17 @@ const LearningPaths = () => {
 
     return (
         <div className="page">
-            <div className="page-header">
-                <h1 className="page-title">🗺️ <span>Learning Paths</span></h1>
-                <button className="btn btn-primary" onClick={() => { setCreating(true); setGenerateError(''); }}><FiPlus /> New Path</button>
-            </div>
+            <PageHero
+                eyebrow="Prepare"
+                title="Learning Paths"
+                subtitle="AI-generated roadmaps that sequence the right resources for your level."
+                icon={<FiMap />}
+                actions={<button className="btn btn-action" onClick={() => { setCreating(true); setGenerateError(''); }}><FiPlus /> New Path</button>}
+            />
 
             {creating && (
-                <div className="modal-overlay" onClick={() => setCreating(false)}>
-                    <div className="modal" onClick={e => e.stopPropagation()}>
-                        <h2>🗺️ Create Learning Path</h2>
+                <Modal onClose={() => setCreating(false)}>
+                        <h2>Create Learning Path</h2>
                         <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>AI will generate a personalized learning roadmap based on your level.</p>
                         <div className="form-group">
                             <label>Select Topic</label>
@@ -151,23 +159,22 @@ const LearningPaths = () => {
                             </select>
                         </div>
                         {generateError && (
-                            <div style={{ padding: '10px 14px', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 'var(--radius-sm)', color: 'var(--accent-danger)', fontSize: 13, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ padding: '10px 14px', background: 'rgba(192,70,43,0.08)', border: '1px solid rgba(192,70,43,0.25)', borderRadius: 'var(--radius-sm)', color: 'var(--accent-danger)', fontSize: 13, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <FiAlertCircle /> {generateError}
                             </div>
                         )}
                         <button className="btn btn-primary btn-lg" style={{ width: '100%' }} onClick={createPath} disabled={generating || !newPath.topicId}>
                             <FiZap /> {generating ? 'AI is generating your path...' : 'Generate Path'}
                         </button>
-                    </div>
-                </div>
+                </Modal>
             )}
 
-            {loading ? <div className="spinner" /> : paths.length === 0 ? (
-                <div className="empty-state"><div className="icon">🗺️</div><p>No learning paths yet. Create one to get a personalized roadmap!</p></div>
+            {loading ? <SkeletonGrid count={4} cols={2} /> : paths.length === 0 ? (
+                <div className="empty-state"><div className="icon"><FiMap /></div><p>No learning paths yet. Create one to get a personalized roadmap!</p></div>
             ) : (
                 <div className="grid grid-2">
-                    {paths.map(path => (
-                        <div key={path._id} className="glass-card" style={{ cursor: 'pointer' }} onClick={() => setSelectedPath(path)}>
+                    {paths.map((path, i) => (
+                        <Reveal as="div" key={path._id} i={i} className="glass-card spotlight" style={{ cursor: 'pointer' }} onClick={() => setSelectedPath(path)}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                                 <div>
                                     <h3 style={{ fontSize: 16, marginBottom: 4 }}>{path.title}</h3>
@@ -182,7 +189,7 @@ const LearningPaths = () => {
                                 <span>{path.completedSteps}/{path.totalSteps} completed</span>
                                 <span style={{ color: 'var(--accent-primary)', fontWeight: 700 }}>{path.progress}%</span>
                             </div>
-                        </div>
+                        </Reveal>
                     ))}
                 </div>
             )}

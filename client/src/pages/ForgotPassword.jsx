@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { FiMail } from 'react-icons/fi';
 import { forgotPassword } from '../services/api';
+import AuthLayout from '../components/AuthLayout';
 
 const ForgotPassword = () => {
     const [email, setEmail] = useState('');
@@ -22,14 +24,13 @@ const ForgotPassword = () => {
     };
 
     return (
-        <div className="auth-page">
-            <div className="auth-card">
-                <h1>PRISM</h1>
-                <p>Forgot your password? Enter your email and we'll send you a reset link.</p>
+        <AuthLayout>
+                <h1>Forgot password?</h1>
+                <p>Enter your email and we'll send you a reset link.</p>
                 {error && <div className="error-msg">{error}</div>}
                 {sent ? (
                     <div style={{ textAlign: 'center', padding: '16px 0' }}>
-                        <div style={{ fontSize: 40, marginBottom: 12 }}>📧</div>
+                        <div style={{ fontSize: 40, marginBottom: 12, color: 'var(--accent-primary)', display: 'flex', justifyContent: 'center' }}><FiMail /></div>
                         <p style={{ color: 'var(--text-secondary)' }}>
                             If that email is registered, a reset link has been sent. The link expires in 30 minutes.
                         </p>
@@ -49,8 +50,7 @@ const ForgotPassword = () => {
                 <div className="auth-link">
                     Remembered it? <Link to="/login">Back to Sign In</Link>
                 </div>
-            </div>
-        </div>
+        </AuthLayout>
     );
 };
 

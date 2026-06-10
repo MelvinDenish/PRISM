@@ -107,7 +107,8 @@ const seedAll = async () => {
             'Web Development', 'Machine Learning', 'Dynamic Programming',
             'Graph Theory', 'String Algorithms', 'Binary Trees & BST',
             'Sorting & Searching', 'Recursion & Backtracking', 'Bit Manipulation',
-            'Linked Lists', 'Stacks & Queues', 'Heap & Priority Queue', 'Greedy Algorithms'
+            'Linked Lists', 'Stacks & Queues', 'Heap & Priority Queue', 'Greedy Algorithms',
+            'Aptitude & Reasoning', 'HR & Behavioral'
         ];
         const topicDescriptions = [
             'Arrays, Linked Lists, Trees, Graphs, Hash Maps, Heaps',
@@ -129,7 +130,9 @@ const seedAll = async () => {
             'Singly, Doubly, Circular, Floyd\'s Cycle Detection',
             'Implementation, Monotonic Stack, Deque, Expression Evaluation',
             'Min/Max Heap, K-th element problems, Merge K lists',
-            'Activity Selection, Huffman, Job Sequencing, Fractional Knapsack'
+            'Activity Selection, Huffman, Job Sequencing, Fractional Knapsack',
+            'Quantitative Aptitude, Logical & Verbal Reasoning',
+            'HR rounds, Behavioral questions, STAR method'
         ];
         const topics = await Topic.insertMany(
             topicNames.map((name, i) => ({ name, description: topicDescriptions[i], createdBy: admin._id }))
@@ -140,94 +143,29 @@ const seedAll = async () => {
         // 4. RESOURCES (100+)
         // ════════════════════════════════════════
         console.log('📖 Seeding resources...');
+        const levels = ['beginner', 'intermediate', 'advanced']; // used by later sections too
+        const { CATALOG, inferType } = require('./data/resources');
+        const topicByName = Object.fromEntries(topics.map((t) => [t.name, t]));
         const resourceEntries = [];
-        const levels = ['beginner', 'intermediate', 'advanced'];
-        const types = ['video', 'article', 'link'];
-        const resourceTemplates = [
-            { t: 0, items: [
-                { title: 'Arrays & Hashing - Complete Guide', link: 'https://www.youtube.com/watch?v=KLlXCFG5TnA' },
-                { title: 'Linked List Masterclass', link: 'https://www.youtube.com/watch?v=Hj_rA0dhr2I' },
-                { title: 'Hash Map Internal Working', link: 'https://www.geeksforgeeks.org/hashing-data-structure/' },
-                { title: 'Stack & Queue Implementation', link: 'https://visualgo.net/en/list' },
-                { title: 'Tree Data Structure Visualized', link: 'https://www.cs.usfca.edu/~galles/visualization/BST.html' },
-            ]},
-            { t: 1, items: [
-                { title: 'Sorting Algorithms Visualized', link: 'https://www.youtube.com/watch?v=kPRA0W1kECg' },
-                { title: 'Binary Search Deep Dive', link: 'https://leetcode.com/discuss/study-guide/786126/' },
-                { title: 'Two Pointer Technique Guide', link: 'https://www.geeksforgeeks.org/two-pointers-technique/' },
-                { title: 'Sliding Window Pattern', link: 'https://www.youtube.com/watch?v=MK-NZ4hN7rs' },
-                { title: 'Divide and Conquer Explained', link: 'https://www.programiz.com/dsa/divide-and-conquer' },
-            ]},
-            { t: 2, items: [
-                { title: 'System Design Primer', link: 'https://github.com/donnemartin/system-design-primer' },
-                { title: 'Designing Instagram - HLD', link: 'https://www.youtube.com/watch?v=VJpfO6KdyWE' },
-                { title: 'URL Shortener Design', link: 'https://www.educative.io/courses/grokking-the-system-design-interview' },
-                { title: 'Load Balancer Deep Dive', link: 'https://www.nginx.com/resources/glossary/load-balancing/' },
-                { title: 'CAP Theorem Explained', link: 'https://www.ibm.com/topics/cap-theorem' },
-            ]},
-            { t: 3, items: [
-                { title: 'Process vs Thread Explained', link: 'https://www.youtube.com/watch?v=4rLW7zg21gI' },
-                { title: 'CPU Scheduling Algorithms', link: 'https://www.geeksforgeeks.org/cpu-scheduling-in-operating-systems/' },
-                { title: 'Deadlock Detection & Recovery', link: 'https://www.tutorialspoint.com/operating_system/os_deadlocks.htm' },
-                { title: 'Virtual Memory Concepts', link: 'https://www.youtube.com/watch?v=A9WLYbE0p-I' },
-                { title: 'Concurrency & Synchronization', link: 'https://pages.cs.wisc.edu/~remzi/OSTEP/' },
-            ]},
-            { t: 4, items: [
-                { title: 'SQL Joins Masterclass', link: 'https://www.youtube.com/watch?v=9yeOJ0ZMUYw' },
-                { title: 'Database Normalization Guide', link: 'https://www.guru99.com/database-normalization.html' },
-                { title: 'Indexing & Query Optimization', link: 'https://use-the-index-luke.com/' },
-                { title: 'MongoDB vs PostgreSQL Comparison', link: 'https://www.mongodb.com/compare/mongodb-postgresql' },
-                { title: 'ACID Properties Explained', link: 'https://www.geeksforgeeks.org/acid-properties-in-dbms/' },
-            ]},
-            { t: 5, items: [
-                { title: 'TCP/IP Model Deep Dive', link: 'https://www.youtube.com/watch?v=CRdL1PVrsV8' },
-                { title: 'HTTP/HTTPS Protocol Guide', link: 'https://developer.mozilla.org/en-US/docs/Web/HTTP' },
-                { title: 'DNS Resolution Process', link: 'https://www.cloudflare.com/learning/dns/what-is-dns/' },
-                { title: 'OSI Model Layers Explained', link: 'https://www.geeksforgeeks.org/layers-of-osi-model/' },
-                { title: 'Network Security Basics', link: 'https://www.cisco.com/c/en/us/products/security/what-is-network-security.html' },
-            ]},
-            { t: 7, items: [
-                { title: 'React.js Complete Course', link: 'https://www.youtube.com/watch?v=bMknfKXIFA8' },
-                { title: 'Node.js REST API Tutorial', link: 'https://www.youtube.com/watch?v=fgTGADljAeg' },
-                { title: 'JavaScript ES6+ Features', link: 'https://www.javascripttutorial.net/es6/' },
-                { title: 'CSS Flexbox & Grid Guide', link: 'https://css-tricks.com/snippets/css/a-guide-to-flexbox/' },
-                { title: 'Full Stack Project Tutorial', link: 'https://www.youtube.com/watch?v=mrHNSanmqQ4' },
-            ]},
-            { t: 8, items: [
-                { title: 'Machine Learning Crash Course', link: 'https://developers.google.com/machine-learning/crash-course' },
-                { title: 'Neural Networks from Scratch', link: 'https://www.youtube.com/watch?v=aircAruvnKk' },
-                { title: 'Pandas & NumPy Essentials', link: 'https://www.kaggle.com/learn/pandas' },
-                { title: 'Scikit-learn Tutorial', link: 'https://scikit-learn.org/stable/tutorial/' },
-                { title: 'Deep Learning Specialization Notes', link: 'https://www.deeplearning.ai/' },
-            ]},
-            { t: 9, items: [
-                { title: 'DP Patterns - Ultimate Guide', link: 'https://leetcode.com/discuss/study-guide/458695/' },
-                { title: 'Knapsack Problem Variants', link: 'https://www.youtube.com/watch?v=8LusJS5-AGo' },
-                { title: 'LCS & Edit Distance', link: 'https://www.geeksforgeeks.org/longest-common-subsequence-dp-4/' },
-                { title: 'Matrix Chain Multiplication', link: 'https://www.programiz.com/dsa/matrix-chain-multiplication' },
-                { title: 'DP on Trees', link: 'https://codeforces.com/blog/entry/20935' },
-            ]},
-            { t: 10, items: [
-                { title: 'Graph Traversal BFS & DFS', link: 'https://www.youtube.com/watch?v=pcKY4hjDrxk' },
-                { title: 'Dijkstra\'s Shortest Path', link: 'https://visualgo.net/en/sssp' },
-                { title: 'Topological Sort Applications', link: 'https://www.geeksforgeeks.org/topological-sorting/' },
-                { title: 'Minimum Spanning Tree', link: 'https://www.programiz.com/dsa/spanning-tree-and-minimum-spanning-tree' },
-                { title: 'Strongly Connected Components', link: 'https://cp-algorithms.com/graph/strongly-connected-components.html' },
-            ]},
-        ];
-
-        for (const rt of resourceTemplates) {
-            for (let i = 0; i < rt.items.length; i++) {
+        let ri = 0;
+        for (const [topicName, items] of Object.entries(CATALOG)) {
+            const topic = topicByName[topicName];
+            if (!topic) {
+                console.warn(`   ⚠️  Skipping resources for unknown topic "${topicName}"`);
+                continue;
+            }
+            for (const [title, link, level] of items) {
                 resourceEntries.push({
-                    title: rt.items[i].title,
-                    description: `Comprehensive resource for ${topics[rt.t].name}`,
-                    topic: topics[rt.t]._id,
-                    level: levels[i % 3],
-                    resourceType: types[i % 3],
-                    link: rt.items[i].link,
-                    uploadedBy: mentors[i % mentors.length]._id,
-                    companyTag: companies[i % companies.length]._id
+                    title,
+                    description: `${topic.name} — curated resource (${level}).`,
+                    topic: topic._id,
+                    level,
+                    resourceType: inferType(link),
+                    link,
+                    uploadedBy: mentors[ri % mentors.length]._id,
+                    companyTag: companies[ri % companies.length]._id
                 });
+                ri++;
             }
         }
         const resources = await Resource.insertMany(resourceEntries);
@@ -264,8 +202,40 @@ const seedAll = async () => {
             { title: 'Longest Increasing Subsequence', description: 'Find the length of the longest strictly increasing subsequence.', difficulty: 'medium', sampleInput: 'nums = [10,9,2,5,3,7,101,18]', sampleOutput: '4' },
             { title: 'Regular Expression Matching', description: 'Implement regular expression matching with \'.\' and \'*\' support.', difficulty: 'hard', sampleInput: 's = "aa", p = "a*"', sampleOutput: 'true' },
         ];
+        // Map each problem to a sensible topic (no more round-robin mis-tagging, bug R5).
+        const codingTopicByTitle = {
+            'Two Sum': 'Data Structures',
+            'Reverse Linked List': 'Linked Lists',
+            'Valid Parentheses': 'Stacks & Queues',
+            'Maximum Subarray': 'Dynamic Programming',
+            'Binary Tree Level Order Traversal': 'Binary Trees & BST',
+            'Merge Intervals': 'Sorting & Searching',
+            'Longest Substring Without Repeating Characters': 'String Algorithms',
+            'LRU Cache': 'Data Structures',
+            'Median of Two Sorted Arrays': 'Sorting & Searching',
+            'Trapping Rain Water': 'Dynamic Programming',
+            'Best Time to Buy and Sell Stock': 'Dynamic Programming',
+            'Climbing Stairs': 'Dynamic Programming',
+            '3Sum': 'Sorting & Searching',
+            'Course Schedule': 'Graph Theory',
+            'Serialize and Deserialize Binary Tree': 'Binary Trees & BST',
+            'Find Median from Data Stream': 'Heap & Priority Queue',
+            'Coin Change': 'Dynamic Programming',
+            'Word Break': 'Dynamic Programming',
+            'Rotate Image': 'Data Structures',
+            'N-Queens': 'Recursion & Backtracking',
+            'Implement Trie': 'String Algorithms',
+            'Number of Islands': 'Graph Theory',
+            'Word Ladder': 'Graph Theory',
+            'Longest Increasing Subsequence': 'Dynamic Programming',
+            'Regular Expression Matching': 'Dynamic Programming'
+        };
         const codingQuestions = await CodingQuestion.insertMany(
-            codingQs.map((q, i) => ({ ...q, topic: topics[i % topics.length]._id, companyTags: [companies[i % companies.length]._id, companies[(i+3) % companies.length]._id] }))
+            codingQs.map((q, i) => ({
+                ...q,
+                topic: (topicByName[codingTopicByTitle[q.title]] || topicByName['Data Structures'] || topics[0])._id,
+                companyTags: [companies[i % companies.length]._id, companies[(i + 3) % companies.length]._id]
+            }))
         );
         console.log(`   ✅ ${codingQuestions.length} coding questions`);
 

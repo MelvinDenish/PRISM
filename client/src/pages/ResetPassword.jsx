@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { resetPassword } from '../services/api';
+import AuthLayout from '../components/AuthLayout';
 
 const ResetPassword = () => {
     const [params] = useSearchParams();
@@ -27,20 +28,17 @@ const ResetPassword = () => {
 
     if (!token) {
         return (
-            <div className="auth-page">
-                <div className="auth-card">
-                    <h1>PRISM</h1>
-                    <div className="error-msg">Missing or invalid reset link.</div>
-                    <div className="auth-link"><Link to="/forgot-password">Request a new link</Link></div>
-                </div>
-            </div>
+            <AuthLayout>
+                <h1>Reset link invalid</h1>
+                <div className="error-msg">Missing or invalid reset link.</div>
+                <div className="auth-link"><Link to="/forgot-password">Request a new link</Link></div>
+            </AuthLayout>
         );
     }
 
     return (
-        <div className="auth-page">
-            <div className="auth-card">
-                <h1>PRISM</h1>
+        <AuthLayout>
+                <h1>Set a new password</h1>
                 <p>Choose a new password (at least 8 characters, including a letter and a number).</p>
                 {error && <div className="error-msg">{error}</div>}
                 <form onSubmit={handleSubmit}>
@@ -61,8 +59,7 @@ const ResetPassword = () => {
                 <div className="auth-link">
                     <Link to="/login">Back to Sign In</Link>
                 </div>
-            </div>
-        </div>
+        </AuthLayout>
     );
 };
 

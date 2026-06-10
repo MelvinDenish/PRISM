@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getCompanies, createCompany, deleteCompany } from '../services/api';
-import { FiPlus, FiTrash2, FiX } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiX, FiBriefcase, FiClipboard, FiZap } from 'react-icons/fi';
+import Reveal from '../components/motion/Reveal';
+import PageHero from '../components/ui/PageHero';
+import { SkeletonGrid } from '../components/ui/Skeleton';
+import Modal from '../components/ui/Modal';
 
 const Companies = () => {
     const { user } = useAuth();
@@ -25,28 +29,35 @@ const Companies = () => {
 
     return (
         <div className="page">
-            <div className="page-header">
-                <h1 className="page-title">🏢 <span>Companies</span></h1>
-                {(user?.role === 'admin' || user?.role === 'mentor') && <button className="btn btn-primary" onClick={() => setShowAdd(true)}><FiPlus /> Add</button>}
-            </div>
-            {loading ? <div className="spinner" /> : (
+            <PageHero
+                eyebrow="Target"
+                title="Companies"
+                subtitle="Know each company's interview pattern before you walk in."
+                icon={<FiBriefcase />}
+                actions={(user?.role === 'admin' || user?.role === 'mentor') && <button className="btn btn-action" onClick={() => setShowAdd(true)}><FiPlus /> Add</button>}
+            />
+            {loading ? <SkeletonGrid count={6} cols={3} /> : (
                 <div className="grid grid-3">
-                    {companies.map((c) => (
-                        <div key={c._id} className="glass-card">
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <h3 style={{ fontSize: 18, fontWeight: 700 }}>{c.name}</h3>
+                    {companies.map((c, i) => (
+                        <Reveal as="div" key={c._id} i={i} className="glass-card spotlight">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                                    <span className="company-emblem">{c.name?.[0]?.toUpperCase() || 'C'}</span>
+                                    <h3 style={{ fontSize: 18, fontWeight: 700 }}>{c.name}</h3>
+                                </div>
                                 {user?.role === 'admin' && <button style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', cursor: 'pointer' }} onClick={() => handleDelete(c._id)}><FiTrash2 /></button>}
                             </div>
-                            {c.description && <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '8px 0' }}>{c.description}</p>}
-                            {c.interviewPattern && <div className="chip" style={{ marginRight: 6 }}>📋 {c.interviewPattern}</div>}
-                            {c.difficultyLevel && <div className="chip">⚡ {c.difficultyLevel}</div>}
-                        </div>
+                            {c.description && <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '10px 0' }}>{c.description}</p>}
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                                {c.interviewPattern && <div className="chip"><FiClipboard /> {c.interviewPattern}</div>}
+                                {c.difficultyLevel && <div className="chip"><FiZap /> {c.difficultyLevel}</div>}
+                            </div>
+                        </Reveal>
                     ))}
                 </div>
             )}
             {showAdd && (
-                <div className="modal-overlay" onClick={() => setShowAdd(false)}>
-                    <div className="modal" onClick={(e) => e.stopPropagation()}>
+                <Modal onClose={() => setShowAdd(false)}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}><h2>Add Company</h2><button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 20 }} onClick={() => setShowAdd(false)}><FiX /></button></div>
                         <form onSubmit={handleCreate}>
                             <div className="form-group"><label>Name</label><input className="form-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></div>
@@ -55,8 +66,7 @@ const Companies = () => {
                             <div className="form-group"><label>Difficulty</label><input className="form-input" value={form.difficultyLevel} onChange={(e) => setForm({ ...form, difficultyLevel: e.target.value })} placeholder="Easy / Medium / Hard" /></div>
                             <button className="btn btn-primary" style={{ width: '100%' }}>Add Company</button>
                         </form>
-                    </div>
-                </div>
+                </Modal>
             )}
         </div>
     );

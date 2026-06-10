@@ -2,7 +2,11 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getMentors, getAvailability, bookSession } from '../services/api';
-import { FiSearch, FiStar, FiBriefcase, FiClock, FiCalendar, FiFilter, FiCheck, FiX, FiUser } from 'react-icons/fi';
+import { FiSearch, FiStar, FiBriefcase, FiClock, FiCalendar, FiFilter, FiCheck, FiX, FiUser, FiUsers } from 'react-icons/fi';
+import Reveal from '../components/motion/Reveal';
+import PageHero from '../components/ui/PageHero';
+import { SkeletonGrid } from '../components/ui/Skeleton';
+import Modal from '../components/ui/Modal';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -132,19 +136,22 @@ const Mentors = () => {
 
     return (
         <div className="page">
-            <div className="page-header">
-                <h1 className="page-title">👨‍🏫 <span>Find Mentors</span></h1>
-            </div>
+            <PageHero
+                eyebrow="Career"
+                title="Find Mentors"
+                subtitle="Connect with people who landed the roles you're aiming for."
+                icon={<FiUsers />}
+            />
 
             {/* Search & Filters */}
             <div className="glass-card" style={{ marginBottom: 24 }}>
                 <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
                     <input className="form-input" style={{ flex: 1, minWidth: 200 }} placeholder="Search by company name..."
                         value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} />
-                    <select className="form-select" style={{ width: 160 }} value={sortBy} onChange={e => { setSortBy(e.target.value); fetchMentors(search); }}>
-                        <option value="relevance">🎯 Best Match</option>
-                        <option value="rating">⭐ Highest Rated</option>
-                        <option value="experience">📈 Most Experienced</option>
+                    <select className="form-select" style={{ width: 180 }} value={sortBy} onChange={e => { setSortBy(e.target.value); fetchMentors(search); }}>
+                        <option value="relevance">Best Match</option>
+                        <option value="rating">Highest Rated</option>
+                        <option value="experience">Most Experienced</option>
                     </select>
                     <button className="btn btn-primary" onClick={handleSearch}><FiSearch /> Search</button>
                 </div>
@@ -154,11 +161,11 @@ const Mentors = () => {
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: '28px' }}><FiFilter /> Filter by skill:</span>
                         <button className={`chip ${!skillFilter ? 'active' : ''}`} onClick={() => { setSkillFilter(''); fetchMentors(search); }}
-                            style={{ background: !skillFilter ? 'rgba(16,185,129,0.15)' : undefined, borderColor: !skillFilter ? 'var(--accent-primary)' : undefined }}>All</button>
+                            style={{ background: !skillFilter ? 'rgba(201,162,75,0.15)' : undefined, borderColor: !skillFilter ? 'var(--accent-primary)' : undefined }}>All</button>
                         {allSkills.map(s => (
                             <button key={s} className={`chip ${skillFilter === s ? 'active' : ''}`}
                                 onClick={() => { setSkillFilter(skillFilter === s ? '' : s); }}
-                                style={{ cursor: 'pointer', background: skillFilter === s ? 'rgba(16,185,129,0.15)' : undefined, borderColor: skillFilter === s ? 'var(--accent-primary)' : undefined, color: skillFilter === s ? 'var(--accent-primary)' : undefined }}>
+                                style={{ cursor: 'pointer', background: skillFilter === s ? 'rgba(201,162,75,0.15)' : undefined, borderColor: skillFilter === s ? 'var(--accent-primary)' : undefined, color: skillFilter === s ? 'var(--accent-primary)' : undefined }}>
                                 {s}
                             </button>
                         ))}
@@ -167,16 +174,16 @@ const Mentors = () => {
             </div>
 
             {/* Mentor Cards */}
-            {loading ? <div className="spinner" /> : (
+            {loading ? <SkeletonGrid count={4} cols={1} /> : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    {mentors.map(m => (
-                        <div key={m._id} className="glass-card">
+                    {mentors.map((m, idx) => (
+                        <Reveal as="div" key={m._id} i={idx} className="glass-card spotlight">
                             {/* Main card */}
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16, cursor: 'pointer' }} onClick={() => toggleExpand(m._id)}>
                                 <div style={{ display: 'flex', gap: 16, flex: 1 }}>
                                     <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'var(--gradient-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 700, color: 'white', flexShrink: 0, position: 'relative' }}>
                                         {m.name?.[0]}
-                                        {m.isOnline && <div style={{ position: 'absolute', bottom: 2, right: 2, width: 12, height: 12, borderRadius: '50%', background: '#22c55e', border: '2px solid var(--bg-card)' }} />}
+                                        {m.isOnline && <div style={{ position: 'absolute', bottom: 2, right: 2, width: 12, height: 12, borderRadius: '50%', background: 'var(--accent-primary)', border: '2px solid var(--bg-card)' }} />}
                                     </div>
                                     <div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -261,7 +268,7 @@ const Mentors = () => {
 
                                             {/* Booking success message */}
                                             {bookingSuccess && (
-                                                <div style={{ marginTop: 16, padding: 12, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', borderRadius: 'var(--radius-sm)', color: 'var(--accent-success)', fontSize: 13 }}>
+                                                <div style={{ marginTop: 16, padding: 12, background: 'rgba(201,162,75,0.08)', border: '1px solid rgba(201,162,75,0.2)', borderRadius: 'var(--radius-sm)', color: 'var(--accent-success)', fontSize: 13 }}>
                                                     <FiCheck style={{ marginRight: 4 }} /> {bookingSuccess}
                                                 </div>
                                             )}
@@ -269,18 +276,17 @@ const Mentors = () => {
                                     )}
                                 </div>
                             )}
-                        </div>
+                        </Reveal>
                     ))}
                 </div>
             )}
-            {!loading && mentors.length === 0 && <div className="empty-state"><div className="icon">👨‍🏫</div><p>No mentors found.</p></div>}
+            {!loading && mentors.length === 0 && <div className="empty-state"><div className="icon"><FiUsers /></div><p>No mentors found.</p></div>}
 
             {/* Booking Confirmation Modal */}
             {bookingSlot && (
-                <div className="modal-overlay" onClick={() => setBookingSlot(null)}>
-                    <div className="modal" onClick={e => e.stopPropagation()}>
+                <Modal onClose={() => setBookingSlot(null)}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-                            <h2>📅 Book Session</h2>
+                            <h2>Book Session</h2>
                             <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 20 }} onClick={() => setBookingSlot(null)}><FiX /></button>
                         </div>
                         <div style={{ padding: 16, background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', marginBottom: 20 }}>
@@ -301,11 +307,10 @@ const Mentors = () => {
                             <textarea className="form-textarea" rows={3} value={bookingAgenda} onChange={e => setBookingAgenda(e.target.value)}
                                 placeholder="What would you like to discuss? Eg: DSA doubts, mock interview, resume review..." />
                         </div>
-                        <button className="btn btn-primary" style={{ width: '100%' }} onClick={confirmBooking}>
+                        <button className="btn btn-action" style={{ width: '100%' }} onClick={confirmBooking}>
                             <FiCheck /> Confirm Booking
                         </button>
-                    </div>
-                </div>
+                </Modal>
             )}
         </div>
     );

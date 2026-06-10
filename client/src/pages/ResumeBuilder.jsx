@@ -2,11 +2,14 @@ import { useState, useEffect } from 'react';
 import { getResumeDrafts, saveResumeDraft, updateResumeDraft, deleteResumeDraft, generateResumeContent, generateCoverLetter } from '../services/api';
 import { FiPlus, FiTrash2, FiDownload, FiZap, FiFileText, FiEdit, FiSave, FiArrowLeft, FiFile } from 'react-icons/fi';
 import { saveAs } from 'file-saver';
+import Reveal from '../components/motion/Reveal';
+import PageHero from '../components/ui/PageHero';
+import ResumePreview from '../components/resume/ResumePreview';
 
 const TEMPLATES = [
-    { id: 'modern', name: 'Modern', desc: 'Clean layout with accent colors', color: '#10b981' },
-    { id: 'classic', name: 'Classic', desc: 'Traditional format for corporates', color: '#6366f1' },
-    { id: 'creative', name: 'Creative', desc: 'Bold design for startups', color: '#f59e0b' },
+    { id: 'modern', name: 'Modern', desc: 'Clean layout with accent colors', color: '#C9A24B' },
+    { id: 'classic', name: 'Classic', desc: 'Traditional format for corporates', color: '#A8843A' },
+    { id: 'creative', name: 'Creative', desc: 'Bold design for startups', color: '#E2682A' },
 ];
 
 const ResumeBuilder = () => {
@@ -156,29 +159,32 @@ const ResumeBuilder = () => {
         saveAs(blob, `${form.personalInfo.fullName || 'resume'}.docx`);
     };
 
-    const tc = TEMPLATES.find(t => t.id === form.template)?.color || '#10b981';
+    const tc = TEMPLATES.find(t => t.id === form.template)?.color || '#4F46E5';
 
     // LIST VIEW
     if (step === 0) {
         return (
             <div className="page">
-                <div className="page-header">
-                    <h1 className="page-title">📄 <span>Resume Builder</span></h1>
-                    <button className="btn btn-primary" onClick={newDraft}><FiPlus /> New Resume</button>
-                </div>
+                <PageHero
+                    eyebrow="Career"
+                    title="Resume Builder"
+                    subtitle="Build a recruiter-ready resume with AI-assisted content."
+                    icon={<FiFileText />}
+                    actions={<button className="btn btn-action" onClick={newDraft}><FiPlus /> New Resume</button>}
+                />
                 {drafts.length === 0 ? (
-                    <div className="empty-state"><div className="icon">📄</div><p>No resumes yet. Create your first one!</p></div>
+                    <div className="empty-state"><div className="icon"><FiFileText /></div><p>No resumes yet. Create your first one!</p></div>
                 ) : (
                     <div className="grid grid-3">
-                        {drafts.map(d => (
-                            <div key={d._id} className="glass-card" style={{ cursor: 'pointer' }} onClick={() => editDraft(d)}>
+                        {drafts.map((d, i) => (
+                            <Reveal as="div" key={d._id} i={i} className="glass-card spotlight" style={{ cursor: 'pointer' }} onClick={() => editDraft(d)}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                                     <div><h3 style={{ fontSize: 16 }}>{d.name}</h3><p style={{ color: 'var(--text-muted)', fontSize: 12 }}>{d.template} template</p></div>
                                     <button className="btn btn-sm" style={{ background: 'none', color: 'var(--accent-danger)' }} onClick={e => { e.stopPropagation(); removeDraft(d._id); }}><FiTrash2 /></button>
                                 </div>
                                 <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{d.personalInfo?.fullName || 'No name'}</p>
                                 <p style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 8 }}>Updated: {new Date(d.updatedAt).toLocaleDateString()}</p>
-                            </div>
+                            </Reveal>
                         ))}
                     </div>
                 )}
@@ -200,6 +206,8 @@ const ResumeBuilder = () => {
                 {steps.map((s, i) => (<button key={s} className={`tab ${step - 1 === i ? 'active' : ''}`} onClick={() => setStep(i + 1)}>{s}</button>))}
             </div>
 
+            <div className="rb-layout">
+              <div className="rb-editor">
             {/* Step 1: Template */}
             {step === 1 && (
                 <div className="grid grid-3">
@@ -324,24 +332,15 @@ const ResumeBuilder = () => {
                 </div>
             )}
 
-            {/* Step 7: Preview & Download */}
+            {/* Step 7: Finish & Export */}
             {step === 7 && (
-                <div>
-                    <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-                        <button className="btn btn-primary" onClick={downloadPDF}><FiDownload /> PDF</button>
-                        <button className="btn btn-secondary" onClick={downloadDOCX}><FiFile /> DOCX</button>
-                    </div>
-                    <div id="resume-preview" style={{ background: 'white', color: '#333', padding: 48, borderRadius: 12, maxWidth: 800, fontFamily: 'Georgia, serif', lineHeight: 1.6 }}>
-                        <div style={{ borderBottom: `3px solid ${tc}`, paddingBottom: 16, marginBottom: 20 }}>
-                            <h1 style={{ fontSize: 28, color: '#1a1a2e', margin: 0 }}>{form.personalInfo.fullName || 'Your Name'}</h1>
-                            <p style={{ color: '#666', fontSize: 13, marginTop: 4 }}>{[form.personalInfo.email, form.personalInfo.phone, form.personalInfo.location].filter(Boolean).join(' | ')}</p>
-                            {(form.personalInfo.linkedin || form.personalInfo.github) && <p style={{ color: tc, fontSize: 12, marginTop: 2 }}>{[form.personalInfo.linkedin, form.personalInfo.github].filter(Boolean).join(' | ')}</p>}
-                        </div>
-                        {form.personalInfo.summary && <div style={{ marginBottom: 20 }}><h3 style={{ color: tc, fontSize: 14, textTransform: 'uppercase', letterSpacing: 1, borderBottom: '1px solid #ddd', paddingBottom: 4, marginBottom: 8 }}>Summary</h3><p style={{ fontSize: 13 }}>{form.personalInfo.summary}</p></div>}
-                        {form.skills.length > 0 && <div style={{ marginBottom: 20 }}><h3 style={{ color: tc, fontSize: 14, textTransform: 'uppercase', letterSpacing: 1, borderBottom: '1px solid #ddd', paddingBottom: 4, marginBottom: 8 }}>Skills</h3><p style={{ fontSize: 13 }}>{form.skills.join(' • ')}</p></div>}
-                        {form.experience.some(e => e.company) && <div style={{ marginBottom: 20 }}><h3 style={{ color: tc, fontSize: 14, textTransform: 'uppercase', letterSpacing: 1, borderBottom: '1px solid #ddd', paddingBottom: 4, marginBottom: 8 }}>Experience</h3>{form.experience.filter(e => e.company).map((e, i) => (<div key={i} style={{ marginBottom: 12 }}><div style={{ display: 'flex', justifyContent: 'space-between' }}><strong style={{ fontSize: 14 }}>{e.position}</strong><span style={{ color: '#888', fontSize: 12 }}>{e.startDate} - {e.current ? 'Present' : e.endDate}</span></div><p style={{ color: '#555', fontSize: 13 }}>{e.company}</p>{e.description && <p style={{ fontSize: 12, marginTop: 4, color: '#666' }}>{e.description}</p>}</div>))}</div>}
-                        {form.education.some(e => e.institution) && <div style={{ marginBottom: 20 }}><h3 style={{ color: tc, fontSize: 14, textTransform: 'uppercase', letterSpacing: 1, borderBottom: '1px solid #ddd', paddingBottom: 4, marginBottom: 8 }}>Education</h3>{form.education.filter(e => e.institution).map((e, i) => (<div key={i} style={{ marginBottom: 8 }}><strong style={{ fontSize: 14 }}>{e.degree} in {e.field}</strong><p style={{ color: '#666', fontSize: 12 }}>{e.institution} | {e.startDate} - {e.endDate} {e.gpa ? `| GPA: ${e.gpa}` : ''}</p></div>))}</div>}
-                        {form.projects.some(p => p.name) && <div><h3 style={{ color: tc, fontSize: 14, textTransform: 'uppercase', letterSpacing: 1, borderBottom: '1px solid #ddd', paddingBottom: 4, marginBottom: 8 }}>Projects</h3>{form.projects.filter(p => p.name).map((p, i) => (<div key={i} style={{ marginBottom: 8 }}><strong style={{ fontSize: 14 }}>{p.name}</strong><p style={{ fontSize: 12, color: '#666' }}>{p.description}</p>{p.technologies && <p style={{ fontSize: 11, color: tc }}>Tech: {p.technologies}</p>}</div>))}</div>}
+                <div className="glass-card">
+                    <h3 className="card-title" style={{ marginBottom: 8 }}><FiDownload /> Finish &amp; Export</h3>
+                    <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>The live preview on the right is exactly what gets exported — pick a template on step 1 to change its look.</p>
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                        <button className="btn btn-action" onClick={downloadPDF}><FiDownload /> Download PDF</button>
+                        <button className="btn btn-secondary" onClick={downloadDOCX}><FiFile /> Download DOCX</button>
+                        <button className="btn btn-secondary" onClick={saveDraft} disabled={loading}><FiSave /> {loading ? 'Saving…' : 'Save draft'}</button>
                     </div>
                 </div>
             )}
@@ -350,6 +349,19 @@ const ResumeBuilder = () => {
                 {step > 1 && <button className="btn btn-secondary" onClick={() => setStep(s => s - 1)}>← Previous</button>}
                 {step < 7 && <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => { if (step === 6) saveDraft(); setStep(s => s + 1); }}>Next →</button>}
             </div>
+              </div>{/* /rb-editor */}
+
+              <aside className="rb-preview">
+                <div className="rb-preview-bar">
+                    <span className="rb-preview-label">Live preview</span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button className="btn btn-secondary btn-sm" onClick={downloadPDF}><FiDownload /> PDF</button>
+                        <button className="btn btn-secondary btn-sm" onClick={downloadDOCX}><FiFile /> DOCX</button>
+                    </div>
+                </div>
+                <div className="rb-paper"><ResumePreview form={form} /></div>
+              </aside>
+            </div>{/* /rb-layout */}
         </div>
     );
 };

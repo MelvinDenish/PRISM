@@ -2,7 +2,12 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getSessions, updateSessionStatus, rateSession } from '../services/api';
-import { FiCheck, FiX, FiStar, FiClock, FiVideo, FiPhoneOff } from 'react-icons/fi';
+import { FiCheck, FiX, FiStar, FiClock, FiVideo, FiPhoneOff, FiCalendar } from 'react-icons/fi';
+import Reveal from '../components/motion/Reveal';
+import PageHero from '../components/ui/PageHero';
+import SegmentedControl from '../components/ui/SegmentedControl';
+import { SkeletonGrid } from '../components/ui/Skeleton';
+import Modal from '../components/ui/Modal';
 
 const Sessions = () => {
     const { user } = useAuth();
@@ -39,25 +44,35 @@ const Sessions = () => {
     };
 
     const statusColors = { pending: 'warning', approved: 'primary', 'in-progress': 'info', completed: 'success', rejected: 'danger', cancelled: 'danger' };
-    const statusIcons = { pending: '🟡', approved: '🟢', 'in-progress': '📹', completed: '✅', rejected: '❌' };
 
     return (
         <div className="page">
-            <div className="page-header">
-                <h1 className="page-title">📅 <span>Mentorship Sessions</span></h1>
-                <div style={{ display: 'flex', gap: 8 }}>
-                    {['', 'pending', 'approved', 'in-progress', 'completed'].map(f => (
-                        <button key={f} className={`btn btn-sm ${filter === f ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFilter(f)}>
-                            {f || 'All'}
-                        </button>
-                    ))}
-                </div>
-            </div>
+            <PageHero
+                eyebrow="Mentorship"
+                title="Mentorship Sessions"
+                subtitle="Approve, join and review your 1:1 sessions."
+                icon={<FiCalendar />}
+                actions={
+                    <SegmentedControl
+                        id="session-filter"
+                        size="sm"
+                        value={filter}
+                        onChange={setFilter}
+                        options={[
+                            { value: '', label: 'All' },
+                            { value: 'pending', label: 'Pending' },
+                            { value: 'approved', label: 'Approved' },
+                            { value: 'in-progress', label: 'Live' },
+                            { value: 'completed', label: 'Done' },
+                        ]}
+                    />
+                }
+            />
 
-            {loading ? <div className="spinner" /> : (
+            {loading ? <SkeletonGrid count={4} cols={1} /> : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    {sessions.map(s => (
-                        <div key={s._id} className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+                    {sessions.map((s, idx) => (
+                        <Reveal as="div" key={s._id} i={idx} className="glass-card spotlight" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
                             <div style={{ flex: 1 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
                                     <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--gradient-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: 'white', fontSize: 18 }}>
@@ -74,10 +89,10 @@ const Sessions = () => {
                                     <span><FiClock style={{ marginRight: 4 }} />{new Date(s.scheduledDate).toLocaleString()}</span>
                                     {s.duration && <span>⏱ {s.duration} min</span>}
                                 </div>
-                                {s.agenda && <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 8, padding: '8px 12px', background: 'rgba(16,185,129,0.04)', borderRadius: 'var(--radius-sm)', borderLeft: '2px solid var(--accent-primary)' }}>{s.agenda}</p>}
+                                {s.agenda && <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 8, padding: '8px 12px', background: 'rgba(201,162,75,0.04)', borderRadius: 'var(--radius-sm)', borderLeft: '2px solid var(--accent-primary)' }}>{s.agenda}</p>}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                <span className={`badge badge-${statusColors[s.status]}`}>{statusIcons[s.status]} {s.status}</span>
+                                <span className={`badge badge-${statusColors[s.status]}`}>{s.status}</span>
 
                                 {/* Mentor: Approve/Reject pending sessions */}
                                 {user?.role === 'mentor' && s.status === 'pending' && (
@@ -121,16 +136,15 @@ const Sessions = () => {
                                     </span>
                                 )}
                             </div>
-                        </div>
+                        </Reveal>
                     ))}
                 </div>
             )}
-            {!loading && sessions.length === 0 && <div className="empty-state"><div className="icon">📅</div><p>No sessions yet</p></div>}
+            {!loading && sessions.length === 0 && <div className="empty-state"><div className="icon"><FiCalendar /></div><p>No sessions yet</p></div>}
 
             {ratingModal && (
-                <div className="modal-overlay" onClick={() => setRatingModal(null)}>
-                    <div className="modal" onClick={e => e.stopPropagation()}>
-                        <h2>⭐ Rate Session</h2>
+                <Modal onClose={() => setRatingModal(null)}>
+                        <h2>Rate Session</h2>
                         <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>How was your session with {user?.role === 'mentor' ? ratingModal.mentee?.name : ratingModal.mentor?.name}?</p>
                         <form onSubmit={handleRate}>
                             <div className="form-group">
@@ -144,8 +158,7 @@ const Sessions = () => {
                             <div className="form-group"><label>Feedback</label><textarea className="form-textarea" rows={4} value={feedback} onChange={e => setFeedback(e.target.value)} placeholder="Share your experience..." /></div>
                             <button className="btn btn-primary" style={{ width: '100%' }}>Submit Rating</button>
                         </form>
-                    </div>
-                </div>
+                </Modal>
             )}
         </div>
     );

@@ -18,7 +18,7 @@ router.get('/', protect, async (req, res) => {
 
         res.json({ success: true, questions });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -31,7 +31,7 @@ router.get('/:id', protect, async (req, res) => {
         if (!question) return res.status(404).json({ success: false, message: 'Question not found' });
         res.json({ success: true, question });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -41,7 +41,7 @@ router.post('/', protect, authorize('mentor', 'admin'), async (req, res) => {
         const question = await CodingQuestion.create(req.body);
         res.status(201).json({ success: true, question });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -51,7 +51,7 @@ router.put('/:id', protect, authorize('mentor', 'admin'), async (req, res) => {
         const question = await CodingQuestion.findByIdAndUpdate(req.params.id, req.body, { new: true });
         res.json({ success: true, question });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -61,7 +61,7 @@ router.delete('/:id', protect, authorize('admin'), async (req, res) => {
         await CodingQuestion.findByIdAndDelete(req.params.id);
         res.json({ success: true, message: 'Question deleted' });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 

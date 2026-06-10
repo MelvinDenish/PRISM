@@ -1,0 +1,235 @@
+/**
+ * Curated resource catalog for PRISM (Phase 1 — bug R5).
+ *
+ * Each entry is [title, url, level]. `resourceType` is inferred from the URL so
+ * Phase 3's in-app preview can route correctly (YouTube → embed, .pdf → pdf
+ * viewer, everything else → reader-view). Topics are keyed by NAME and matched
+ * to the seeded Topic _ids in seedAll.js — no more round-robin mis-tagging.
+ *
+ * Sources are well-known, stable, free references (official docs, GfG,
+ * freeCodeCamp, MIT OCW, NeetCode, cp-algorithms, MDN, etc.).
+ */
+
+function inferType(url) {
+    if (/youtube\.com|youtu\.be/i.test(url)) return 'video';
+    if (/\.pdf($|\?)/i.test(url)) return 'pdf';
+    if (/vimeo\.com/i.test(url)) return 'video';
+    return 'article';
+}
+
+// topic name -> array of [title, url, level]
+const CATALOG = {
+    'Data Structures': [
+        ['Data Structures Full Course (freeCodeCamp)', 'https://www.youtube.com/watch?v=RBSGKlAvoiM', 'beginner'],
+        ['Arrays — GeeksforGeeks', 'https://www.geeksforgeeks.org/array-data-structure/', 'beginner'],
+        ['Hashing / Hash Tables Explained', 'https://www.geeksforgeeks.org/hashing-data-structure/', 'intermediate'],
+        ['VisuAlgo — Data Structure Visualizations', 'https://visualgo.net/en', 'beginner'],
+        ['Linked List Masterclass (Abdul Bari)', 'https://www.youtube.com/watch?v=Hj_rA0dhr2I', 'beginner'],
+        ['MIT 6.006 — Data Structures Lecture Notes', 'https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-spring-2020/', 'advanced'],
+        ['Trees Data Structure (Programiz)', 'https://www.programiz.com/dsa/trees', 'intermediate'],
+        ['Hash Maps Internal Working', 'https://www.youtube.com/watch?v=shs0KM3wKv8', 'intermediate'],
+        ['Stacks & Queues (GfG)', 'https://www.geeksforgeeks.org/stack-data-structure/', 'beginner'],
+        ['Big-O Cheat Sheet', 'https://www.bigocheatsheet.com/', 'beginner'],
+        ['Heaps / Priority Queues Explained', 'https://www.programiz.com/dsa/heap-data-structure', 'intermediate'],
+    ],
+    'Algorithms': [
+        ['Algorithms Full Course (freeCodeCamp)', 'https://www.youtube.com/watch?v=8hly31xKli0', 'beginner'],
+        ['Introduction to Algorithms (CLRS) — MIT OCW', 'https://ocw.mit.edu/courses/6-046j-design-and-analysis-of-algorithms-spring-2015/', 'advanced'],
+        ['Two Pointers Technique (GfG)', 'https://www.geeksforgeeks.org/two-pointers-technique/', 'intermediate'],
+        ['Sliding Window Pattern (NeetCode)', 'https://www.youtube.com/watch?v=MK-NZ4hN7rs', 'intermediate'],
+        ['Divide and Conquer (Programiz)', 'https://www.programiz.com/dsa/divide-and-conquer-algorithm', 'intermediate'],
+        ['Greedy Algorithms (GfG)', 'https://www.geeksforgeeks.org/greedy-algorithms/', 'intermediate'],
+        ['Sorting Algorithms Visualized', 'https://www.youtube.com/watch?v=kPRA0W1kECg', 'beginner'],
+        ['cp-algorithms — Algorithm Reference', 'https://cp-algorithms.com/', 'advanced'],
+        ['NeetCode Roadmap', 'https://neetcode.io/roadmap', 'beginner'],
+        ['Backtracking Explained (GfG)', 'https://www.geeksforgeeks.org/backtracking-algorithms/', 'intermediate'],
+    ],
+    'System Design': [
+        ['System Design Primer (GitHub)', 'https://github.com/donnemartin/system-design-primer', 'intermediate'],
+        ['System Design Interview Basics (ByteByteGo)', 'https://www.youtube.com/watch?v=i7twT3x5yv8', 'beginner'],
+        ['Designing Instagram — HLD', 'https://www.youtube.com/watch?v=VJpfO6KdyWE', 'advanced'],
+        ['CAP Theorem Explained (IBM)', 'https://www.ibm.com/topics/cap-theorem', 'intermediate'],
+        ['Load Balancing (NGINX glossary)', 'https://www.nginx.com/resources/glossary/load-balancing/', 'intermediate'],
+        ['Caching Strategies (AWS)', 'https://aws.amazon.com/caching/', 'intermediate'],
+        ['Message Queues & Kafka Intro', 'https://www.youtube.com/watch?v=06iRM1Ghr1k', 'intermediate'],
+        ['Database Sharding Explained', 'https://www.geeksforgeeks.org/database-sharding-a-system-design-concept/', 'advanced'],
+        ['Grokking the System Design (Educative)', 'https://www.educative.io/courses/grokking-the-system-design-interview', 'advanced'],
+        ['Consistent Hashing', 'https://www.youtube.com/watch?v=UF9Iqmg94tk', 'advanced'],
+    ],
+    'Operating Systems': [
+        ['Operating Systems: Three Easy Pieces (free book)', 'https://pages.cs.wisc.edu/~remzi/OSTEP/', 'advanced'],
+        ['OS Full Course (Neso Academy)', 'https://www.youtube.com/watch?v=vBURTt97EkA', 'beginner'],
+        ['Process vs Thread (GfG)', 'https://www.geeksforgeeks.org/difference-between-process-and-thread/', 'beginner'],
+        ['CPU Scheduling Algorithms (GfG)', 'https://www.geeksforgeeks.org/cpu-scheduling-in-operating-systems/', 'intermediate'],
+        ['Deadlocks — Detection & Recovery', 'https://www.tutorialspoint.com/operating_system/os_deadlocks.htm', 'intermediate'],
+        ['Virtual Memory & Paging', 'https://www.youtube.com/watch?v=qlH4-oHnBb8', 'intermediate'],
+        ['Process Synchronization (GfG)', 'https://www.geeksforgeeks.org/introduction-of-process-synchronization/', 'intermediate'],
+        ['Memory Management Concepts', 'https://www.geeksforgeeks.org/memory-management-in-operating-system/', 'intermediate'],
+        ['Semaphores & Mutex Explained', 'https://www.youtube.com/watch?v=Dfvua9Tc0SU', 'advanced'],
+    ],
+    'Database Management': [
+        ['SQL Full Course (freeCodeCamp)', 'https://www.youtube.com/watch?v=HXV3zeQKqGY', 'beginner'],
+        ['SQL Joins Masterclass', 'https://www.youtube.com/watch?v=9yeOJ0ZMUYw', 'beginner'],
+        ['Database Normalization (Guru99)', 'https://www.guru99.com/database-normalization.html', 'intermediate'],
+        ['Use The Index, Luke — Indexing Guide', 'https://use-the-index-luke.com/', 'advanced'],
+        ['ACID Properties (GfG)', 'https://www.geeksforgeeks.org/acid-properties-in-dbms/', 'intermediate'],
+        ['Transactions & Isolation Levels', 'https://www.postgresql.org/docs/current/transaction-iso.html', 'advanced'],
+        ['MongoDB vs PostgreSQL', 'https://www.mongodb.com/compare/mongodb-postgresql', 'intermediate'],
+        ['Indexing Explained', 'https://www.youtube.com/watch?v=-qNSXK7s7_w', 'intermediate'],
+        ['SQLBolt — Interactive SQL Lessons', 'https://sqlbolt.com/', 'beginner'],
+        ['NoSQL Databases Overview', 'https://www.geeksforgeeks.org/introduction-to-nosql/', 'intermediate'],
+    ],
+    'Computer Networks': [
+        ['Computer Networking Full Course (freeCodeCamp)', 'https://www.youtube.com/watch?v=qiQR5rTSshw', 'beginner'],
+        ['TCP/IP Model Deep Dive', 'https://www.youtube.com/watch?v=CRdL1PVrsV8', 'intermediate'],
+        ['HTTP — MDN Reference', 'https://developer.mozilla.org/en-US/docs/Web/HTTP', 'beginner'],
+        ['What is DNS? (Cloudflare Learning)', 'https://www.cloudflare.com/learning/dns/what-is-dns/', 'beginner'],
+        ['OSI Model Layers (GfG)', 'https://www.geeksforgeeks.org/layers-of-osi-model/', 'beginner'],
+        ['How HTTPS / TLS Works', 'https://howhttps.works/', 'intermediate'],
+        ['Network Security Basics (Cisco)', 'https://www.cisco.com/c/en/us/products/security/what-is-network-security.html', 'intermediate'],
+        ['Subnetting Explained', 'https://www.youtube.com/watch?v=ecCuyq-Wprc', 'intermediate'],
+        ['TCP vs UDP (GfG)', 'https://www.geeksforgeeks.org/differences-between-tcp-and-udp/', 'beginner'],
+    ],
+    'Object Oriented Programming': [
+        ['OOP Concepts (freeCodeCamp)', 'https://www.youtube.com/watch?v=SiBw7os-_zI', 'beginner'],
+        ['Four Pillars of OOP (GfG)', 'https://www.geeksforgeeks.org/object-oriented-programming-oops-concept-in-java/', 'beginner'],
+        ['SOLID Principles Explained', 'https://www.youtube.com/watch?v=pTB30aXS77U', 'intermediate'],
+        ['Design Patterns — Refactoring.Guru', 'https://refactoring.guru/design-patterns', 'advanced'],
+        ['Inheritance vs Composition', 'https://www.geeksforgeeks.org/inheritance-and-composition-in-java/', 'intermediate'],
+        ['Polymorphism in OOP', 'https://www.programiz.com/java-programming/polymorphism', 'intermediate'],
+        ['Abstraction & Encapsulation', 'https://www.geeksforgeeks.org/abstraction-in-java-2/', 'beginner'],
+        ['UML Class Diagrams Intro', 'https://www.youtube.com/watch?v=UI6lqHOVHic', 'intermediate'],
+    ],
+    'Web Development': [
+        ['The Odin Project (Full Stack)', 'https://www.theodinproject.com/', 'beginner'],
+        ['React Course (freeCodeCamp)', 'https://www.youtube.com/watch?v=bMknfKXIFA8', 'beginner'],
+        ['Node.js REST API Tutorial', 'https://www.youtube.com/watch?v=fgTGADljAeg', 'intermediate'],
+        ['JavaScript — MDN Guide', 'https://developer.mozilla.org/en-US/docs/Web/JavaScript', 'beginner'],
+        ['CSS Flexbox Guide (CSS-Tricks)', 'https://css-tricks.com/snippets/css/a-guide-to-flexbox/', 'beginner'],
+        ['CSS Grid Guide (CSS-Tricks)', 'https://css-tricks.com/snippets/css/complete-guide-grid/', 'intermediate'],
+        ['React Official Docs', 'https://react.dev/learn', 'intermediate'],
+        ['REST API Design Best Practices', 'https://www.youtube.com/watch?v=0sOvCWFmrtA', 'intermediate'],
+        ['Web Security (OWASP Top 10)', 'https://owasp.org/www-project-top-ten/', 'advanced'],
+        ['JavaScript.info — Modern Tutorial', 'https://javascript.info/', 'beginner'],
+    ],
+    'Machine Learning': [
+        ['Machine Learning Crash Course (Google)', 'https://developers.google.com/machine-learning/crash-course', 'beginner'],
+        ['Neural Networks (3Blue1Brown)', 'https://www.youtube.com/watch?v=aircAruvnKk', 'beginner'],
+        ['Kaggle — Intro to Machine Learning', 'https://www.kaggle.com/learn/intro-to-machine-learning', 'beginner'],
+        ['scikit-learn Tutorials', 'https://scikit-learn.org/stable/tutorial/', 'intermediate'],
+        ['Pandas — Kaggle Course', 'https://www.kaggle.com/learn/pandas', 'beginner'],
+        ['CS229 Stanford ML Notes', 'https://cs229.stanford.edu/', 'advanced'],
+        ['Deep Learning Specialization', 'https://www.deeplearning.ai/', 'advanced'],
+        ['NLP Intro (Hugging Face Course)', 'https://huggingface.co/learn/nlp-course/chapter1/1', 'intermediate'],
+        ['Gradient Descent Explained', 'https://www.youtube.com/watch?v=IHZwWFHWa-w', 'intermediate'],
+    ],
+    'Dynamic Programming': [
+        ['DP Patterns — Ultimate Guide (LeetCode)', 'https://leetcode.com/discuss/study-guide/458695/Dynamic-Programming-Patterns', 'intermediate'],
+        ['5 Steps to Solve Any DP Problem', 'https://www.youtube.com/watch?v=aPQY__2H3tE', 'intermediate'],
+        ['Knapsack Problem Variants', 'https://www.youtube.com/watch?v=8LusJS5-AGo', 'intermediate'],
+        ['Longest Common Subsequence (GfG)', 'https://www.geeksforgeeks.org/longest-common-subsequence-dp-4/', 'intermediate'],
+        ['Matrix Chain Multiplication', 'https://www.programiz.com/dsa/matrix-chain-multiplication', 'advanced'],
+        ['DP on Trees (Codeforces)', 'https://codeforces.com/blog/entry/20935', 'advanced'],
+        ['DP for Beginners (LeetCode)', 'https://leetcode.com/discuss/general-discussion/662866/', 'beginner'],
+        ['Memoization vs Tabulation', 'https://www.geeksforgeeks.org/tabulation-vs-memoization/', 'intermediate'],
+    ],
+    'Graph Theory': [
+        ['Graph Algorithms Full Course (freeCodeCamp)', 'https://www.youtube.com/watch?v=tWVWeAqZ0WU', 'intermediate'],
+        ['BFS & DFS (GfG)', 'https://www.geeksforgeeks.org/breadth-first-search-or-bfs-for-a-graph/', 'beginner'],
+        ['Dijkstra Shortest Path (VisuAlgo)', 'https://visualgo.net/en/sssp', 'intermediate'],
+        ['Topological Sort (GfG)', 'https://www.geeksforgeeks.org/topological-sorting/', 'intermediate'],
+        ['Minimum Spanning Tree (Programiz)', 'https://www.programiz.com/dsa/spanning-tree-and-minimum-spanning-tree', 'intermediate'],
+        ['Strongly Connected Components', 'https://cp-algorithms.com/graph/strongly-connected-components.html', 'advanced'],
+        ['Union-Find / DSU', 'https://cp-algorithms.com/data_structures/disjoint_set_union.html', 'advanced'],
+        ['Bellman-Ford Algorithm', 'https://www.geeksforgeeks.org/bellman-ford-algorithm-dp-23/', 'intermediate'],
+    ],
+    'String Algorithms': [
+        ['String Algorithms (cp-algorithms)', 'https://cp-algorithms.com/string/prefix-function.html', 'advanced'],
+        ['KMP Pattern Matching (GfG)', 'https://www.geeksforgeeks.org/kmp-algorithm-for-pattern-searching/', 'intermediate'],
+        ['Rabin-Karp Algorithm', 'https://www.programiz.com/dsa/rabin-karp-algorithm', 'intermediate'],
+        ['Trie Data Structure', 'https://www.geeksforgeeks.org/trie-insert-and-search/', 'intermediate'],
+        ['Z-Algorithm Explained', 'https://www.youtube.com/watch?v=CpZh4eF8QBw', 'advanced'],
+        ['String Hashing', 'https://cp-algorithms.com/string/string-hashing.html', 'advanced'],
+        ['Manacher Palindrome Algorithm', 'https://www.geeksforgeeks.org/manachers-algorithm-linear-time-longest-palindromic-substring-part-1/', 'advanced'],
+    ],
+    'Binary Trees & BST': [
+        ['Binary Tree Traversals (GfG)', 'https://www.geeksforgeeks.org/tree-traversals-inorder-preorder-and-postorder/', 'beginner'],
+        ['BST Operations Visualized', 'https://www.cs.usfca.edu/~galles/visualization/BST.html', 'beginner'],
+        ['Binary Tree Playlist (NeetCode)', 'https://www.youtube.com/watch?v=OnSn2XEQ4MY', 'intermediate'],
+        ['AVL Trees Explained', 'https://www.programiz.com/dsa/avl-tree', 'advanced'],
+        ['Red-Black Trees (GfG)', 'https://www.geeksforgeeks.org/introduction-to-red-black-tree/', 'advanced'],
+        ['Segment Trees (cp-algorithms)', 'https://cp-algorithms.com/data_structures/segment_tree.html', 'advanced'],
+        ['Lowest Common Ancestor', 'https://www.geeksforgeeks.org/lowest-common-ancestor-binary-tree-set-1/', 'intermediate'],
+    ],
+    'Sorting & Searching': [
+        ['Sorting Algorithms Visualized', 'https://www.youtube.com/watch?v=kPRA0W1kECg', 'beginner'],
+        ['Binary Search Deep Dive (LeetCode)', 'https://leetcode.com/discuss/study-guide/786126/', 'intermediate'],
+        ['Merge Sort & Quick Sort (GfG)', 'https://www.geeksforgeeks.org/merge-sort/', 'intermediate'],
+        ['Counting & Radix Sort', 'https://www.programiz.com/dsa/counting-sort', 'intermediate'],
+        ['Binary Search Patterns', 'https://www.youtube.com/watch?v=GU7DpgHINWQ', 'intermediate'],
+        ['Sorting Comparison Cheat Sheet', 'https://www.bigocheatsheet.com/', 'beginner'],
+        ['Search in Rotated Array', 'https://www.geeksforgeeks.org/search-an-element-in-a-sorted-and-pivoted-array/', 'intermediate'],
+    ],
+    'Recursion & Backtracking': [
+        ['Recursion Explained (freeCodeCamp)', 'https://www.youtube.com/watch?v=IJDJ0kBx2LM', 'beginner'],
+        ['Backtracking Algorithms (GfG)', 'https://www.geeksforgeeks.org/backtracking-algorithms/', 'intermediate'],
+        ['N-Queens Problem', 'https://www.youtube.com/watch?v=Ph95IHmRp5M', 'intermediate'],
+        ['Sudoku Solver Backtracking', 'https://www.geeksforgeeks.org/sudoku-backtracking-7/', 'advanced'],
+        ['Permutations & Combinations', 'https://www.youtube.com/watch?v=s7AvT7cGdSo', 'intermediate'],
+        ['Subsets Pattern', 'https://leetcode.com/discuss/study-guide/2204620/', 'intermediate'],
+        ['Recursion Tree Visualization', 'https://recursion.vercel.app/', 'beginner'],
+    ],
+    'Bit Manipulation': [
+        ['Bit Manipulation (GfG)', 'https://www.geeksforgeeks.org/all-about-bit-manipulation/', 'intermediate'],
+        ['Bit Tricks Every Programmer Should Know', 'https://www.youtube.com/watch?v=NLKQEOgBAnw', 'intermediate'],
+        ['XOR Tricks', 'https://florian.github.io/xor-trick/', 'intermediate'],
+        ['Bitmasking & DP', 'https://www.hackerearth.com/practice/algorithms/dynamic-programming/bit-masking/tutorial/', 'advanced'],
+        ['Count Set Bits', 'https://www.geeksforgeeks.org/count-set-bits-in-an-integer/', 'beginner'],
+        ['Power of Two Check', 'https://www.geeksforgeeks.org/program-to-find-whether-a-given-number-is-power-of-2/', 'beginner'],
+    ],
+    'Linked Lists': [
+        ['Linked List Full Tutorial (Abdul Bari)', 'https://www.youtube.com/watch?v=Hj_rA0dhr2I', 'beginner'],
+        ['Singly vs Doubly Linked List (GfG)', 'https://www.geeksforgeeks.org/data-structures/linked-list/', 'beginner'],
+        ["Floyd's Cycle Detection", 'https://www.geeksforgeeks.org/floyds-cycle-finding-algorithm/', 'intermediate'],
+        ['Reverse a Linked List', 'https://www.youtube.com/watch?v=G0_I-ZF0S38', 'beginner'],
+        ['Merge Two Sorted Lists', 'https://www.geeksforgeeks.org/merge-two-sorted-linked-lists/', 'intermediate'],
+        ['LRU Cache with Linked List', 'https://www.youtube.com/watch?v=7ABFKPK2hD4', 'advanced'],
+    ],
+    'Stacks & Queues': [
+        ['Stack Data Structure (Programiz)', 'https://www.programiz.com/dsa/stack', 'beginner'],
+        ['Queue Data Structure (GfG)', 'https://www.geeksforgeeks.org/queue-data-structure/', 'beginner'],
+        ['Monotonic Stack Pattern', 'https://www.youtube.com/watch?v=Dq_ObZwTY_Q', 'advanced'],
+        ['Implement Queue using Stacks', 'https://www.geeksforgeeks.org/queue-using-stacks/', 'intermediate'],
+        ['Expression Evaluation (Infix/Postfix)', 'https://www.geeksforgeeks.org/expression-evaluation/', 'intermediate'],
+        ['Deque Explained', 'https://www.programiz.com/dsa/deque', 'intermediate'],
+    ],
+    'Heap & Priority Queue': [
+        ['Heap Data Structure (Programiz)', 'https://www.programiz.com/dsa/heap-data-structure', 'intermediate'],
+        ['Priority Queue & Heaps (GfG)', 'https://www.geeksforgeeks.org/heap-data-structure/', 'intermediate'],
+        ['Heaps Explained (NeetCode)', 'https://www.youtube.com/watch?v=t0Cq6tVNRBA', 'intermediate'],
+        ['Kth Largest Element', 'https://www.geeksforgeeks.org/kth-smallestlargest-element-in-unsorted-array/', 'intermediate'],
+        ['Merge K Sorted Lists', 'https://www.youtube.com/watch?v=q5a5OiGbT6Q', 'advanced'],
+        ['Heap Sort', 'https://www.programiz.com/dsa/heap-sort', 'intermediate'],
+    ],
+    'Greedy Algorithms': [
+        ['Greedy Algorithms (GfG)', 'https://www.geeksforgeeks.org/greedy-algorithms/', 'intermediate'],
+        ['Activity Selection Problem', 'https://www.geeksforgeeks.org/activity-selection-problem-greedy-algo-1/', 'intermediate'],
+        ['Huffman Coding', 'https://www.programiz.com/dsa/huffman-coding', 'advanced'],
+        ['Job Sequencing Problem', 'https://www.geeksforgeeks.org/job-sequencing-problem/', 'intermediate'],
+        ['Fractional Knapsack', 'https://www.youtube.com/watch?v=oTTzNMHM05I', 'intermediate'],
+        ['Greedy vs DP — When to Use', 'https://www.geeksforgeeks.org/greedy-approach-vs-dynamic-programming/', 'advanced'],
+    ],
+    // Cross-cutting interview-prep topics (mapped to closest seeded topic where needed)
+    'Aptitude & Reasoning': [
+        ['Quantitative Aptitude (IndiaBix)', 'https://www.indiabix.com/aptitude/questions-and-answers/', 'beginner'],
+        ['Logical Reasoning (IndiaBix)', 'https://www.indiabix.com/logical-reasoning/questions-and-answers/', 'beginner'],
+        ['Aptitude Shortcuts & Tricks', 'https://www.youtube.com/watch?v=4cdAGUMVx6E', 'beginner'],
+    ],
+    'HR & Behavioral': [
+        ['Top HR Interview Questions & Answers', 'https://www.indiabix.com/hr-interview/questions-and-answers/', 'beginner'],
+        ['STAR Method for Behavioral Interviews', 'https://www.themuse.com/advice/star-interview-method', 'beginner'],
+        ['Tell Me About Yourself — Best Answer', 'https://www.youtube.com/watch?v=kayOhGRcNt4', 'beginner'],
+    ],
+};
+
+module.exports = { CATALOG, inferType };

@@ -1,7 +1,18 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
+const { aiLimiter } = require('../middleware/rateLimit');
 const Groq = require('groq-sdk');
 const router = express.Router();
+
+// Cap client-supplied AI context to bound Groq token cost and the
+// prompt-injection surface (the client echoes the running transcript).
+const MAX_CONTEXT_MESSAGES = 40;
+const MAX_MESSAGE_CHARS = 8000;
+const sanitizeContext = (context) =>
+  (Array.isArray(context) ? context : [])
+    .slice(-MAX_CONTEXT_MESSAGES)
+    .filter((m) => m && typeof m.content === 'string' && typeof m.role === 'string')
+    .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_MESSAGE_CHARS) }));
 
 const getGroq = () => {
   if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY not configured');
@@ -18,13 +29,13 @@ const PARTICIPANTS = [
 ];
 
 // POST /api/group-discussion/start — Generate topic and start GD with AI participants
-router.post('/start', protect, async (req, res) => {
+router.post('/start', protect, aiLimiter, async (req, res) => {
   try {
     const groq = getGroq();
     const { customTopic } = req.body;
 
     // Generate a GD topic if none provided
-    let topic = customTopic;
+    let topic = typeof customTopic === 'string' ? customTopic.slice(0, 500) : '';
     if (!topic) {
       const topicRes = await groq.chat.completions.create({
         model: 'llama-3.1-8b-instant',
@@ -68,25 +79,29 @@ router.post('/start', protect, async (req, res) => {
       ]
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 });
 
 // POST /api/group-discussion/respond — User speaks, AI participants respond
-router.post('/respond', protect, async (req, res) => {
+router.post('/respond', protect, aiLimiter, async (req, res) => {
   try {
-    const { userMessage, context, participants, topic } = req.body;
+    const { userMessage, participants, topic } = req.body;
+    if (typeof userMessage !== 'string' || !userMessage.trim()) {
+      return res.status(400).json({ success: false, message: 'A message is required' });
+    }
     const groq = getGroq();
 
     // Add user's message to context
     const updatedContext = [
-      ...context,
-      { role: 'user', content: `Candidate: ${userMessage}` }
+      ...sanitizeContext(req.body.context),
+      { role: 'user', content: `Candidate: ${userMessage.slice(0, MAX_MESSAGE_CHARS)}` }
     ];
 
     // Pick 1-2 AI participants to respond
+    const safeParticipants = Array.isArray(participants) ? participants : [];
     const respondCount = 1 + Math.floor(Math.random() * 2);
-    const responders = [...participants].sort(() => Math.random() - 0.5).slice(0, respondCount);
+    const responders = [...safeParticipants].sort(() => Math.random() - 0.5).slice(0, respondCount);
 
     const responses = [];
     let runningContext = [...updatedContext];
@@ -115,14 +130,15 @@ router.post('/respond', protect, async (req, res) => {
       context: runningContext
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 });
 
 // POST /api/group-discussion/evaluate — Evaluate user's GD performance
-router.post('/evaluate', protect, async (req, res) => {
+router.post('/evaluate', protect, aiLimiter, async (req, res) => {
   try {
-    const { context, topic } = req.body;
+    const { topic } = req.body;
+    const context = sanitizeContext(req.body.context);
     const groq = getGroq();
 
     const evalRes = await groq.chat.completions.create({
@@ -157,7 +173,7 @@ router.post('/evaluate', protect, async (req, res) => {
 
     res.json({ success: true, evaluation });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 });
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import AuthLayout from '../components/AuthLayout';
 
 const Login = () => {
     const [email, setEmail] = useState('');
@@ -20,32 +21,30 @@ const Login = () => {
     };
 
     return (
-        <div className="auth-page">
-            <div className="auth-card">
-                <h1>PRISM</h1>
-                <p>Welcome back! Sign in to continue your preparation journey.</p>
-                {error && <div className="error-msg">{error}</div>}
-                <form onSubmit={handleSubmit}>
-                    <div className="form-group">
-                        <label>Email</label>
-                        <input className="form-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required />
-                    </div>
-                    <div className="form-group">
-                        <label>Password</label>
-                        <input className="form-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
-                    </div>
-                    <button className="btn btn-primary btn-lg" style={{ width: '100%' }} disabled={loading}>
-                        {loading ? 'Signing in...' : 'Sign In'}
-                    </button>
-                </form>
-                <div className="auth-link" style={{ marginTop: 12 }}>
-                    <Link to="/forgot-password">Forgot password?</Link>
+        <AuthLayout>
+            <h1>Welcome back</h1>
+            <p>Sign in to continue your preparation journey.</p>
+            {error && <div className="error-msg">{error}</div>}
+            <form onSubmit={handleSubmit}>
+                <div className="form-group">
+                    <label>Email</label>
+                    <input className="form-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required />
                 </div>
-                <div className="auth-link">
-                    Don't have an account? <Link to="/register">Create one</Link>
+                <div className="form-group">
+                    <label>Password</label>
+                    <input className="form-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
                 </div>
+                <button className="btn btn-action btn-lg" style={{ width: '100%' }} disabled={loading}>
+                    {loading ? 'Signing in...' : 'Sign In'}
+                </button>
+            </form>
+            <div className="auth-link" style={{ marginTop: 12 }}>
+                <Link to="/forgot-password">Forgot password?</Link>
             </div>
-        </div>
+            <div className="auth-link">
+                Don't have an account? <Link to="/register">Create one</Link>
+            </div>
+        </AuthLayout>
     );
 };
 

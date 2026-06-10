@@ -4,6 +4,7 @@ validateEnv();
 
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const http = require('http');
 const { Server } = require('socket.io');
 const connectDB = require('./config/db');
@@ -29,6 +30,10 @@ app.use(express.urlencoded({ extended: true }));
 app.use(requestContext);   // request id + structured request logging
 app.use('/api', generalLimiter); // broad rate-limit safety net
 
+// Serve locally-stored uploads when STORAGE_DRIVER=local (no-op for s3).
+// Files are written to server/uploads by utils/storage/local.js.
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // Connect to MongoDB
 connectDB();
 
@@ -52,7 +57,9 @@ app.use('/api/resume-builder', require('./routes/resumeBuilder'));
 app.use('/api/learning-paths', require('./routes/learningPaths'));
 app.use('/api/code-execution', require('./routes/codeExecution'));
 app.use('/api/group-discussion', require('./routes/groupDiscussion'));
+app.use('/api/gd-rooms', require('./routes/gdRooms'));
 app.use('/api/summarize', require('./routes/summarize'));
+app.use('/api/rtc', require('./routes/rtc'));
 
 // Health check
 app.get('/api/health', (req, res) => {

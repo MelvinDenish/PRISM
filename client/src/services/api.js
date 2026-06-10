@@ -56,6 +56,7 @@ export const deleteTopic = (id) => api.delete(`/topics/${id}`);
 export const getResources = (params) => api.get('/resources', { params });
 export const getResource = (id) => api.get(`/resources/${id}`);
 export const createResource = (data) => api.post('/resources', data);
+export const getResourceReader = (url) => api.get('/resources/reader', { params: { url } });
 export const updateResource = (id, data) => api.put(`/resources/${id}`, data);
 export const deleteResource = (id) => api.delete(`/resources/${id}`);
 
@@ -146,5 +147,15 @@ export const getJudgeLanguages = () => api.get('/code-execution/languages');
 export const startGroupDiscussion = (data) => api.post('/group-discussion/start', data || {});
 export const respondGroupDiscussion = (data) => api.post('/group-discussion/respond', data);
 export const evaluateGroupDiscussion = (data) => api.post('/group-discussion/evaluate', data);
+
+// GD Rooms (live, multi-participant video via LiveKit)
+export const getGDRooms = (params) => api.get('/gd-rooms', { params });
+export const createGDRoom = (data) => api.post('/gd-rooms', data || {});
+export const joinGDRoom = (id) => api.patch(`/gd-rooms/${id}/join`);
+export const setGDRoomStatus = (id, status) => api.patch(`/gd-rooms/${id}/status`, { status });
+
+// Live video (LiveKit SFU) — mint a room-scoped access token.
+// roomName is "session:<sessionId>" (1:1) or "gd:<roomId>" (group/webinar).
+export const getRtcToken = (roomName) => api.post('/rtc/token', { roomName });
 
 export default api;

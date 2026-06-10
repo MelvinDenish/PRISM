@@ -1,5 +1,6 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
+const { aiLimiter } = require('../middleware/rateLimit');
 const Groq = require('groq-sdk');
 const ResumeDraft = require('../models/ResumeDraft');
 const router = express.Router();
@@ -9,7 +10,7 @@ router.get('/drafts', protect, async (req, res) => {
   try {
     const drafts = await ResumeDraft.find({ user: req.user._id }).sort({ updatedAt: -1 });
     res.json({ success: true, drafts });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // GET single draft
@@ -18,7 +19,7 @@ router.get('/drafts/:id', protect, async (req, res) => {
     const draft = await ResumeDraft.findOne({ _id: req.params.id, user: req.user._id });
     if (!draft) return res.status(404).json({ success: false, message: 'Draft not found' });
     res.json({ success: true, draft });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // SAVE draft
@@ -26,7 +27,7 @@ router.post('/drafts', protect, async (req, res) => {
   try {
     const draft = await ResumeDraft.create({ ...req.body, user: req.user._id });
     res.status(201).json({ success: true, draft });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // UPDATE draft
@@ -38,7 +39,7 @@ router.put('/drafts/:id', protect, async (req, res) => {
       { new: true }
     );
     res.json({ success: true, draft });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // DELETE draft
@@ -46,11 +47,11 @@ router.delete('/drafts/:id', protect, async (req, res) => {
   try {
     await ResumeDraft.findOneAndDelete({ _id: req.params.id, user: req.user._id });
     res.json({ success: true, message: 'Draft deleted' });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // GENERATE resume content with AI — FIXED: structured response, no raw JSON leak
-router.post('/generate', protect, async (req, res) => {
+router.post('/generate', protect, aiLimiter, async (req, res) => {
   try {
     const { personalInfo, education, experience, skills, projects, jobDescription } = req.body;
     if (!process.env.GROQ_API_KEY) return res.status(400).json({ success: false, message: 'AI generation requires GROQ_API_KEY' });
@@ -122,11 +123,11 @@ CRITICAL RULES:
     }
 
     res.json({ success: true, generated: result });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // GENERATE cover letter
-router.post('/cover-letter', protect, async (req, res) => {
+router.post('/cover-letter', protect, aiLimiter, async (req, res) => {
   try {
     const { personalInfo, jobTitle, companyName, jobDescription, skills } = req.body;
     if (!process.env.GROQ_API_KEY) return res.status(400).json({ success: false, message: 'AI requires GROQ_API_KEY' });
@@ -147,7 +148,7 @@ router.post('/cover-letter', protect, async (req, res) => {
       success: true,
       coverLetter: completion.choices[0]?.message?.content || 'Cover letter generation failed'
     });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 module.exports = router;

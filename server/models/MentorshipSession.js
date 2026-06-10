@@ -15,7 +15,10 @@ const mentorshipSessionSchema = new mongoose.Schema({
     },
     mentorFeedback: String,
     menteeFeedback: String,
-    ratingGiven: Number,
+    ratingGiven: Number,        // numeric rating the mentee gave the mentor
+    menteeRated: { type: Boolean, default: false },
+    mentorRated: { type: Boolean, default: false },
+    completedAt: Date,
     createdAt: { type: Date, default: Date.now }
 });
 

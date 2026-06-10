@@ -1,9 +1,14 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
+const { aiLimiter } = require('../middleware/rateLimit');
 const InterviewGame = require('../models/InterviewGame');
 const { gradeMcqRound, sanitizeGame } = require('../utils/interviewGameScoring');
+const { executeCode } = require('./codeExecution');
 const Groq = require('groq-sdk');
 const router = express.Router();
+
+// Normalize program output for comparison (trailing whitespace/newlines vary).
+const normOut = (s) => String(s == null ? '' : s).replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').trim();
 
 // Round types graded server-side from the stored answer key (MCQ rounds).
 const MCQ_ROUNDS = ['aptitude', 'technical1', 'technical2'];
@@ -154,7 +159,7 @@ const QuestionBank = require('../models/QuestionBank');
 // ─── ROUTES ───
 
 // GET questions for a round (from curated bank, AI fallback for GD)
-router.get('/questions/:round', protect, async (req, res) => {
+router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
   const round = req.params.round;
   try {
     let questions = [];
@@ -249,6 +254,23 @@ router.get('/questions/:round', protect, async (req, res) => {
       }
       // Never leak the answer key (or explanations) to the client.
       questions = questions.map(({ ans, explanation, ...rest }) => rest);
+    } else if (round === 'coding') {
+      // Persist the coding test cases on the game so submit-round can grade the
+      // user's code server-side (authoritative). Client contract is unchanged.
+      const { gameId } = req.query;
+      if (gameId) {
+        const game = await InterviewGame.findById(gameId);
+        if (game && game.user.equals(req.user._id)) {
+          const gameRound = game.rounds.find((r) => r.type === 'coding');
+          if (gameRound) {
+            const first = questions[0];
+            gameRound.servedCoding = {
+              testCases: (first?.testCases || []).map((t) => ({ input: t.input, expectedOutput: t.expectedOutput || t.output })),
+            };
+            await game.save();
+          }
+        }
+      }
     }
 
     res.json({ success: true, questions });
@@ -275,7 +297,7 @@ router.post('/start', protect, async (req, res) => {
       ]
     });
     res.status(201).json({ success: true, game: sanitizeGame(game) });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // SUBMIT a round
@@ -296,16 +318,31 @@ router.post('/submit-round', protect, async (req, res) => {
     let score = 0;
     const roundType = round.type;
 
-    if (['aptitude', 'technical1'].includes(roundType)) {
-      // SERVER-AUTHORITATIVE: grade against the stored answer key from /questions.
+    if (MCQ_ROUNDS.includes(roundType)) {
+      // SERVER-AUTHORITATIVE: grade every MCQ round (aptitude, technical1,
+      // technical2) against the stored answer key from /questions.
       // The client-supplied aiScore / isCorrect flags are ignored entirely.
       const result = gradeMcqRound(round.servedQuestions, answers);
       score = result.score;
       round.answers = result.gradedAnswers;
+    } else if (roundType === 'coding' && req.body.code && round.servedCoding?.testCases?.length) {
+      // SERVER-AUTHORITATIVE coding grade: run the submitted code in the sandbox
+      // against the stored hidden test cases. The client-supplied aiScore is
+      // ignored. Falls back below only if code/test cases are unavailable.
+      const tests = round.servedCoding.testCases;
+      const language = String(req.body.language || 'python');
+      let passed = 0;
+      for (const tc of tests) {
+        try {
+          const out = await executeCode(language, req.body.code, tc.input || '');
+          if (out && out.exitCode === 0 && normOut(out.output) === normOut(tc.expectedOutput)) passed += 1;
+        } catch (_) { /* a failing/erroring test simply doesn't count */ }
+      }
+      score = Math.round((passed / tests.length) * 100);
+      round.feedback = `Passed ${passed}/${tests.length} hidden test cases.`;
     } else {
-      // Rounds still scored from a client/AI-supplied value (coding tests, live AI
-      // interview, GD, HR). These remain client-trusted until the code-exec sandbox
-      // and server-persisted transcripts land — clamp defensively to 0..100.
+      // GD / HR / live AI interview (and coding when no code/tests are available):
+      // still scored from a client/AI-supplied value — clamp defensively to 0..100.
       const claimed = Number(req.body.aiScore);
       score = Number.isFinite(claimed) ? claimed : 0;
       if (Array.isArray(answers)) round.answers = answers;
@@ -314,7 +351,8 @@ router.post('/submit-round', protect, async (req, res) => {
     round.score = Math.max(0, Math.min(score, 100));
     round.status = 'completed';
     round.completedAt = new Date();
-    round.feedback = typeof req.body.feedback === 'string' ? req.body.feedback : '';
+    // Keep server-generated coding feedback; otherwise take the client's text.
+    if (!round.feedback) round.feedback = typeof req.body.feedback === 'string' ? req.body.feedback : '';
 
     game.currentRound = roundIndex + 1;
     game.totalScore = game.rounds.reduce((sum, r) => sum + r.score, 0);
@@ -325,7 +363,7 @@ router.post('/submit-round', protect, async (req, res) => {
     }
     await game.save();
     res.json({ success: true, game: sanitizeGame(game), roundScore: round.score });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // GET user's game history
@@ -333,7 +371,7 @@ router.get('/history', protect, async (req, res) => {
   try {
     const games = await InterviewGame.find({ user: req.user._id }).sort({ startedAt: -1 }).limit(20);
     res.json({ success: true, games: games.map(sanitizeGame) });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // GET specific game
@@ -346,7 +384,7 @@ router.get('/:id', protect, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized for this game' });
     }
     res.json({ success: true, game: sanitizeGame(game) });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // GET leaderboard — top performers across all games
@@ -378,7 +416,7 @@ router.get('/leaderboard/top', protect, async (req, res) => {
       }}
     ]);
     res.json({ success: true, leaderboard });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 module.exports = router;

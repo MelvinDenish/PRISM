@@ -325,11 +325,19 @@ const InterviewGame = () => {
         }
 
         try {
-            const { data } = await submitGameRound({ gameId: game._id, roundIndex: currentRound, answers: submitAnswers, aiScore });
+            // For coding, send the primary problem's code so the SERVER can grade
+            // it against hidden test cases (authoritative — aiScore is ignored there).
+            const codingExtra = round.type === 'coding'
+                ? { code: codeByProblem[questions[0]?.id] || '', language: selectedLang }
+                : {};
+            const { data } = await submitGameRound({ gameId: game._id, roundIndex: currentRound, answers: submitAnswers, aiScore, ...codingExtra });
             setGame(data.game);
             setRoundScore(data.roundScore);
 
-            if (mode === 'full' && data.roundScore < ROUNDS[currentRound].passScore) {
+            // Honest pass/fail in BOTH modes — practice no longer always says "Passed!"
+            // (bug R2). In full mode a fail also eliminates; in practice it just shows
+            // the fail screen with study suggestions and a retry.
+            if (data.roundScore < ROUNDS[currentRound].passScore) {
                 setPhase('failed');
                 generateFailSuggestions(ROUNDS[currentRound], data.roundScore);
             } else {
@@ -382,15 +390,15 @@ const InterviewGame = () => {
             <div className="page">
                 <div style={{ maxWidth: 800, margin: '0 auto', paddingTop: 32 }}>
                     <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 64, marginBottom: 16 }}>🎮</div>
-                        <h1 className="page-title" style={{ fontSize: 36, marginBottom: 8 }}><span>Interview Simulator</span></h1>
+                        <div style={{ width: 76, height: 76, margin: '0 auto 18px', borderRadius: 22, background: 'var(--gradient-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 34, boxShadow: 'var(--shadow-glow)' }}><FiAward /></div>
+                        <h1 className="page-title" style={{ fontSize: 'clamp(28px, 4vw, 40px)', marginBottom: 8 }}><span>Interview Simulator</span></h1>
                         <p style={{ color: 'var(--text-muted)', fontSize: 16, marginBottom: 24, lineHeight: 1.8 }}>
                             Experience a realistic placement interview. Play the full game or practice individual rounds.
                         </p>
                     </div>
 
                     {/* Tabs */}
-                    <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: 'rgba(255,255,255,0.03)', borderRadius: 12, padding: 4 }}>
+                    <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: 'rgba(20,20,24,0.03)', borderRadius: 12, padding: 4 }}>
                         {[['play', '🎮 Play'], ['leaderboard', '🏆 Leaderboard'], ['history', '📊 My History']].map(([key, label]) => (
                             <button key={key} onClick={() => { setMenuTab(key); if (key === 'leaderboard') loadLeaderboard(); if (key === 'history') loadHistory(); }}
                                 style={{ flex: 1, padding: '10px 16px', borderRadius: 10, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 14,
@@ -451,7 +459,7 @@ const InterviewGame = () => {
                                     </thead>
                                     <tbody>
                                         {leaderboard.map((p, i) => (
-                                            <tr key={p._id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                            <tr key={p._id} style={{ borderBottom: '1px solid rgba(20,20,24,0.03)' }}>
                                                 <td style={{ padding: '10px 12px', fontWeight: 700, color: i < 3 ? ['#FFD700','#C0C0C0','#CD7F32'][i] : 'var(--text-primary)' }}>
                                                     {i < 3 ? ['🥇','🥈','🥉'][i] : `#${i+1}`}
                                                 </td>
@@ -497,8 +505,8 @@ const InterviewGame = () => {
                                             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                                                 {g.rounds?.map((r, i) => (
                                                     <div key={i} style={{ padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                                                        background: r.status === 'completed' ? (r.score >= (ROUNDS[i]?.passScore || 40) ? 'rgba(52,211,153,0.15)' : 'rgba(239,68,68,0.15)') : 'rgba(255,255,255,0.04)',
-                                                        color: r.status === 'completed' ? (r.score >= (ROUNDS[i]?.passScore || 40) ? 'var(--accent-success)' : '#ef4444') : 'var(--text-muted)' }}>
+                                                        background: r.status === 'completed' ? (r.score >= (ROUNDS[i]?.passScore || 40) ? 'rgba(201,162,75,0.15)' : 'rgba(192,70,43,0.15)') : 'rgba(20,20,24,0.04)',
+                                                        color: r.status === 'completed' ? (r.score >= (ROUNDS[i]?.passScore || 40) ? 'var(--accent-success)' : 'var(--accent-danger)') : 'var(--text-muted)' }}>
                                                         {ROUNDS[i]?.icon} {r.score}%
                                                     </div>
                                                 ))}
@@ -588,7 +596,7 @@ const InterviewGame = () => {
                                             <button key={i} onClick={() => setCurrentQ(i)}
                                                 style={{
                                                     width: 38, height: 38, borderRadius: 6, border: currentQ === i ? '2px solid var(--accent-primary)' : '1px solid var(--border-color)',
-                                                    background: answered ? 'rgba(16,185,129,0.15)' : currentQ === i ? 'var(--bg-card-hover)' : 'var(--bg-card)',
+                                                    background: answered ? 'rgba(201,162,75,0.15)' : currentQ === i ? 'var(--bg-card-hover)' : 'var(--bg-card)',
                                                     color: answered ? 'var(--accent-success)' : 'var(--text-primary)',
                                                     cursor: 'pointer', fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center'
                                                 }}>
@@ -599,13 +607,13 @@ const InterviewGame = () => {
                                 </div>
                                 <div style={{ marginTop: 16, display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)' }}>
                                     <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                        <div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(16,185,129,0.15)', border: '1px solid var(--accent-success)' }} /> Answered
+                                        <div style={{ width: 10, height: 10, borderRadius: 3, background: 'rgba(201,162,75,0.15)', border: '1px solid var(--accent-success)' }} /> Answered
                                     </span>
                                     <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                         <div style={{ width: 10, height: 10, borderRadius: 3, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }} /> Not answered
                                     </span>
                                 </div>
-                                <div style={{ marginTop: 12, padding: '8px 12px', background: 'rgba(16,185,129,0.04)', borderRadius: 6, fontSize: 12 }}>
+                                <div style={{ marginTop: 12, padding: '8px 12px', background: 'rgba(201,162,75,0.04)', borderRadius: 6, fontSize: 12 }}>
                                     <span style={{ color: 'var(--accent-success)', fontWeight: 700 }}>{answers.length}</span>
                                     <span style={{ color: 'var(--text-muted)' }}> / {questions.length} answered</span>
                                 </div>
@@ -729,8 +737,8 @@ const InterviewGame = () => {
                                                 {testResults[questions[currentQ].id].testResults?.map((tr, i) => (
                                                     <div key={i} style={{
                                                         marginBottom: 8, padding: 10, borderRadius: 'var(--radius-sm)', fontSize: 13,
-                                                        background: tr.passed ? 'rgba(52,211,153,0.06)' : 'rgba(248,113,113,0.06)',
-                                                        border: `1px solid ${tr.passed ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)'}`
+                                                        background: tr.passed ? 'rgba(201,162,75,0.06)' : 'rgba(192,70,43,0.06)',
+                                                        border: `1px solid ${tr.passed ? 'rgba(201,162,75,0.2)' : 'rgba(192,70,43,0.2)'}`
                                                     }}>
                                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                                                             <span style={{ fontWeight: 600 }}>{tr.passed ? '✅' : '❌'} Test {tr.testCase}</span>
@@ -929,7 +937,7 @@ const InterviewGame = () => {
                             <div className="glass-card" style={{ marginBottom: 20, borderLeft: '3px solid var(--accent-warning)' }}>
                                 <h3 style={{ marginBottom: 16 }}>📚 Topics You Need to Focus On</h3>
                                 {failSuggestions.topics.map((t, i) => (
-                                    <div key={i} style={{ marginBottom: 16, padding: 16, background: 'rgba(16,185,129,0.04)', borderRadius: 'var(--radius-sm)' }}>
+                                    <div key={i} style={{ marginBottom: 16, padding: 16, background: 'rgba(201,162,75,0.04)', borderRadius: 'var(--radius-sm)' }}>
                                         <h4 style={{ color: 'var(--accent-primary)', marginBottom: 4 }}>{t.name}</h4>
                                         <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t.reason}</p>
                                         <button className="btn btn-primary btn-sm" style={{ marginTop: 8 }} onClick={() => navigate('/topics')}>📖 Go to {t.name}</button>

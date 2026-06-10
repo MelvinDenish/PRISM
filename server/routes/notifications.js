@@ -12,7 +12,7 @@ router.get('/', protect, async (req, res) => {
         const unreadCount = await Notification.countDocuments({ user: req.user._id, isRead: false });
         res.json({ success: true, notifications, unreadCount });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -25,7 +25,7 @@ router.patch('/:id/read', protect, async (req, res) => {
         if (!result) return res.status(404).json({ success: false, message: 'Notification not found' });
         res.json({ success: true });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -35,7 +35,7 @@ router.patch('/read-all', protect, async (req, res) => {
         await Notification.updateMany({ user: req.user._id, isRead: false }, { isRead: true });
         res.json({ success: true });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 

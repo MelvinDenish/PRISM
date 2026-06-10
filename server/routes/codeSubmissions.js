@@ -39,7 +39,7 @@ router.post('/', protect, async (req, res) => {
 
         res.status(201).json({ success: true, submission });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
     }
 });
 
@@ -51,7 +51,7 @@ router.get('/interview/:interviewId', protect, async (req, res) => {
             .populate('question', 'title');
         res.json({ success: true, submissions });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -63,7 +63,7 @@ router.get('/my', protect, async (req, res) => {
             .sort({ submittedAt: -1 });
         res.json({ success: true, submissions });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 

@@ -25,6 +25,13 @@ module.exports = async function socketAuth(socket, next) {
     const user = await User.findById(decoded.id).select('-password');
     if (!user) return next(new Error('User not found'));
 
+    // Token invalidation: reject JWTs issued before the last password change/reset
+    // (mirrors the HTTP `protect` middleware so revoked tokens can't use sockets).
+    if (user.passwordChangedAt && decoded.iat) {
+      const changedAtSec = Math.floor(user.passwordChangedAt.getTime() / 1000);
+      if (decoded.iat < changedAtSec) return next(new Error('Session expired'));
+    }
+
     socket.user = user; // authoritative identity for all events on this socket
     next();
   } catch (err) {

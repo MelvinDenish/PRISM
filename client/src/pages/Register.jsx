@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import AuthLayout from '../components/AuthLayout';
 
 const Register = () => {
     const [form, setForm] = useState({ name: '', email: '', password: '', role: 'mentee', bio: '', skills: '', aimingCompany: '', currentCompany: '' });
@@ -21,8 +22,7 @@ const Register = () => {
     };
 
     return (
-        <div className="auth-page">
-            <div className="auth-card" style={{ maxWidth: 500 }}>
+        <AuthLayout>
                 <h1>Join PRISM</h1>
                 <p>Create your account and start your placement preparation.</p>
                 {error && <div className="error-msg">{error}</div>}
@@ -73,8 +73,7 @@ const Register = () => {
                 <div className="auth-link">
                     Already have an account? <Link to="/login">Sign In</Link>
                 </div>
-            </div>
-        </div>
+        </AuthLayout>
     );
 };
 

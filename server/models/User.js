@@ -22,6 +22,8 @@ const userSchema = new mongoose.Schema({
     github: String,
     isOnline: { type: Boolean, default: false },
     profilePicture: String,
+    avatarKey: String,      // storage key for an uploaded avatar (for deletion/replace)
+    avatarDriver: String,   // 'local' | 's3' — which backend holds the avatar
     resumeUrl: String,
     rating: { type: Number, default: 0 },
     totalReviews: { type: Number, default: 0 },

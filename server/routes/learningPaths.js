@@ -1,5 +1,6 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
+const { aiLimiter } = require('../middleware/rateLimit');
 const Groq = require('groq-sdk');
 const LearningPath = require('../models/LearningPath');
 const Resource = require('../models/Resource');
@@ -11,7 +12,7 @@ router.get('/', protect, async (req, res) => {
   try {
     const paths = await LearningPath.find({ user: req.user._id }).populate('topic', 'name').sort({ createdAt: -1 });
     res.json({ success: true, paths });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // GET specific path
@@ -20,11 +21,11 @@ router.get('/:id', protect, async (req, res) => {
     const path = await LearningPath.findOne({ _id: req.params.id, user: req.user._id }).populate('topic', 'name');
     if (!path) return res.status(404).json({ success: false, message: 'Path not found' });
     res.json({ success: true, path });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // GENERATE learning path with AI
-router.post('/generate', protect, async (req, res) => {
+router.post('/generate', protect, aiLimiter, async (req, res) => {
   try {
     const { topicId, level = 'beginner', assessmentAnswers } = req.body;
 
@@ -92,7 +93,7 @@ router.post('/generate', protect, async (req, res) => {
     });
 
     res.status(201).json({ success: true, path });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // UPDATE step progress
@@ -108,11 +109,12 @@ router.patch('/:id/progress', protect, async (req, res) => {
     }
 
     path.completedSteps = path.steps.filter(s => s.completed).length;
-    path.progress = Math.round((path.completedSteps / path.totalSteps) * 100);
+    const denom = path.totalSteps || path.steps.length || 0;
+    path.progress = denom > 0 ? Math.round((path.completedSteps / denom) * 100) : 0;
     await path.save();
 
     res.json({ success: true, path });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // DELETE path
@@ -120,7 +122,7 @@ router.delete('/:id', protect, async (req, res) => {
   try {
     await LearningPath.findOneAndDelete({ _id: req.params.id, user: req.user._id });
     res.json({ success: true, message: 'Path deleted' });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 module.exports = router;

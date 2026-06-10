@@ -1,23 +1,39 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
+const { aiLimiter } = require('../middleware/rateLimit');
+const { assertSafeUrl } = require('../utils/urlGuard');
 const Groq = require('groq-sdk');
 const axios = require('axios');
 const router = express.Router();
 
-// POST /api/summarize — summarize an article URL
-router.post('/', protect, async (req, res) => {
+const MAX_TEXT_CHARS = 50000; // cap pasted text to bound AI cost
+
+// POST /api/summarize — summarize an article URL or pasted text
+router.post('/', protect, aiLimiter, async (req, res) => {
   try {
     const { url, text } = req.body;
-    let content = text || '';
+    let content = typeof text === 'string' ? text.slice(0, MAX_TEXT_CHARS) : '';
 
-    if (url && !text) {
+    if (url && !content) {
+      if (typeof url !== 'string') {
+        return res.status(400).json({ success: false, message: 'Invalid URL' });
+      }
+      // SSRF guard: only http(s), and reject hosts that resolve to internal IPs.
+      const safe = await assertSafeUrl(url);
+      if (!safe.ok) {
+        return res.status(400).json({ success: false, message: safe.reason });
+      }
       try {
         const response = await axios.get(url, {
           timeout: 10000,
-          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PRISM/1.0)' }
+          maxRedirects: 0,            // do not follow redirects (SSRF bypass vector)
+          maxContentLength: 5 * 1024 * 1024, // 5MB cap
+          responseType: 'text',
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PRISM/1.0)' },
+          validateStatus: (s) => s >= 200 && s < 300, // reject 3xx redirects too
         });
         // Extract text — basic HTML stripping
-        content = response.data
+        content = String(response.data)
           .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
           .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
           .replace(/<[^>]+>/g, ' ')
@@ -56,7 +72,7 @@ router.post('/', protect, async (req, res) => {
       summary: completion.choices[0]?.message?.content || 'Summary unavailable',
       method: 'ai'
     });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 module.exports = router;

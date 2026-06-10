@@ -49,7 +49,7 @@ function sanitizeGame(game) {
   if (Array.isArray(obj.rounds)) {
     obj.rounds = obj.rounds.map((r) => {
       // eslint-disable-next-line no-unused-vars
-      const { servedQuestions, ...rest } = r;
+      const { servedQuestions, servedCoding, ...rest } = r;
       return rest;
     });
   }

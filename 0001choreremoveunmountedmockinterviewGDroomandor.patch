@@ -1,0 +1,1275 @@
+From a328f65e9c51563dfa37eaba543029779d5648ec Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 20 May 2026 04:28:44 +0000
+Subject: [PATCH] chore: remove unmounted mock-interview, GD-room, and orphan
+ client pages
+
+- delete server/routes/mockInterviews.js, server/routes/gdRooms.js
+- delete server/models/MockInterview.js, server/models/GDRoom.js
+- delete client/src/pages/{AIInterview,MockInterviews,GDRooms}.jsx
+- strip seedAll.js refs to deleted models
+- add client/src/pages/NotFound.jsx so App.jsx catch-all route works
+- replace default Vite README; ignore *.docx
+
+mockFeedback / codeSubmissions routes + models are KEPT for revival
+in later milestones (post-session feedback, "My Submissions").
+
+https://claude.ai/code/session_017b46QTVqXLTqucyWddcWJN
+---
+ .gitignore                          |   1 +
+ client/README.md                    |  23 +-
+ client/src/App.jsx                  |   8 +-
+ client/src/pages/AIInterview.jsx    | 178 ------------
+ client/src/pages/GDRooms.jsx        | 431 ----------------------------
+ client/src/pages/MockInterviews.jsx | 122 --------
+ client/src/pages/NotFound.jsx       |  11 +
+ server/models/GDRoom.js             |  12 -
+ server/models/MockInterview.js      |  16 --
+ server/routes/gdRooms.js            |  88 ------
+ server/routes/mockInterviews.js     |  81 ------
+ server/seeds/seedAll.js             |  96 +------
+ 12 files changed, 37 insertions(+), 1030 deletions(-)
+ delete mode 100644 client/src/pages/AIInterview.jsx
+ delete mode 100644 client/src/pages/GDRooms.jsx
+ delete mode 100644 client/src/pages/MockInterviews.jsx
+ create mode 100644 client/src/pages/NotFound.jsx
+ delete mode 100644 server/models/GDRoom.js
+ delete mode 100644 server/models/MockInterview.js
+ delete mode 100644 server/routes/gdRooms.js
+ delete mode 100644 server/routes/mockInterviews.js
+
+diff --git a/.gitignore b/.gitignore
+index d21b1cb..6c0f641 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -2,3 +2,4 @@ node_modules/
+ .env
+ dist/
+ *.log
++*.docx
+diff --git a/client/README.md b/client/README.md
+index 18bc70e..5a163c0 100644
+--- a/client/README.md
++++ b/client/README.md
+@@ -1,16 +1,15 @@
+-# React + Vite
++# PRISM Client
+ 
+-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
++React + Vite frontend for the PRISM placement-prep platform. Provides the mentee, mentor, and admin UIs (dashboard, sessions, coding questions, resume tools, AI interview, analytics).
+ 
+-Currently, two official plugins are available:
++## Scripts
+ 
+-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
+-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
++```bash
++npm install        # install deps
++npm run dev        # start dev server on http://localhost:5173
++npm run build      # production build to dist/
++npm run preview    # serve the built dist/ locally
++npm run lint       # ESLint
++```
+ 
+-## React Compiler
+-
+-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+-
+-## Expanding the ESLint configuration
+-
+-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
++The dev server expects the API at `http://localhost:5000/api` by default. Override with `VITE_API_URL` in a local `.env` file.
+diff --git a/client/src/App.jsx b/client/src/App.jsx
+index 6326b9e..daabcb9 100644
+--- a/client/src/App.jsx
++++ b/client/src/App.jsx
+@@ -17,11 +17,10 @@ import CodingQuestions from './pages/CodingQuestions';
+ import Admin from './pages/Admin';
+ import Topics from './pages/Topics';
+ import InterviewGame from './pages/InterviewGame';
+-import AIInterview from './pages/AIInterview';
+-import VideoCall from './pages/VideoCall';
+ import ResumeBuilder from './pages/ResumeBuilder';
+ import LearningPaths from './pages/LearningPaths';
+-import GDRooms from './pages/GDRooms';
++import NotFound from './pages/NotFound';
++import VideoCall from './pages/VideoCall';
+ import './index.css';
+ 
+ const ProtectedRoute = ({ children }) => {
+@@ -49,16 +48,15 @@ const App = () => {
+             <Route path="mentor/:id" element={<MentorProfile />} />
+             <Route path="sessions" element={<Sessions />} />
+             <Route path="interview-game" element={<InterviewGame />} />
+-            <Route path="ai-interview" element={<AIInterview />} />
+             <Route path="resume-builder" element={<ResumeBuilder />} />
+             <Route path="resume-analysis" element={<ResumeAnalysis />} />
+             <Route path="analytics" element={<Analytics />} />
+             <Route path="notifications" element={<Notifications />} />
+             <Route path="companies" element={<Companies />} />
+             <Route path="coding-questions" element={<CodingQuestions />} />
+-            <Route path="gd-rooms" element={<GDRooms />} />
+             <Route path="admin" element={<Admin />} />
+           </Route>
++          <Route path="*" element={<NotFound />} />
+         </Routes>
+       </BrowserRouter>
+     </AuthProvider>
+diff --git a/client/src/pages/AIInterview.jsx b/client/src/pages/AIInterview.jsx
+deleted file mode 100644
+index 8edafb9..0000000
+--- a/client/src/pages/AIInterview.jsx
++++ /dev/null
+@@ -1,178 +0,0 @@
+-import { useState, useRef, useEffect } from 'react';
+-import { startAIInterview, chatAIInterview, evaluateAIInterview } from '../services/api';
+-import { FiSend, FiMic, FiAward, FiRefreshCw, FiUser, FiCpu } from 'react-icons/fi';
+-
+-const AIInterview = () => {
+-    const [phase, setPhase] = useState('setup');
+-    const [type, setType] = useState('technical');
+-    const [topic, setTopic] = useState('Data Structures');
+-    const [messages, setMessages] = useState([]);
+-    const [input, setInput] = useState('');
+-    const [context, setContext] = useState([]);
+-    const [loading, setLoading] = useState(false);
+-    const [evaluation, setEvaluation] = useState(null);
+-    const [questionCount, setQuestionCount] = useState(0);
+-    const chatEndRef = useRef(null);
+-
+-    useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+-
+-    const startInterview = async () => {
+-        setLoading(true);
+-        try {
+-            const { data } = await startAIInterview({ type, topic });
+-            setMessages([{ role: 'ai', content: data.aiMessage }]);
+-            setContext(data.conversationContext);
+-            setQuestionCount(1);
+-            setPhase('interview');
+-        } catch (err) {
+-            setMessages([{ role: 'ai', content: 'Could not start interview. Please check your GROQ_API_KEY in server .env' }]);
+-            setPhase('interview');
+-        }
+-        setLoading(false);
+-    };
+-
+-    const sendMessage = async () => {
+-        if (!input.trim() || loading) return;
+-        const userMsg = input.trim();
+-        setInput('');
+-        setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+-        setLoading(true);
+-
+-        try {
+-            const { data } = await chatAIInterview({ message: userMsg, conversationContext: context });
+-            setMessages(prev => [...prev, { role: 'ai', content: data.aiMessage }]);
+-            setContext(data.updatedContext);
+-            setQuestionCount(prev => prev + 1);
+-        } catch {
+-            setMessages(prev => [...prev, { role: 'ai', content: 'Sorry, something went wrong. Please try again.' }]);
+-        }
+-        setLoading(false);
+-    };
+-
+-    const endInterview = async () => {
+-        setLoading(true);
+-        try {
+-            const { data } = await evaluateAIInterview({ conversationContext: context, type });
+-            setEvaluation(data.evaluation);
+-            setPhase('results');
+-        } catch {
+-            setEvaluation({ overallScore: 0, detailedFeedback: 'Could not generate evaluation.', recommendation: 'N/A' });
+-            setPhase('results');
+-        }
+-        setLoading(false);
+-    };
+-
+-    const reset = () => { setPhase('setup'); setMessages([]); setContext([]); setEvaluation(null); setQuestionCount(0); };
+-
+-    if (phase === 'setup') {
+-        return (
+-            <div className="page">
+-                <div style={{ maxWidth: 600, margin: '40px auto', textAlign: 'center' }}>
+-                    <div style={{ fontSize: 64, marginBottom: 16 }}>🤖</div>
+-                    <h1 className="page-title" style={{ fontSize: 32, marginBottom: 8 }}><span>AI Interviewer</span></h1>
+-                    <p style={{ color: 'var(--text-muted)', marginBottom: 40 }}>Practice with an AI that simulates a real interviewer. Get real-time feedback.</p>
+-                    <div className="glass-card" style={{ textAlign: 'left' }}>
+-                        <div className="form-group">
+-                            <label>Interview Type</label>
+-                            <select className="form-select" value={type} onChange={e => setType(e.target.value)}>
+-                                <option value="technical">Technical Interview</option>
+-                                <option value="hr">HR Interview</option>
+-                                <option value="system-design">System Design</option>
+-                            </select>
+-                        </div>
+-                        <div className="form-group">
+-                            <label>Focus Topic</label>
+-                            <select className="form-select" value={topic} onChange={e => setTopic(e.target.value)}>
+-                                <option>Data Structures</option>
+-                                <option>Algorithms</option>
+-                                <option>DBMS</option>
+-                                <option>Operating Systems</option>
+-                                <option>Computer Networks</option>
+-                                <option>OOP & Design Patterns</option>
+-                                <option>System Design</option>
+-                                <option>Web Development</option>
+-                                <option>General</option>
+-                            </select>
+-                        </div>
+-                        <button className="btn btn-primary btn-lg" style={{ width: '100%' }} onClick={startInterview} disabled={loading}>
+-                            {loading ? 'Starting...' : '🎙️ Start Interview'}
+-                        </button>
+-                    </div>
+-                </div>
+-            </div>
+-        );
+-    }
+-
+-    if (phase === 'results') {
+-        const e = evaluation || {};
+-        return (
+-            <div className="page">
+-                <div style={{ maxWidth: 700, margin: '0 auto' }}>
+-                    <div style={{ textAlign: 'center', marginBottom: 40 }}>
+-                        <div style={{ fontSize: 56, marginBottom: 16 }}>📊</div>
+-                        <h1 className="page-title"><span>Interview Evaluation</span></h1>
+-                    </div>
+-                    <div className="grid grid-4" style={{ marginBottom: 32 }}>
+-                        {[['Overall', e.overallScore], ['Technical', e.technicalSkill], ['Communication', e.communication], ['Problem Solving', e.problemSolving]].map(([label, score]) => (
+-                            <div key={label} className="stat-card" style={{ textAlign: 'center' }}>
+-                                <div className="stat-label" style={{ justifyContent: 'center' }}>{label}</div>
+-                                <div className="stat-value">{score || 'N/A'}</div>
+-                            </div>
+-                        ))}
+-                    </div>
+-                    <div className="glass-card" style={{ marginBottom: 20 }}>
+-                        <span className={`badge ${e.recommendation?.includes('Hire') && !e.recommendation?.includes('No') ? 'badge-success' : 'badge-warning'}`} style={{ marginBottom: 16 }}>
+-                            {e.recommendation || 'Review'}
+-                        </span>
+-                        <h3 style={{ marginBottom: 12 }}>Detailed Feedback</h3>
+-                        <p style={{ color: 'var(--text-secondary)', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{e.detailedFeedback}</p>
+-                    </div>
+-                    {e.strengths && (
+-                        <div className="grid grid-2" style={{ marginBottom: 20 }}>
+-                            <div className="glass-card">
+-                                <h4 style={{ color: 'var(--accent-success)', marginBottom: 12 }}>✅ Strengths</h4>
+-                                {e.strengths.map((s, i) => <p key={i} style={{ color: 'var(--text-secondary)', marginBottom: 4 }}>• {s}</p>)}
+-                            </div>
+-                            <div className="glass-card">
+-                                <h4 style={{ color: 'var(--accent-warning)', marginBottom: 12 }}>⚠️ Improvements</h4>
+-                                {(e.improvements || []).map((s, i) => <p key={i} style={{ color: 'var(--text-secondary)', marginBottom: 4 }}>• {s}</p>)}
+-                            </div>
+-                        </div>
+-                    )}
+-                    <button className="btn btn-primary btn-lg" onClick={reset}><FiRefreshCw /> New Interview</button>
+-                </div>
+-            </div>
+-        );
+-    }
+-
+-    return (
+-        <div className="ai-chat-container" style={{ padding: '0 24px' }}>
+-            <div style={{ padding: '16px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)' }}>
+-                <div>
+-                    <h3 style={{ fontSize: 16 }}>🤖 AI {type.charAt(0).toUpperCase() + type.slice(1)} Interview</h3>
+-                    <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Questions asked: {questionCount} • Topic: {topic}</p>
+-                </div>
+-                <button className="btn btn-danger" onClick={endInterview} disabled={loading}>End & Evaluate</button>
+-            </div>
+-            <div className="chat-messages">
+-                {messages.map((msg, i) => (
+-                    <div key={i} className={`chat-bubble ${msg.role === 'ai' ? 'ai' : 'user'}`}>
+-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+-                            {msg.role === 'ai' ? <><FiCpu /> AI Interviewer</> : <><FiUser /> You</>}
+-                        </div>
+-                        <div style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+-                    </div>
+-                ))}
+-                {loading && <div className="chat-bubble ai"><div className="spinner" style={{ width: 20, height: 20, margin: 0 }} /></div>}
+-                <div ref={chatEndRef} />
+-            </div>
+-            <div className="chat-input-bar">
+-                <input className="form-input" placeholder="Type your response..." value={input}
+-                    onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} style={{ flex: 1 }} />
+-                <button className="btn btn-primary" onClick={sendMessage} disabled={loading || !input.trim()}><FiSend /></button>
+-            </div>
+-        </div>
+-    );
+-};
+-
+-export default AIInterview;
+diff --git a/client/src/pages/GDRooms.jsx b/client/src/pages/GDRooms.jsx
+deleted file mode 100644
+index 9c977ea..0000000
+--- a/client/src/pages/GDRooms.jsx
++++ /dev/null
+@@ -1,431 +0,0 @@
+-import { useState, useEffect, useRef } from 'react';
+-import { useAuth } from '../context/AuthContext';
+-import { getGDRooms, createGDRoom, joinGDRoom } from '../services/api';
+-import { io } from 'socket.io-client';
+-import Peer from 'peerjs';
+-import { FiPlus, FiUsers, FiClock, FiMessageSquare, FiVideo, FiVideoOff, FiMic, FiMicOff, FiPhoneOff, FiMonitor } from 'react-icons/fi';
+-
+-const SOCKET_URL = 'http://localhost:5000';
+-const MAX_VIDEO_PEERS = 4;
+-
+-const GDRooms = () => {
+-    const { user } = useAuth();
+-    const [rooms, setRooms] = useState([]);
+-    const [activeRoom, setActiveRoom] = useState(null);
+-    const [messages, setMessages] = useState([]);
+-    const [chatMsg, setChatMsg] = useState('');
+-    const [timer, setTimer] = useState(null);
+-    const [gdAlert, setGdAlert] = useState('');
+-    const [loading, setLoading] = useState(true);
+-
+-    // Video state
+-    const [videoEnabled, setVideoEnabled] = useState(false);
+-    const [audioEnabled, setAudioEnabled] = useState(true);
+-    const [remotePeers, setRemotePeers] = useState([]); // [{peerId, stream, name}]
+-    const [gdParticipants, setGdParticipants] = useState([]);
+-
+-    // Refs
+-    const socketRef = useRef(null);
+-    const peerRef = useRef(null);
+-    const streamRef = useRef(null);
+-    const localVideoRef = useRef(null);
+-    const callsRef = useRef(new Map()); // peerId => call object
+-    const chatEndRef = useRef(null);
+-
+-    useEffect(() => {
+-        fetchRooms();
+-        return () => {
+-            cleanup();
+-        };
+-    }, []);
+-
+-    useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+-
+-    const cleanup = () => {
+-        streamRef.current?.getTracks().forEach(t => t.stop());
+-        peerRef.current?.destroy();
+-        socketRef.current?.disconnect();
+-        callsRef.current.forEach(call => call.close());
+-        callsRef.current.clear();
+-    };
+-
+-    const fetchRooms = async () => {
+-        setLoading(true);
+-        try {
+-            const res = await getGDRooms();
+-            setRooms(res.data.rooms || []);
+-        } catch (err) { console.error(err); }
+-        setLoading(false);
+-    };
+-
+-    const handleCreate = async () => {
+-        try {
+-            const res = await createGDRoom({});
+-            await fetchRooms();
+-            handleJoin(res.data.room);
+-        } catch (err) { console.error(err); }
+-    };
+-
+-    // ═══════════════════════════════════════════
+-    // JOIN ROOM — Socket + PeerJS Setup
+-    // ═══════════════════════════════════════════
+-    const handleJoin = async (room) => {
+-        try {
+-            const res = await joinGDRoom(room._id);
+-            const joined = res.data.room;
+-            setActiveRoom(joined);
+-            setGdParticipants(joined.participants || []);
+-
+-            // Connect socket
+-            socketRef.current = io(SOCKET_URL);
+-            socketRef.current.emit('join-gd', { roomId: room._id, userId: user._id, userName: user.name });
+-
+-            socketRef.current.on('receive-message', (msg) => {
+-                setMessages((prev) => [...prev, msg]);
+-            });
+-
+-            socketRef.current.on('gd-alert', ({ message }) => {
+-                setGdAlert(message);
+-                setTimeout(() => setGdAlert(''), 5000);
+-            });
+-
+-            socketRef.current.on('gd-started', ({ topic, duration }) => {
+-                setTimer(duration * 60);
+-            });
+-
+-            socketRef.current.on('gd-ended', () => {
+-                setGdAlert('🔔 GD session has ended!');
+-                setTimer(0);
+-            });
+-
+-            // PeerJS signaling for video
+-            socketRef.current.on('gd-peer-joined', ({ peerId, name, userId: joinedUserId }) => {
+-                if (joinedUserId === user._id) return;
+-                // Call the new peer if we have a stream
+-                if (streamRef.current && peerRef.current) {
+-                    const call = peerRef.current.call(peerId, streamRef.current, { metadata: { name: user.name } });
+-                    handleCall(call, name);
+-                }
+-                setGdParticipants(prev => {
+-                    if (prev.find(p => p._id === joinedUserId || p.userId === joinedUserId)) return prev;
+-                    return [...prev, { _id: joinedUserId, name, userId: joinedUserId }];
+-                });
+-            });
+-
+-            socketRef.current.on('gd-peer-left', ({ peerId, userId: leftUserId }) => {
+-                setRemotePeers(prev => prev.filter(p => p.peerId !== peerId));
+-                callsRef.current.get(peerId)?.close();
+-                callsRef.current.delete(peerId);
+-            });
+-
+-            socketRef.current.on('gd-user-joined', ({ userId: joinedUserId, userName: joinedName }) => {
+-                setGdParticipants(prev => {
+-                    if (prev.find(p => p._id === joinedUserId || p.userId === joinedUserId)) return prev;
+-                    return [...prev, { _id: joinedUserId, name: joinedName, userId: joinedUserId }];
+-                });
+-            });
+-
+-        } catch (err) { console.error(err); }
+-    };
+-
+-    // ═══════════════════════════════════════════
+-    // VIDEO — Toggle Camera & PeerJS
+-    // ═══════════════════════════════════════════
+-    const toggleVideo = async () => {
+-        if (videoEnabled) {
+-            // Stop video
+-            streamRef.current?.getTracks().forEach(t => t.stop());
+-            peerRef.current?.destroy();
+-            callsRef.current.forEach(call => call.close());
+-            callsRef.current.clear();
+-            setRemotePeers([]);
+-            setVideoEnabled(false);
+-            socketRef.current?.emit('gd-leave-video', { roomId: activeRoom._id });
+-        } else {
+-            try {
+-                // Get low-quality stream (240p for reliability)
+-                const stream = await navigator.mediaDevices.getUserMedia({
+-                    video: { width: 320, height: 240, frameRate: 15 },
+-                    audio: true
+-                });
+-                streamRef.current = stream;
+-                if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+-
+-                // Initialize PeerJS
+-                const peer = new Peer();
+-                peerRef.current = peer;
+-
+-                peer.on('open', (peerId) => {
+-                    // Tell the room about our peer ID
+-                    socketRef.current?.emit('gd-video-join', {
+-                        roomId: activeRoom._id,
+-                        peerId,
+-                        name: user.name,
+-                        userId: user._id
+-                    });
+-                });
+-
+-                // Handle incoming calls
+-                peer.on('call', (call) => {
+-                    call.answer(stream);
+-                    const callerName = call.metadata?.name || 'Participant';
+-                    handleCall(call, callerName);
+-                });
+-
+-                setVideoEnabled(true);
+-            } catch (err) {
+-                console.error('Camera error:', err);
+-                setGdAlert('❌ Camera access denied. Check browser permissions.');
+-                setTimeout(() => setGdAlert(''), 3000);
+-            }
+-        }
+-    };
+-
+-    const handleCall = (call, name) => {
+-        call.on('stream', (remoteStream) => {
+-            setRemotePeers(prev => {
+-                // Limit video peers to MAX_VIDEO_PEERS
+-                if (prev.length >= MAX_VIDEO_PEERS) return prev;
+-                const existing = prev.find(p => p.peerId === call.peer);
+-                if (existing) return prev;
+-                return [...prev, { peerId: call.peer, stream: remoteStream, name }];
+-            });
+-        });
+-        call.on('close', () => {
+-            setRemotePeers(prev => prev.filter(p => p.peerId !== call.peer));
+-        });
+-        callsRef.current.set(call.peer, call);
+-    };
+-
+-    const toggleAudio = () => {
+-        const audio = streamRef.current?.getAudioTracks()[0];
+-        if (audio) { audio.enabled = !audio.enabled; setAudioEnabled(audio.enabled); }
+-    };
+-
+-    // ═══════════════════════════════════════════
+-    // GD CONTROLS
+-    // ═══════════════════════════════════════════
+-    const startGD = () => {
+-        socketRef.current?.emit('start-gd', {
+-            roomId: activeRoom._id,
+-            topic: activeRoom.gdTopic,
+-            duration: 10
+-        });
+-        setTimer(600);
+-    };
+-
+-    const sendMessage = () => {
+-        if (!chatMsg.trim()) return;
+-        socketRef.current?.emit('send-message', { roomId: `gd-${activeRoom._id}`, message: chatMsg, userName: user.name });
+-        setMessages(prev => [...prev, { message: chatMsg, userName: user.name, timestamp: new Date() }]);
+-        setChatMsg('');
+-    };
+-
+-    const leaveRoom = () => {
+-        cleanup();
+-        setActiveRoom(null);
+-        setMessages([]);
+-        setRemotePeers([]);
+-        setVideoEnabled(false);
+-        setGdParticipants([]);
+-        fetchRooms();
+-    };
+-
+-    // Timer countdown
+-    useEffect(() => {
+-        if (timer === null || timer <= 0) return;
+-        const interval = setInterval(() => setTimer((t) => (t > 0 ? t - 1 : 0)), 1000);
+-        return () => clearInterval(interval);
+-    }, [timer]);
+-
+-    const formatTime = (s) => {
+-        if (s === null) return '--:--';
+-        const m = Math.floor(s / 60);
+-        const sec = s % 60;
+-        return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+-    };
+-
+-    // ═══════════════════════════════════════════
+-    // ACTIVE ROOM VIEW
+-    // ═══════════════════════════════════════════
+-    if (activeRoom) {
+-        return (
+-            <div className="page" style={{ padding: 0, height: 'calc(100vh - 64px)' }}>
+-                {/* Header */}
+-                <div style={{ padding: '10px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-glass)', backdropFilter: 'blur(16px)' }}>
+-                    <div>
+-                        <h2 style={{ fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+-                            💬 Group Discussion
+-                        </h2>
+-                        <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 2 }}>Topic: {activeRoom.gdTopic || 'Waiting for topic...'}</p>
+-                    </div>
+-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', background: 'var(--bg-card)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+-                            <FiClock style={{ color: 'var(--accent-warning)' }} />
+-                            <span style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 700, color: timer && timer < 60 ? 'var(--accent-danger)' : 'var(--text-primary)' }}>{formatTime(timer)}</span>
+-                        </div>
+-                        {activeRoom.status === 'waiting' && (
+-                            <button className="btn btn-primary btn-sm" onClick={startGD}>Start GD</button>
+-                        )}
+-                        <button className={`btn btn-sm ${videoEnabled ? 'btn-danger' : 'btn-secondary'}`} onClick={toggleVideo}>
+-                            {videoEnabled ? <FiVideoOff /> : <FiVideo />} {videoEnabled ? 'Stop Video' : 'Join Video'}
+-                        </button>
+-                        <button className={`btn btn-sm ${!audioEnabled ? 'btn-danger' : 'btn-secondary'}`} onClick={toggleAudio} disabled={!videoEnabled}>
+-                            {audioEnabled ? <FiMic /> : <FiMicOff />}
+-                        </button>
+-                        <button className="btn btn-secondary btn-sm" onClick={leaveRoom}><FiPhoneOff /> Leave</button>
+-                    </div>
+-                </div>
+-
+-                {gdAlert && (
+-                    <div style={{ padding: '8px 20px', textAlign: 'center', fontWeight: 600, color: 'var(--accent-warning)', background: 'rgba(245,158,11,0.08)', borderBottom: '1px solid rgba(245,158,11,0.2)', fontSize: 13 }}>
+-                        {gdAlert}
+-                    </div>
+-                )}
+-
+-                {/* Main content: Video Grid + Chat */}
+-                <div style={{ display: 'flex', height: 'calc(100% - 60px)', overflow: 'hidden' }}>
+-                    {/* Video Grid + Participants */}
+-                    <div style={{ flex: videoEnabled ? 2 : 0, display: videoEnabled ? 'flex' : 'none', flexDirection: 'column', borderRight: '1px solid var(--border-color)', overflow: 'hidden' }}>
+-                        {/* Video grid */}
+-                        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: remotePeers.length > 1 ? '1fr 1fr' : '1fr', gap: 4, padding: 8, overflow: 'auto' }}>
+-                            {/* Local video */}
+-                            <div style={{ position: 'relative', background: '#111', borderRadius: 8, overflow: 'hidden', aspectRatio: '4/3', minHeight: 0 }}>
+-                                <video ref={localVideoRef} autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
+-                                <div style={{ position: 'absolute', bottom: 6, left: 6, padding: '2px 8px', background: 'rgba(0,0,0,0.7)', borderRadius: 4, fontSize: 11, color: 'white' }}>
+-                                    You {!audioEnabled && '🔇'}
+-                                </div>
+-                            </div>
+-
+-                            {/* Remote video feeds */}
+-                            {remotePeers.map((peer) => (
+-                                <RemoteVideo key={peer.peerId} stream={peer.stream} name={peer.name} />
+-                            ))}
+-
+-                            {/* Audio-only overflow message */}
+-                            {gdParticipants.length > MAX_VIDEO_PEERS + 1 && (
+-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-card)', borderRadius: 8, padding: 16 }}>
+-                                    <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
+-                                        +{gdParticipants.length - MAX_VIDEO_PEERS - 1} participants<br />(audio only)
+-                                    </p>
+-                                </div>
+-                            )}
+-                        </div>
+-
+-                        {/* Participant list below video */}
+-                        <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
+-                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+-                                <FiUsers style={{ fontSize: 12, color: 'var(--text-muted)' }} />
+-                                {gdParticipants.map((p, i) => (
+-                                    <span key={i} className="chip" style={{ fontSize: 10, padding: '2px 8px' }}>{p.name || 'User'}</span>
+-                                ))}
+-                            </div>
+-                        </div>
+-                    </div>
+-
+-                    {/* Participants sidebar when video is off */}
+-                    {!videoEnabled && (
+-                        <div style={{ width: 220, borderRight: '1px solid var(--border-color)', overflow: 'auto', padding: 16 }}>
+-                            <h3 style={{ fontSize: 13, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
+-                                <FiUsers /> Participants ({gdParticipants.length || 0}/{activeRoom.maxParticipants})
+-                            </h3>
+-                            {gdParticipants.map((p, i) => (
+-                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}>
+-                                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--gradient-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'white' }}>
+-                                        {(p.name || 'U')[0]}
+-                                    </div>
+-                                    <span style={{ fontSize: 13 }}>{p.name || 'User'}</span>
+-                                </div>
+-                            ))}
+-                        </div>
+-                    )}
+-
+-                    {/* Chat */}
+-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+-                        <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
+-                            <h3 style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+-                                <FiMessageSquare /> Discussion Chat
+-                            </h3>
+-                        </div>
+-                        <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+-                            {messages.length === 0 && <div className="empty-state"><p>Start discussing the topic!</p></div>}
+-                            {messages.map((m, i) => (
+-                                <div key={i} style={{ marginBottom: 12, padding: '10px 14px', background: m.userName === user.name ? 'rgba(99,102,241,0.08)' : 'var(--bg-input)', borderRadius: 10, borderTopLeftRadius: m.userName === user.name ? 10 : 2, borderTopRightRadius: m.userName !== user.name ? 10 : 2 }}>
+-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+-                                        <span style={{ fontWeight: 600, fontSize: 12, color: m.userName === user.name ? 'var(--accent-primary)' : 'var(--accent-success)' }}>{m.userName}</span>
+-                                        <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : ''}</span>
+-                                    </div>
+-                                    <p style={{ fontSize: 13, lineHeight: 1.5 }}>{m.message}</p>
+-                                </div>
+-                            ))}
+-                            <div ref={chatEndRef} />
+-                        </div>
+-                        <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border-color)', display: 'flex', gap: 8 }}>
+-                            <input className="form-input" style={{ flex: 1, fontSize: 13 }} placeholder="Share your thoughts..." value={chatMsg}
+-                                onChange={(e) => setChatMsg(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} />
+-                            <button className="btn btn-primary" onClick={sendMessage}>Send</button>
+-                        </div>
+-                    </div>
+-                </div>
+-            </div>
+-        );
+-    }
+-
+-    // ═══════════════════════════════════════════
+-    // ROOM LIST VIEW
+-    // ═══════════════════════════════════════════
+-    return (
+-        <div className="page">
+-            <div className="page-header">
+-                <h1 className="page-title">💬 <span>Group Discussion Rooms</span></h1>
+-                <button className="btn btn-primary" onClick={handleCreate}><FiPlus /> Create Room</button>
+-            </div>
+-
+-            {loading ? <div className="spinner" /> : (
+-                <div className="grid grid-3">
+-                    {rooms.map((r) => (
+-                        <div key={r._id} className="glass-card">
+-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+-                                <span className={`badge badge-${r.status === 'waiting' ? 'warning' : r.status === 'active' ? 'success' : 'info'}`}>{r.status}</span>
+-                                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.participants?.length || 0}/{r.maxParticipants} joined</span>
+-                            </div>
+-                            <h3 style={{ fontSize: 14, marginBottom: 8, color: 'var(--text-secondary)' }}>{r.gdTopic || 'Topic TBD'}</h3>
+-                            <div className="progress-bar" style={{ marginBottom: 12 }}>
+-                                <div className="fill" style={{ width: `${((r.participants?.length || 0) / r.maxParticipants) * 100}%` }} />
+-                            </div>
+-                            <div style={{ display: 'flex', gap: 6, fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
+-                                <span>🎥 Video Call Supported</span>
+-                                <span>• Max {r.maxParticipants} participants</span>
+-                            </div>
+-                            {r.status === 'waiting' && (
+-                                <button className="btn btn-primary btn-sm" style={{ width: '100%' }} onClick={() => handleJoin(r)}>Join Room</button>
+-                            )}
+-                        </div>
+-                    ))}
+-                </div>
+-            )}
+-            {!loading && rooms.length === 0 && <div className="empty-state"><div className="icon">💬</div><p>No GD rooms yet. Create one!</p></div>}
+-        </div>
+-    );
+-};
+-
+-// Remote video component — handles srcObject properly
+-const RemoteVideo = ({ stream, name }) => {
+-    const videoRef = useRef(null);
+-    useEffect(() => {
+-        if (videoRef.current && stream) {
+-            videoRef.current.srcObject = stream;
+-        }
+-    }, [stream]);
+-
+-    return (
+-        <div style={{ position: 'relative', background: '#111', borderRadius: 8, overflow: 'hidden', aspectRatio: '4/3', minHeight: 0 }}>
+-            <video ref={videoRef} autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+-            <div style={{ position: 'absolute', bottom: 6, left: 6, padding: '2px 8px', background: 'rgba(0,0,0,0.7)', borderRadius: 4, fontSize: 11, color: 'white' }}>
+-                {name}
+-            </div>
+-        </div>
+-    );
+-};
+-
+-export default GDRooms;
+diff --git a/client/src/pages/MockInterviews.jsx b/client/src/pages/MockInterviews.jsx
+deleted file mode 100644
+index 742dd19..0000000
+--- a/client/src/pages/MockInterviews.jsx
++++ /dev/null
+@@ -1,122 +0,0 @@
+-import { useState, useEffect } from 'react';
+-import { useNavigate } from 'react-router-dom';
+-import { useAuth } from '../context/AuthContext';
+-import { getMockInterviews, createMockInterview, joinMockInterview, getTopics } from '../services/api';
+-import { FiPlus, FiMonitor, FiUsers, FiMessageSquare, FiX } from 'react-icons/fi';
+-
+-const MockInterviews = () => {
+-    const { user } = useAuth();
+-    const [interviews, setInterviews] = useState([]);
+-    const [topics, setTopics] = useState([]);
+-    const [filter, setFilter] = useState('');
+-    const [showCreate, setShowCreate] = useState(false);
+-    const [form, setForm] = useState({ type: 'technical', scheduledDate: '', duration: 60 });
+-    const [loading, setLoading] = useState(true);
+-    const navigate = useNavigate();
+-
+-    useEffect(() => { fetchData(); }, [filter]);
+-
+-    const fetchData = async () => {
+-        setLoading(true);
+-        try {
+-            const [iRes, tRes] = await Promise.all([
+-                getMockInterviews(filter ? { type: filter } : {}),
+-                getTopics()
+-            ]);
+-            setInterviews(iRes.data.interviews || []);
+-            setTopics(tRes.data.topics || []);
+-        } catch (err) { console.error(err); }
+-        setLoading(false);
+-    };
+-
+-    const handleCreate = async (e) => {
+-        e.preventDefault();
+-        try {
+-            const res = await createMockInterview(form);
+-            setShowCreate(false);
+-            fetchData();
+-            navigate(`/interview/${res.data.interview._id}`);
+-        } catch (err) { console.error(err); }
+-    };
+-
+-    const handleJoin = async (id) => {
+-        try {
+-            await joinMockInterview(id);
+-            navigate(`/interview/${id}`);
+-        } catch (err) { console.error(err); }
+-    };
+-
+-    const typeIcons = { technical: <FiMonitor />, hr: <FiUsers />, gd: <FiMessageSquare /> };
+-    const typeColors = { technical: 'badge-primary', hr: 'badge-success', gd: 'badge-warning' };
+-
+-    return (
+-        <div className="page">
+-            <div className="page-header">
+-                <h1 className="page-title">🎤 <span>Mock Interviews</span></h1>
+-                {(user?.role === 'mentor' || user?.role === 'admin') && (
+-                    <button className="btn btn-primary" onClick={() => setShowCreate(true)}><FiPlus /> Create Interview</button>
+-                )}
+-            </div>
+-
+-            <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
+-                {['', 'technical', 'hr', 'gd'].map((t) => (
+-                    <button key={t} className={`btn btn-sm ${filter === t ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFilter(t)}>
+-                        {t === '' ? 'All' : t.toUpperCase()}
+-                    </button>
+-                ))}
+-            </div>
+-
+-            {loading ? <div className="spinner" /> : (
+-                <div className="grid grid-3">
+-                    {interviews.map((i) => (
+-                        <div key={i._id} className="glass-card">
+-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+-                                <span className={`badge ${typeColors[i.type]}`}>{typeIcons[i.type]} {i.type}</span>
+-                                <span className={`badge badge-${i.status === 'completed' ? 'success' : i.status === 'ongoing' ? 'warning' : 'info'}`}>{i.status}</span>
+-                            </div>
+-                            <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, textTransform: 'capitalize' }}>{i.type} Mock Interview</h3>
+-                            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>
+-                                {i.companyFocus?.name && <span>📍 {i.companyFocus.name}</span>}
+-                            </div>
+-                            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>
+-                                👤 Host: {i.mentor?.name || 'TBD'}
+-                            </div>
+-                            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 12 }}>
+-                                👥 Participants: {i.participants?.length || 0}
+-                            </div>
+-                            {i.scheduledDate && (
+-                                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+-                                    📅 {new Date(i.scheduledDate).toLocaleString()}
+-                                </div>
+-                            )}
+-                            <div style={{ display: 'flex', gap: 8 }}>
+-                                {i.status !== 'completed' && (
+-                                    <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={() => handleJoin(i._id)}>
+-                                        Join
+-                                    </button>
+-                                )}
+-                            </div>
+-                        </div>
+-                    ))}
+-                </div>
+-            )}
+-            {!loading && interviews.length === 0 && <div className="empty-state"><div className="icon">🎤</div><p>No mock interviews available</p></div>}
+-
+-            {showCreate && (
+-                <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+-                    <div className="modal" onClick={(e) => e.stopPropagation()}>
+-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 24 }}><h2>Create Mock Interview</h2><button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 20 }} onClick={() => setShowCreate(false)}><FiX /></button></div>
+-                        <form onSubmit={handleCreate}>
+-                            <div className="form-group"><label>Type</label><select className="form-select" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}><option value="technical">Technical</option><option value="hr">HR</option><option value="gd">Group Discussion</option></select></div>
+-                            <div className="form-group"><label>Schedule</label><input className="form-input" type="datetime-local" value={form.scheduledDate} onChange={(e) => setForm({ ...form, scheduledDate: e.target.value })} /></div>
+-                            <div className="form-group"><label>Duration (minutes)</label><input className="form-input" type="number" value={form.duration} onChange={(e) => setForm({ ...form, duration: parseInt(e.target.value) })} /></div>
+-                            <button className="btn btn-primary" style={{ width: '100%' }}>Create</button>
+-                        </form>
+-                    </div>
+-                </div>
+-            )}
+-        </div>
+-    );
+-};
+-
+-export default MockInterviews;
+diff --git a/client/src/pages/NotFound.jsx b/client/src/pages/NotFound.jsx
+new file mode 100644
+index 0000000..15cc463
+--- /dev/null
++++ b/client/src/pages/NotFound.jsx
+@@ -0,0 +1,11 @@
++import { Link } from 'react-router-dom';
++
++const NotFound = () => (
++    <div className="page" style={{ textAlign: 'center', padding: '4rem 1rem' }}>
++        <h1 style={{ fontSize: '4rem', margin: 0 }}>404</h1>
++        <p>That page doesn't exist.</p>
++        <Link to="/dashboard">Back to dashboard</Link>
++    </div>
++);
++
++export default NotFound;
+diff --git a/server/models/GDRoom.js b/server/models/GDRoom.js
+deleted file mode 100644
+index 7b6b1c9..0000000
+--- a/server/models/GDRoom.js
++++ /dev/null
+@@ -1,12 +0,0 @@
+-const mongoose = require('mongoose');
+-
+-const gdRoomSchema = new mongoose.Schema({
+-    topic: { type: mongoose.Schema.Types.ObjectId, ref: 'Topic' },
+-    participants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+-    maxParticipants: { type: Number, default: 6 },
+-    status: { type: String, enum: ['waiting', 'active', 'completed'], default: 'waiting' },
+-    gdTopic: String,
+-    createdAt: { type: Date, default: Date.now }
+-});
+-
+-module.exports = mongoose.model('GDRoom', gdRoomSchema);
+diff --git a/server/models/MockInterview.js b/server/models/MockInterview.js
+deleted file mode 100644
+index 5625243..0000000
+--- a/server/models/MockInterview.js
++++ /dev/null
+@@ -1,16 +0,0 @@
+-const mongoose = require('mongoose');
+-
+-const mockInterviewSchema = new mongoose.Schema({
+-    type: { type: String, enum: ['technical', 'hr', 'gd'], required: true },
+-    mentor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+-    participants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+-    companyFocus: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' },
+-    topic: { type: mongoose.Schema.Types.ObjectId, ref: 'Topic' },
+-    scheduledDate: Date,
+-    duration: Number,
+-    meetingLink: String,
+-    status: { type: String, enum: ['scheduled', 'ongoing', 'completed'], default: 'scheduled' },
+-    createdAt: { type: Date, default: Date.now }
+-});
+-
+-module.exports = mongoose.model('MockInterview', mockInterviewSchema);
+diff --git a/server/routes/gdRooms.js b/server/routes/gdRooms.js
+deleted file mode 100644
+index a9f7518..0000000
+--- a/server/routes/gdRooms.js
++++ /dev/null
+@@ -1,88 +0,0 @@
+-const express = require('express');
+-const GDRoom = require('../models/GDRoom');
+-const { protect } = require('../middleware/auth');
+-const router = express.Router();
+-
+-const GD_TOPICS = [
+-    'Should AI replace human jobs?',
+-    'Is remote work the future?',
+-    'Social media: boon or bane?',
+-    'Is a college degree still relevant?',
+-    'Technology vs. Privacy',
+-    'Climate change responsibility: individual or corporate?',
+-    'Should coding be mandatory in schools?',
+-    'Work-life balance in tech industry',
+-    'Is data the new oil?',
+-    'Startups vs. corporate careers'
+-];
+-
+-// GET /api/gd-rooms
+-router.get('/', protect, async (req, res) => {
+-    try {
+-        const filter = {};
+-        if (req.query.status) filter.status = req.query.status;
+-        const rooms = await GDRoom.find(filter)
+-            .populate('participants', 'name')
+-            .populate('topic', 'name')
+-            .sort({ createdAt: -1 });
+-        res.json({ success: true, rooms });
+-    } catch (error) {
+-        res.status(500).json({ success: false, message: error.message });
+-    }
+-});
+-
+-// POST /api/gd-rooms - Create room
+-router.post('/', protect, async (req, res) => {
+-    try {
+-        const gdTopic = GD_TOPICS[Math.floor(Math.random() * GD_TOPICS.length)];
+-        const room = await GDRoom.create({
+-            ...req.body,
+-            gdTopic,
+-            participants: [req.user._id]
+-        });
+-        res.status(201).json({ success: true, room });
+-    } catch (error) {
+-        res.status(500).json({ success: false, message: error.message });
+-    }
+-});
+-
+-// PATCH /api/gd-rooms/:id/join
+-router.patch('/:id/join', protect, async (req, res) => {
+-    try {
+-        const room = await GDRoom.findById(req.params.id);
+-        if (!room) return res.status(404).json({ success: false, message: 'Room not found' });
+-
+-        if (room.participants.length >= room.maxParticipants) {
+-            return res.status(400).json({ success: false, message: 'Room is full' });
+-        }
+-
+-        if (!room.participants.includes(req.user._id)) {
+-            room.participants.push(req.user._id);
+-
+-            // Auto-start when 4+ participants
+-            if (room.participants.length >= 4) {
+-                room.status = 'active';
+-            }
+-            await room.save();
+-        }
+-
+-        const populated = await GDRoom.findById(room._id).populate('participants', 'name');
+-        res.json({ success: true, room: populated });
+-    } catch (error) {
+-        res.status(500).json({ success: false, message: error.message });
+-    }
+-});
+-
+-// PATCH /api/gd-rooms/:id/status
+-router.patch('/:id/status', protect, async (req, res) => {
+-    try {
+-        const room = await GDRoom.findByIdAndUpdate(
+-            req.params.id, { status: req.body.status }, { new: true }
+-        ).populate('participants', 'name');
+-        res.json({ success: true, room });
+-    } catch (error) {
+-        res.status(500).json({ success: false, message: error.message });
+-    }
+-});
+-
+-module.exports = router;
+diff --git a/server/routes/mockInterviews.js b/server/routes/mockInterviews.js
+deleted file mode 100644
+index 414b962..0000000
+--- a/server/routes/mockInterviews.js
++++ /dev/null
+@@ -1,81 +0,0 @@
+-const express = require('express');
+-const MockInterview = require('../models/MockInterview');
+-const Notification = require('../models/Notification');
+-const { protect, authorize } = require('../middleware/auth');
+-const router = express.Router();
+-
+-// GET /api/mock-interviews
+-router.get('/', protect, async (req, res) => {
+-    try {
+-        const filter = {};
+-        if (req.query.type) filter.type = req.query.type;
+-        if (req.query.status) filter.status = req.query.status;
+-
+-        const interviews = await MockInterview.find(filter)
+-            .populate('mentor', 'name')
+-            .populate('participants', 'name')
+-            .populate('companyFocus', 'name')
+-            .populate('topic', 'name')
+-            .sort({ scheduledDate: -1 });
+-
+-        res.json({ success: true, interviews });
+-    } catch (error) {
+-        res.status(500).json({ success: false, message: error.message });
+-    }
+-});
+-
+-// POST /api/mock-interviews
+-router.post('/', protect, authorize('mentor', 'admin'), async (req, res) => {
+-    try {
+-        const interview = await MockInterview.create({ ...req.body, mentor: req.user._id });
+-        res.status(201).json({ success: true, interview });
+-    } catch (error) {
+-        res.status(500).json({ success: false, message: error.message });
+-    }
+-});
+-
+-// PATCH /api/mock-interviews/:id/join
+-router.patch('/:id/join', protect, async (req, res) => {
+-    try {
+-        const interview = await MockInterview.findById(req.params.id);
+-        if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
+-
+-        if (!interview.participants.includes(req.user._id)) {
+-            interview.participants.push(req.user._id);
+-            await interview.save();
+-        }
+-
+-        res.json({ success: true, interview });
+-    } catch (error) {
+-        res.status(500).json({ success: false, message: error.message });
+-    }
+-});
+-
+-// PATCH /api/mock-interviews/:id/status
+-router.patch('/:id/status', protect, async (req, res) => {
+-    try {
+-        const interview = await MockInterview.findByIdAndUpdate(
+-            req.params.id, { status: req.body.status }, { new: true }
+-        );
+-        res.json({ success: true, interview });
+-    } catch (error) {
+-        res.status(500).json({ success: false, message: error.message });
+-    }
+-});
+-
+-// GET /api/mock-interviews/:id
+-router.get('/:id', protect, async (req, res) => {
+-    try {
+-        const interview = await MockInterview.findById(req.params.id)
+-            .populate('mentor', 'name email')
+-            .populate('participants', 'name email')
+-            .populate('companyFocus', 'name')
+-            .populate('topic', 'name');
+-        if (!interview) return res.status(404).json({ success: false, message: 'Interview not found' });
+-        res.json({ success: true, interview });
+-    } catch (error) {
+-        res.status(500).json({ success: false, message: error.message });
+-    }
+-});
+-
+-module.exports = router;
+diff --git a/server/seeds/seedAll.js b/server/seeds/seedAll.js
+index 4b69cfd..b8a3c50 100644
+--- a/server/seeds/seedAll.js
++++ b/server/seeds/seedAll.js
+@@ -9,15 +9,11 @@ const Topic = require('../models/Topic');
+ const Resource = require('../models/Resource');
+ const Progress = require('../models/Progress');
+ const MentorshipSession = require('../models/MentorshipSession');
+-const MockInterview = require('../models/MockInterview');
+ const CodingQuestion = require('../models/CodingQuestion');
+-const MockFeedback = require('../models/MockFeedback');
+-const GDRoom = require('../models/GDRoom');
+ const Notification = require('../models/Notification');
+ const Availability = require('../models/Availability');
+ const InterviewGame = require('../models/InterviewGame');
+ const LearningPath = require('../models/LearningPath');
+-const CodeSubmission = require('../models/CodeSubmission');
+ const ResumeAnalysis = require('../models/ResumeAnalysis');
+ const ResumeDraft = require('../models/ResumeDraft');
+ 
+@@ -31,10 +27,10 @@ const seedAll = async () => {
+         await Promise.all([
+             User.deleteMany({}), Company.deleteMany({}), Topic.deleteMany({}),
+             Resource.deleteMany({}), Progress.deleteMany({}), MentorshipSession.deleteMany({}),
+-            MockInterview.deleteMany({}), CodingQuestion.deleteMany({}), MockFeedback.deleteMany({}),
+-            GDRoom.deleteMany({}), Notification.deleteMany({}), Availability.deleteMany({}),
+-            InterviewGame.deleteMany({}), LearningPath.deleteMany({}), CodeSubmission.deleteMany({}),
+-            ResumeAnalysis.deleteMany({}), ResumeDraft.deleteMany({})
++            CodingQuestion.deleteMany({}), Notification.deleteMany({}),
++            Availability.deleteMany({}), InterviewGame.deleteMany({}),
++            LearningPath.deleteMany({}), ResumeAnalysis.deleteMany({}),
++            ResumeDraft.deleteMany({})
+         ]);
+ 
+         const hash = await bcrypt.hash('password123', 10);
+@@ -318,76 +314,7 @@ const seedAll = async () => {
+         console.log(`   ✅ ${sessions.length} mentorship sessions`);
+ 
+         // ════════════════════════════════════════
+-        // 8. MOCK INTERVIEWS
+-        // ════════════════════════════════════════
+-        console.log('🎤 Seeding mock interviews...');
+-        const mockTypes = ['technical', 'hr', 'gd'];
+-        const mockStatuses = ['scheduled', 'completed', 'completed'];
+-        const mockEntries = [];
+-        for (let i = 0; i < 20; i++) {
+-            const participantSlice = mentees.slice((i * 2) % mentees.length, ((i * 2) % mentees.length) + 3);
+-            mockEntries.push({
+-                type: mockTypes[i % 3],
+-                mentor: mentors[i % mentors.length]._id,
+-                participants: participantSlice.map(m => m._id),
+-                companyFocus: companies[i % companies.length]._id,
+-                topic: topics[i % topics.length]._id,
+-                scheduledDate: new Date(Date.now() + (-15 + i * 2) * 86400000),
+-                duration: [45, 60, 30][i % 3],
+-                meetingLink: `https://meet.google.com/prism-mock-${i + 1}`,
+-                status: mockStatuses[i % 3]
+-            });
+-        }
+-        const mockInterviews = await MockInterview.insertMany(mockEntries);
+-        console.log(`   ✅ ${mockInterviews.length} mock interviews`);
+-
+-        // ════════════════════════════════════════
+-        // 9. MOCK FEEDBACK
+-        // ════════════════════════════════════════
+-        console.log('📝 Seeding mock feedback...');
+-        const feedbackEntries = [];
+-        const completedMocks = mockInterviews.filter(m => m.status === 'completed');
+-        for (const mock of completedMocks) {
+-            for (const participantId of mock.participants) {
+-                feedbackEntries.push({
+-                    mockInterview: mock._id,
+-                    user: participantId,
+-                    communicationScore: 6 + Math.floor(Math.random() * 4),
+-                    technicalScore: 5 + Math.floor(Math.random() * 5),
+-                    confidenceScore: 6 + Math.floor(Math.random() * 4),
+-                    problemSolvingScore: 5 + Math.floor(Math.random() * 5),
+-                    overallScore: 6 + Math.floor(Math.random() * 4),
+-                    strengths: ['Good communication skills', 'Strong problem-solving approach', 'Clear thought process', 'Good time management'][Math.floor(Math.random() * 4)],
+-                    weaknesses: ['Needs to improve edge case handling', 'Should practice more complex problems', 'Time complexity analysis needs work', 'Could explain approach more clearly'][Math.floor(Math.random() * 4)],
+-                    suggestions: ['Practice 2-3 medium problems daily on LeetCode', 'Study system design patterns', 'Work on behavioral question frameworks', 'Review core CS fundamentals'][Math.floor(Math.random() * 4)]
+-                });
+-            }
+-        }
+-        if (feedbackEntries.length) await MockFeedback.insertMany(feedbackEntries);
+-        console.log(`   ✅ ${feedbackEntries.length} mock feedback records`);
+-
+-        // ════════════════════════════════════════
+-        // 10. GD ROOMS
+-        // ════════════════════════════════════════
+-        console.log('💬 Seeding GD rooms...');
+-        const gdTopics = [
+-            'Is AI a threat to jobs?', 'Remote work vs Office work',
+-            'Should coding be mandatory in schools?', 'Tech startups vs Corporate jobs',
+-            'Ethical implications of social media', 'Future of blockchain technology',
+-            'Impact of automation on developing countries', 'Open source vs Proprietary software'
+-        ];
+-        const gdEntries = gdTopics.map((gt, i) => ({
+-            topic: topics[i % topics.length]._id,
+-            participants: mentees.slice(i % 5, (i % 5) + 4).map(m => m._id),
+-            maxParticipants: 6,
+-            status: ['waiting', 'active', 'completed'][i % 3],
+-            gdTopic: gt
+-        }));
+-        await GDRoom.insertMany(gdEntries);
+-        console.log(`   ✅ ${gdEntries.length} GD rooms`);
+-
+-        // ════════════════════════════════════════
+-        // 11. AVAILABILITY (for mentors)
++        // 8. AVAILABILITY (for mentors)
+         // ════════════════════════════════════════
+         console.log('📅 Seeding availability...');
+         const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+@@ -412,7 +339,7 @@ const seedAll = async () => {
+         console.log(`   ✅ ${availEntries.length} availability records`);
+ 
+         // ════════════════════════════════════════
+-        // 12. INTERVIEW GAMES
++        // 9. INTERVIEW GAMES
+         // ════════════════════════════════════════
+         console.log('🎮 Seeding interview games...');
+         const roundTypes = ['aptitude', 'technical1', 'coding', 'gd', 'technical2', 'hr'];
+@@ -443,7 +370,7 @@ const seedAll = async () => {
+         console.log(`   ✅ ${gameEntries.length} interview games`);
+ 
+         // ════════════════════════════════════════
+-        // 13. NOTIFICATIONS
++        // 10. NOTIFICATIONS
+         // ════════════════════════════════════════
+         console.log('🔔 Seeding notifications...');
+         const notifEntries = [];
+@@ -459,7 +386,7 @@ const seedAll = async () => {
+         console.log(`   ✅ ${notifEntries.length} notifications`);
+ 
+         // ════════════════════════════════════════
+-        // 14. LEARNING PATHS
++        // 11. LEARNING PATHS
+         // ════════════════════════════════════════
+         console.log('🛤️  Seeding learning paths...');
+         const lpEntries = [];
+@@ -493,7 +420,7 @@ const seedAll = async () => {
+         console.log(`   ✅ ${lpEntries.length} learning paths`);
+ 
+         // ════════════════════════════════════════
+-        // 15. RESUME ANALYSES
++        // 12. RESUME ANALYSES
+         // ════════════════════════════════════════
+         console.log('📄 Seeding resume analyses...');
+         const raEntries = mentees.slice(0, 8).map((mentee, i) => ({
+@@ -509,7 +436,7 @@ const seedAll = async () => {
+         console.log(`   ✅ ${raEntries.length} resume analyses`);
+ 
+         // ════════════════════════════════════════
+-        // 16. RESUME DRAFTS
++        // 13. RESUME DRAFTS
+         // ════════════════════════════════════════
+         console.log('📝 Seeding resume drafts...');
+         const rdEntries = mentees.slice(0, 6).map((mentee, i) => ({
+@@ -571,8 +498,7 @@ const seedAll = async () => {
+         console.log(`\n📊 Summary:`);
+         console.log(`   Users: ${mentors.length + mentees.length + 1} | Companies: ${companies.length} | Topics: ${topics.length}`);
+         console.log(`   Resources: ${resources.length} | Coding Questions: ${codingQuestions.length}`);
+-        console.log(`   Sessions: ${sessions.length} | Mock Interviews: ${mockInterviews.length}`);
+-        console.log(`   Feedback: ${feedbackEntries.length} | GD Rooms: ${gdEntries.length}`);
++        console.log(`   Sessions: ${sessions.length}`);
+         console.log(`   Notifications: ${notifEntries.length} | Learning Paths: ${lpEntries.length}`);
+         console.log(`   Resume Drafts: ${rdEntries.length} | Resume Analyses: ${raEntries.length}`);
+         console.log(`   Interview Games: ${gameEntries.length} | Availability: ${availEntries.length}`);
+-- 
+2.43.0
+

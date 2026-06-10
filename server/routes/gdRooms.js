@@ -26,7 +26,7 @@ router.get('/', protect, async (req, res) => {
             .sort({ createdAt: -1 });
         res.json({ success: true, rooms });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -37,11 +37,12 @@ router.post('/', protect, async (req, res) => {
         const room = await GDRoom.create({
             ...req.body,
             gdTopic,
-            participants: [req.user._id]
+            participants: [req.user._id],
+            host: req.user._id // creator; the sole publisher when mode === 'webinar'
         });
         res.status(201).json({ success: true, room });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -68,7 +69,7 @@ router.patch('/:id/join', protect, async (req, res) => {
         const populated = await GDRoom.findById(room._id).populate('participants', 'name');
         res.json({ success: true, room: populated });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -80,7 +81,7 @@ router.patch('/:id/status', protect, async (req, res) => {
         ).populate('participants', 'name');
         res.json({ success: true, room });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 

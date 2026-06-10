@@ -9,7 +9,7 @@ router.get('/', async (req, res) => {
         const topics = await Topic.find().populate('createdBy', 'name').sort({ name: 1 });
         res.json({ success: true, topics });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -19,7 +19,7 @@ router.post('/', protect, authorize('admin', 'mentor'), async (req, res) => {
         const topic = await Topic.create({ ...req.body, createdBy: req.user._id });
         res.status(201).json({ success: true, topic });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -29,7 +29,7 @@ router.put('/:id', protect, authorize('admin', 'mentor'), async (req, res) => {
         const topic = await Topic.findByIdAndUpdate(req.params.id, req.body, { new: true });
         res.json({ success: true, topic });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -39,7 +39,7 @@ router.delete('/:id', protect, authorize('admin'), async (req, res) => {
         await Topic.findByIdAndDelete(req.params.id);
         res.json({ success: true, message: 'Topic deleted' });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
