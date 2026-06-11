@@ -18,8 +18,8 @@ const PILLAR_ACTIONS = {
     resume: { title: 'Run an ATS check on your resume', link: '/resume-builder' },
 };
 
-async function buildDailyPlan(userId) {
-    const profile = await ensureProfile(userId);
+async function buildDailyPlan(userId, profile) {
+    if (!profile) profile = await ensureProfile(userId);
     const now = new Date();
     const items = [];
 
@@ -89,7 +89,7 @@ async function buildDailyPlan(userId) {
 // Build and persist onto the profile (returns the saved profile).
 async function refreshDailyPlan(userId) {
     const profile = await ensureProfile(userId);
-    const items = await buildDailyPlan(userId);
+    const items = await buildDailyPlan(userId, profile);
     profile.dailyPlan = { date: new Date(), items, generatedAt: new Date() };
     await profile.save();
     return profile;

@@ -11,6 +11,8 @@ const fail = (res, err) => res.status(500).json({
 
 // GET /api/prep-profile — auto-creates and self-heals (full recompute is cheap
 // at per-user signal volumes; it also backfills profiles for pre-spine users).
+// dailyPlan is NOT auto-refreshed here: clients should POST /plan/refresh when
+// dailyPlan.generatedAt is older than a day.
 router.get('/', protect, authorize('mentee'), async (req, res) => {
     try {
         const profile = await readiness(req.user._id);
