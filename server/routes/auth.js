@@ -11,6 +11,7 @@ const { asyncHandler, AppError } = require('../middleware/errorHandler');
 const { config } = require('../config/env');
 const { sendPasswordResetEmail } = require('../utils/emailService');
 const logger = require('../utils/logger');
+const { emit: emitSignals, ensureProfile } = require('../agent/services/signals');
 
 const router = express.Router();
 
@@ -125,6 +126,7 @@ router.post('/login', authLimiter, validate(loginSchema), asyncHandler(async (re
             token,
             user: {
                 _id: user._id, name: user.name, email: user.email, role: user.role,
+                onboarded: user.onboarded,
                 bio: user.bio, skills: user.skills, expertise: user.expertise,
                 profilePicture: user.profilePicture, aimingCompany: user.aimingCompany,
                 currentCompany: user.currentCompany, experienceLevel: user.experienceLevel,
@@ -151,6 +153,25 @@ router.put('/onboarding', protect, asyncHandler(async (req, res) => {
     if (['beginner', 'intermediate', 'advanced'].includes(experienceLevel)) update.experienceLevel = experienceLevel;
     if (Array.isArray(skills)) update.skills = skills.filter((s) => typeof s === 'string').slice(0, 20);
     const user = await User.findByIdAndUpdate(req.user._id, update, { new: true }).select('-password');
+    // P6 spine: seed the prep profile from the diagnostic. Self-reported level
+    // baselines the four skill pillars (NOT resume — that needs a real ATS run).
+    // Weight is the standard 'diagnostic' 1.5 and decays away within weeks, so
+    // real activity quickly dominates the self-report.
+    const LEVEL_SCORE = { beginner: 0.35, intermediate: 0.55, advanced: 0.7 };
+    const base = LEVEL_SCORE[experienceLevel];
+    if (base !== undefined) {
+        await emitSignals(req.user._id, ['aptitude', 'dsa', 'cs_core', 'communication'].map((pillar) => ({
+            pillar, skill: 'diagnostic', score: base, source: 'diagnostic', sourceId: user._id,
+        })));
+    }
+    if (update.aimingCompany) {
+        const profile = await ensureProfile(req.user._id);
+        if (!profile.targetCompanies.some((c) => c.name === update.aimingCompany)) {
+            profile.targetCompanies.unshift({ name: update.aimingCompany, priority: 1 });
+            profile.targetCompanies = profile.targetCompanies.slice(0, 5);
+            await profile.save();
+        }
+    }
     res.json({ success: true, user });
 }));
 
