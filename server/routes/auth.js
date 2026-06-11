@@ -12,6 +12,7 @@ const { config } = require('../config/env');
 const { sendPasswordResetEmail } = require('../utils/emailService');
 const logger = require('../utils/logger');
 const { emit: emitSignals, ensureProfile } = require('../agent/services/signals');
+const SkillSignal = require('../models/SkillSignal');
 
 const router = express.Router();
 
@@ -157,20 +158,28 @@ router.put('/onboarding', protect, asyncHandler(async (req, res) => {
     // baselines the four skill pillars (NOT resume — that needs a real ATS run).
     // Weight is the standard 'diagnostic' 1.5 and decays away within weeks, so
     // real activity quickly dominates the self-report.
-    const LEVEL_SCORE = { beginner: 0.35, intermediate: 0.55, advanced: 0.7 };
-    const base = LEVEL_SCORE[experienceLevel];
-    if (base !== undefined) {
-        await emitSignals(req.user._id, ['aptitude', 'dsa', 'cs_core', 'communication'].map((pillar) => ({
-            pillar, skill: 'diagnostic', score: base, source: 'diagnostic', sourceId: user._id,
-        })));
-    }
-    if (update.aimingCompany) {
-        const profile = await ensureProfile(req.user._id);
-        if (!profile.targetCompanies.some((c) => c.name === update.aimingCompany)) {
-            profile.targetCompanies.unshift({ name: update.aimingCompany, priority: 1 });
-            profile.targetCompanies = profile.targetCompanies.slice(0, 5);
-            await profile.save();
+    // Best-effort like emitSignals: spine seeding must never 500 the onboarding
+    // gate — `onboarded: true` is already committed above, so a throw here would
+    // strand the user half-onboarded.
+    try {
+        const LEVEL_SCORE = { beginner: 0.35, intermediate: 0.55, advanced: 0.7 };
+        const base = LEVEL_SCORE[experienceLevel];
+        // Idempotent: re-running the diagnostic must not stack another 4 signals.
+        if (base !== undefined && !(await SkillSignal.exists({ user: req.user._id, source: 'diagnostic' }))) {
+            await emitSignals(req.user._id, ['aptitude', 'dsa', 'cs_core', 'communication'].map((pillar) => ({
+                pillar, skill: 'diagnostic', score: base, source: 'diagnostic', sourceId: user._id,
+            })));
         }
+        if (update.aimingCompany) {
+            const profile = await ensureProfile(req.user._id);
+            if (!profile.targetCompanies.some((c) => c.name === update.aimingCompany)) {
+                profile.targetCompanies.unshift({ name: update.aimingCompany, priority: 1 });
+                profile.targetCompanies = profile.targetCompanies.slice(0, 5);
+                await profile.save();
+            }
+        }
+    } catch (err) {
+        logger.warn('onboarding_prep_seed_failed', { userId: String(req.user._id), err: err.message });
     }
     res.json({ success: true, user });
 }));

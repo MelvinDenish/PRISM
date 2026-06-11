@@ -156,7 +156,7 @@ router.post('/:id/submit', codeExecLimiter, protect, async (req, res) => {
         const graded = await gradeSubmission({ testCases: problem.testCases, language, code });
         const firstFail = graded.results.find((r) => !r.passed);
 
-        await CodeSubmission.create({
+        const submission = await CodeSubmission.create({
             question: problem._id,
             user: req.user._id,
             code,
@@ -175,7 +175,7 @@ router.post('/:id/submit', codeExecLimiter, protect, async (req, res) => {
             skill: problem.category || 'coding',
             score: (Number(graded.score) || 0) / 100,
             source: 'coding',
-            sourceId: problem._id,
+            sourceId: submission._id,
         }]);
 
         // Only reveal expected/actual for FAILED tests (pedagogically useful when
