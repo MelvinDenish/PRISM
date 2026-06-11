@@ -57,6 +57,14 @@ const assert = (cond, msg) => { if (!cond) throw new Error(`FAIL: ${msg}`); cons
     profile = await readiness(user._id);
     assert(profile.readiness.pillars.dsa.score === dsa.score, 'readiness() recompute matches emit-time compute');
 
+    // 6. Daily plan: rule-based, ≤4 items, weakest measured pillar appears.
+    const { refreshDailyPlan } = require('../agent/services/dailyPlan');
+    profile = await refreshDailyPlan(user._id);
+    const plan = profile.dailyPlan;
+    assert(plan.items.length > 0 && plan.items.length <= 4, `plan has 1-4 items (got ${plan.items.length})`);
+    assert(plan.items.some((i) => i.kind === 'practice'), 'plan contains a practice item');
+    assert(plan.items.every((i) => i.title && i.link && i.kind), 'every item has kind/title/link');
+
     console.log('\nPREP SPINE SIGNALS: ALL CHECKS PASSED');
     await mongoose.disconnect();
 })().catch((e) => { console.error(e.message); process.exit(1); });
