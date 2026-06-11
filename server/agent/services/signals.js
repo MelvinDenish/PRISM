@@ -2,7 +2,7 @@
 // user's PrepProfile. Deterministic — no LLM. Shared by HTTP routes and agent
 // tools (same pattern as the other services in this directory).
 const SkillSignal = require('../../models/SkillSignal');
-const { PILLARS } = require('../../models/SkillSignal');
+const { PILLARS, SOURCES } = SkillSignal;
 const PrepProfile = require('../../models/PrepProfile');
 const User = require('../../models/User');
 const logger = require('../../utils/logger');
@@ -63,7 +63,8 @@ async function computePillar(userId, pillar, now = new Date()) {
     }
     const score = Math.round((num / den) * 100);
 
-    // Trend: plain (undecayed) mean of the last 7 days vs the 21 days before it.
+    // Trend: plain (undecayed) mean of the last 7 days vs all older signals in
+    // the horizon. Coarse by design — it's an informational arrow, not a metric.
     const split = now.getTime() - 7 * DAY_MS;
     const recent = signals.filter((s) => s.at.getTime() >= split);
     const prior = signals.filter((s) => s.at.getTime() < split);
@@ -93,7 +94,10 @@ function overallFrom(pillars) {
 async function emit(userId, signals) {
     try {
         const docs = (Array.isArray(signals) ? signals : [])
-            .filter((s) => s && PILLARS.includes(s.pillar) && Number.isFinite(Number(s.score)))
+            .filter((s) => s
+                && PILLARS.includes(s.pillar)
+                && Number.isFinite(Number(s.score))
+                && SOURCES.includes(s.source))
             .map((s) => ({
                 user: userId,
                 pillar: s.pillar,
@@ -107,15 +111,17 @@ async function emit(userId, signals) {
         if (!docs.length) return null;
 
         await SkillSignal.insertMany(docs);
-        const profile = await ensureProfile(userId);
+        await ensureProfile(userId);
         const touched = [...new Set(docs.map((d) => d.pillar))];
+        const update = { updatedAt: new Date() };
         for (const pillar of touched) {
-            profile.readiness.pillars[pillar] = await computePillar(userId, pillar);
+            update[`readiness.pillars.${pillar}`] = await computePillar(userId, pillar);
         }
-        profile.readiness.overall = overallFrom(profile.readiness.pillars);
-        profile.updatedAt = new Date();
-        await profile.save();
-        return profile;
+        const profile = await PrepProfile.findOne({ user: userId }).lean();
+        const merged = { ...profile.readiness.pillars };
+        for (const pillar of touched) merged[pillar] = update[`readiness.pillars.${pillar}`];
+        update['readiness.overall'] = overallFrom(merged);
+        return await PrepProfile.findOneAndUpdate({ user: userId }, { $set: update }, { new: true });
     } catch (err) {
         logger.warn('signal_emit_failed', { userId: String(userId), err: err.message });
         return null;
@@ -125,14 +131,15 @@ async function emit(userId, signals) {
 // Full recompute of all five pillars (used by GET /prep-profile so a stale
 // cache self-heals, and by the verify script).
 async function readiness(userId) {
-    const profile = await ensureProfile(userId);
+    await ensureProfile(userId);
+    const update = { updatedAt: new Date() };
+    const states = {};
     for (const pillar of PILLARS) {
-        profile.readiness.pillars[pillar] = await computePillar(userId, pillar);
+        states[pillar] = await computePillar(userId, pillar);
+        update[`readiness.pillars.${pillar}`] = states[pillar];
     }
-    profile.readiness.overall = overallFrom(profile.readiness.pillars);
-    profile.updatedAt = new Date();
-    await profile.save();
-    return profile;
+    update['readiness.overall'] = overallFrom(states);
+    return PrepProfile.findOneAndUpdate({ user: userId }, { $set: update }, { new: true });
 }
 
 module.exports = { emit, readiness, ensureProfile, SOURCE_WEIGHTS, HALF_LIFE_DAYS, HORIZON_DAYS };

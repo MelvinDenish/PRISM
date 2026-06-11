@@ -43,6 +43,8 @@ const assert = (cond, msg) => { if (!cond) throw new Error(`FAIL: ${msg}`); cons
 
     // 3. Overall excludes no-data pillars (aptitude/cs_core/resume have none).
     assert(profile.readiness.pillars.aptitude.sampleCount === 0, 'aptitude has no data');
+    // dsa.score is the test-1 snapshot — valid because emit() only recomputes
+    // touched pillars, so the stored dsa value is unchanged by test 2.
     const expectedOverall = Math.round((dsa.score + comm.score) / 2);
     assert(Math.abs(profile.readiness.overall - expectedOverall) <= 1,
         `overall ≈ mean of pillars WITH data (${profile.readiness.overall} ≈ ${expectedOverall})`);

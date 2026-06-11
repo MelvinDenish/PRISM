@@ -47,4 +47,7 @@ const prepProfileSchema = new mongoose.Schema({
     updatedAt: { type: Date, default: Date.now },
 });
 
+// Keep updatedAt honest no matter which code path saves the profile.
+prepProfileSchema.pre('save', function () { this.updatedAt = new Date(); });
+
 module.exports = mongoose.model('PrepProfile', prepProfileSchema);

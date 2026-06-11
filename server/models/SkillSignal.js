@@ -17,7 +17,7 @@ const skillSignalSchema = new mongoose.Schema({
     pillar: { type: String, enum: PILLARS, required: true },
     skill: { type: String, default: '' },          // free tag: 'arrays', 'dbms', 'hr'
     score: { type: Number, min: 0, max: 1, required: true },
-    weight: { type: Number, default: 1 },          // source trust, see SOURCE_WEIGHTS
+    weight: { type: Number, default: 1, min: 0 },   // source trust, see SOURCE_WEIGHTS
     source: { type: String, enum: SOURCES, required: true },
     sourceId: { type: mongoose.Schema.Types.ObjectId },
     at: { type: Date, default: Date.now },
