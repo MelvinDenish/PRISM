@@ -273,7 +273,14 @@ Give a helpful HINT — don't give the full solution. Suggest an approach, data 
                 { role: 'system', content: 'Evaluate based on coding performance in interview.' },
                 { role: 'user', content: `Code submitted:\n${code}\nLanguage: ${language}\nTest results: ${JSON.stringify(testResults)}` }
             ];
-            const { data } = await evaluateAIInterview({ conversationContext: context, type: 'technical' });
+            // persist:true records this standalone attempt for the user's history
+            // (the Interview Game omits the flag so its rounds aren't double-counted).
+            const { data } = await evaluateAIInterview({
+                conversationContext: context,
+                type: 'technical',
+                persist: true,
+                topic: selectedQ?.title || 'Technical Interview',
+            });
             setAiEval(data.evaluation);
         } catch {
             setAiEval({ overallScore: 0, detailedFeedback: 'Evaluation unavailable.', recommendation: 'N/A' });

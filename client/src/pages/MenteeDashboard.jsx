@@ -236,6 +236,32 @@ const MenteeDashboard = () => {
                     )) : <div className="empty-state"><p>No resumes yet</p></div>}
                 </div>
             </Reveal>
+
+            {/* AI Interview Practice — self-practice history (own section: these
+                scores are self-reported, kept separate from game-derived stats). */}
+            <Reveal className="grid" style={{ marginTop: 32 }}>
+                <div className="card spotlight">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                        <h3 className="card-title"><FiTrendingUp /> AI Interview Practice</h3>
+                        <button className="btn btn-sm btn-secondary" onClick={() => navigate('/coding-questions')}>Practice <FiArrowRight /></button>
+                    </div>
+                    {stats.aiInterviews?.total > 0 ? (
+                        <>
+                            <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>
+                                <div><div style={{ fontSize: 22, fontWeight: 800 }}>{stats.aiInterviews.total}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Attempts</div></div>
+                                <div><div style={{ fontSize: 22, fontWeight: 800 }}>{stats.aiInterviews.averageScore}%</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Avg score</div></div>
+                                <div><div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent-primary)' }}>{stats.aiInterviews.bestScore}%</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Best</div></div>
+                            </div>
+                            {stats.aiInterviews.recent?.map(a => (
+                                <div key={a._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--border-color)' }}>
+                                    <div><div style={{ fontWeight: 600, fontSize: 14 }}>{a.topic || 'Technical Interview'}</div><div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{a.recommendation || a.type} • {new Date(a.createdAt).toLocaleDateString()}</div></div>
+                                    <span className={`badge badge-${a.overallScore >= 70 ? 'success' : a.overallScore >= 45 ? 'warning' : 'danger'}`} style={{ fontSize: 11 }}>{a.overallScore}%</span>
+                                </div>
+                            ))}
+                        </>
+                    ) : <div className="empty-state"><p>Finish an AI interview to track your progress here.</p></div>}
+                </div>
+            </Reveal>
         </div>
     );
 };

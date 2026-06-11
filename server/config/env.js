@@ -27,6 +27,10 @@ const SCHEMA = {
   JUDGE0_API_URL: { default: 'http://localhost:2358' },
 
   GROQ_API_KEY: { feature: 'AI features (interview, game, GD, resume, summarize, learning paths)', secret: true },
+  // Model routing: cheap model for generation, stronger model for graded feedback
+  // (B1). Both have defaults so unset never blocks boot; override per deployment.
+  GROQ_GEN_MODEL: { default: 'llama-3.1-8b-instant' },
+  GROQ_EVAL_MODEL: { default: 'llama-3.3-70b-versatile' },
   GEMINI_API_KEY: { feature: 'Resume ATS analysis (falls back to keyword matching)', secret: true },
   EMAIL_USER: { feature: 'Email notifications (Gmail SMTP)', secret: true },
   EMAIL_PASS: { feature: 'Email notifications (Gmail SMTP)', secret: true },
@@ -108,6 +112,8 @@ const config = Object.freeze({
   judge0Url: () => process.env.JUDGE0_API_URL || 'http://localhost:2358',
 
   hasGroq: () => Boolean(process.env.GROQ_API_KEY),
+  groqGenModel: () => process.env.GROQ_GEN_MODEL || 'llama-3.1-8b-instant',
+  groqEvalModel: () => process.env.GROQ_EVAL_MODEL || 'llama-3.3-70b-versatile',
   hasGemini: () => Boolean(process.env.GEMINI_API_KEY),
   hasEmail: () => Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS),
 

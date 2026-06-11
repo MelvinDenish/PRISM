@@ -1,8 +1,10 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
 const { aiLimiter } = require('../middleware/rateLimit');
-const Groq = require('groq-sdk');
+const { getGroq, GEN_MODEL, evalCompletion } = require('../utils/aiModels');
+const { rubricBlock, RUBRIC_VERSION } = require('../utils/interviewRubric');
 const User = require('../models/User');
+const InterviewAttempt = require('../models/InterviewAttempt');
 const router = express.Router();
 
 // Cap client-supplied AI conversation context to bound Groq token cost and
@@ -14,11 +16,6 @@ const sanitizeContext = (context) =>
     .slice(-MAX_CONTEXT_MESSAGES)
     .filter((m) => m && typeof m.content === 'string' && typeof m.role === 'string')
     .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_MESSAGE_CHARS) }));
-
-const getGroq = () => {
-  if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY not configured');
-  return new Groq({ apiKey: process.env.GROQ_API_KEY });
-};
 
 // Start AI interview — check for online mentors first
 router.post('/start', protect, aiLimiter, async (req, res) => {
@@ -41,7 +38,7 @@ router.post('/start', protect, aiLimiter, async (req, res) => {
       : `You are a group discussion moderator. Present a topic and guide discussion. Evaluate communication, reasoning, and leadership skills.`;
 
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+      model: GEN_MODEL(),
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Start the ${type} interview. The candidate's topic of interest is: ${topic}. Begin with your first question.` }
@@ -79,7 +76,7 @@ router.post('/chat', protect, aiLimiter, async (req, res) => {
     ];
 
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+      model: GEN_MODEL(),
       messages,
       max_tokens: 500,
       temperature: 0.7
@@ -111,10 +108,12 @@ router.post('/evaluate', protect, aiLimiter, async (req, res) => {
 
     const groq = getGroq();
 
-    // Build a strict evaluation prompt that accounts for actual conversation length
+    // Build a strict evaluation prompt with an anchored rubric (B4) so scores are
+    // comparable across runs. Graded on the stronger eval model (B1, with fallback).
     const evalPrompt = `Based on this ${type} interview conversation, provide a detailed evaluation in JSON format.
-The candidate answered ${userMessages.length} questions. Score STRICTLY based on the quality and depth of their actual responses — do NOT assume or hallucinate answers they didn't give.
-If answers were short, vague, or off-topic, score LOW (20-40). Only give 70+ for genuinely strong, detailed responses.
+The candidate answered ${userMessages.length} questions. Score STRICTLY based on the quality and depth of their actual responses.
+
+${rubricBlock()}
 
 {
   "overallScore": (0-100),
@@ -129,8 +128,7 @@ If answers were short, vague, or off-topic, score LOW (20-40). Only give 70+ for
 }
 Only respond with the JSON, no extra text.`;
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+    const { completion, modelUsed } = await evalCompletion(groq, {
       messages: [
         ...conversationContext,
         { role: 'user', content: evalPrompt }
@@ -147,7 +145,38 @@ Only respond with the JSON, no extra text.`;
       evaluation = { overallScore: 65, detailedFeedback: completion.choices[0]?.message?.content, recommendation: 'Review needed' };
     }
 
-    res.json({ success: true, evaluation });
+    // Persist ONLY for standalone AI interviews (client passes persist:true). The
+    // Interview Game calls this same endpoint for its HR/technical2 rounds but
+    // persists those itself — so it omits the flag and we don't double-count.
+    let attemptId;
+    if (req.body.persist === true && (type === 'technical' || type === 'hr')) {
+      try {
+        const dims = {};
+        for (const k of ['technicalSkill', 'communication', 'problemSolving', 'confidence']) {
+          if (Number.isFinite(Number(evaluation[k]))) dims[k] = Number(evaluation[k]);
+        }
+        const attempt = await InterviewAttempt.create({
+          user: req.user._id,
+          type,
+          topic: typeof req.body.topic === 'string' ? req.body.topic.slice(0, 200) : '',
+          overallScore: Number(evaluation.overallScore) || 0,
+          dimensions: dims,
+          strengths: Array.isArray(evaluation.strengths) ? evaluation.strengths.slice(0, 10).map(String) : [],
+          improvements: Array.isArray(evaluation.improvements) ? evaluation.improvements.slice(0, 10).map(String) : [],
+          detailedFeedback: typeof evaluation.detailedFeedback === 'string' ? evaluation.detailedFeedback : '',
+          recommendation: typeof evaluation.recommendation === 'string' ? evaluation.recommendation : '',
+          questionsAnswered: userMessages.length,
+          rubricVersion: RUBRIC_VERSION,
+          model: modelUsed,
+        });
+        attemptId = attempt._id;
+      } catch (saveErr) {
+        // Persistence is best-effort — never fail the evaluation because of it.
+        console.warn('InterviewAttempt save failed:', saveErr.message);
+      }
+    }
+
+    res.json({ success: true, evaluation, attemptId });
   } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
