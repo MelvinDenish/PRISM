@@ -140,6 +140,12 @@ export const getBehavioralAnswers = () => api.get('/behavioral');
 export const createBehavioralAnswer = (data) => api.post('/behavioral', data);
 export const updateBehavioralAnswer = (id, data) => api.put(`/behavioral/${id}`, data);
 export const deleteBehavioralAnswer = (id) => api.delete(`/behavioral/${id}`);
+
+// Review Queue (C3 — spaced repetition)
+export const getReviewQueue = () => api.get('/review/queue');
+export const getReviewStats = () => api.get('/review/stats');
+export const gradeReviewItem = (id, remembered) => api.post(`/review/${id}/review`, { remembered });
+export const dismissReviewItem = (id) => api.delete(`/review/${id}`);
 export const getLearningPaths = () => api.get('/learning-paths');
 export const getLearningPath = (id) => api.get(`/learning-paths/${id}`);
 export const generateLearningPath = (data) => api.post('/learning-paths/generate', data);
@@ -166,5 +172,16 @@ export const setGDRoomStatus = (id, status) => api.patch(`/gd-rooms/${id}/status
 // Live video (LiveKit SFU) — mint a room-scoped access token.
 // roomName is "session:<sessionId>" (1:1) or "gd:<roomId>" (group/webinar).
 export const getRtcToken = (roomName) => api.post('/rtc/token', { roomName });
+
+// Agentic assistant ("PRISM Copilot")
+// messages: [{ role: 'user' | 'assistant', content }]
+export const sendAssistantMessage = (messages) => api.post('/assistant/chat', { messages });
+export const confirmAssistantAction = (proposedAction) => api.post('/assistant/confirm', { proposedAction });
+
+// ── Prep profile / readiness spine (P6) ──
+export const getPrepProfile = () => api.get('/prep-profile');
+export const updatePrepProfile = (data) => api.put('/prep-profile', data);
+export const refreshDailyPlan = () => api.post('/prep-profile/plan/refresh');
+export const toggleDailyPlanItem = (itemId) => api.post(`/prep-profile/plan/${itemId}/done`);
 
 export default api;

@@ -56,11 +56,14 @@ app.use('/api/ai-interview', require('./routes/aiInterview'));
 app.use('/api/resume-builder', require('./routes/resumeBuilder'));
 app.use('/api/learning-paths', require('./routes/learningPaths'));
 app.use('/api/behavioral', require('./routes/behavioralAnswers'));
+app.use('/api/review', require('./routes/review'));
 app.use('/api/code-execution', require('./routes/codeExecution'));
 app.use('/api/group-discussion', require('./routes/groupDiscussion'));
 app.use('/api/gd-rooms', require('./routes/gdRooms'));
 app.use('/api/summarize', require('./routes/summarize'));
 app.use('/api/rtc', require('./routes/rtc'));
+app.use('/api/assistant', require('./routes/assistant'));
+app.use('/api/prep-profile', require('./routes/prepProfile'));
 
 // Health check
 app.get('/api/health', (req, res) => {
