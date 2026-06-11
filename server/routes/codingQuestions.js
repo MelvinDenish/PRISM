@@ -4,6 +4,7 @@ const CodeSubmission = require('../models/CodeSubmission');
 const { protect, authorize } = require('../middleware/auth');
 const { codeExecLimiter } = require('../middleware/rateLimit');
 const { gradeSubmission } = require('../utils/codingGrader');
+const { emit: emitSignals } = require('../agent/services/signals');
 const router = express.Router();
 
 const errMsg = (error) => (process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message);
@@ -168,6 +169,14 @@ router.post('/:id/submit', codeExecLimiter, protect, async (req, res) => {
             status: graded.status,
             score: graded.score,
         });
+        // P6 spine: every graded submission is dsa evidence (category = skill tag).
+        await emitSignals(req.user._id, [{
+            pillar: 'dsa',
+            skill: problem.category || 'coding',
+            score: (Number(graded.score) || 0) / 100,
+            source: 'coding',
+            sourceId: problem._id,
+        }]);
 
         // Only reveal expected/actual for FAILED tests (pedagogically useful when
         // you got it wrong). Passing tests return pass-only so a single submit
