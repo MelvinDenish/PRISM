@@ -6,17 +6,8 @@ const Resource = require('../models/Resource');
 const { protect, authorize, isOwner } = require('../middleware/auth');
 const { singleFile } = require('../middleware/upload');
 const storage = require('../utils/storage');
+const { assertSafeUrl } = require('../utils/urlGuard');
 const router = express.Router();
-
-// Block obvious SSRF targets (loopback / private ranges) before fetching a URL.
-function isUnsafeHost(hostname = '') {
-    const h = hostname.toLowerCase();
-    if (h === 'localhost' || h.endsWith('.local') || h === '0.0.0.0' || h === '::1') return true;
-    if (/^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h)) return true;
-    if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
-    if (/^169\.254\./.test(h)) return true; // link-local / cloud metadata
-    return false;
-}
 
 // Strip scripts/embeds/event handlers from extracted article HTML before it is
 // rendered in-app (defensive; Readability already removes most active content).
@@ -69,20 +60,36 @@ router.get('/', async (req, res) => {
 router.get('/reader', protect, async (req, res) => {
     try {
         const raw = String(req.query.url || '');
-        let parsed;
-        try { parsed = new URL(raw); } catch { return res.status(400).json({ success: false, message: 'Invalid URL' }); }
-        if (!/^https?:$/.test(parsed.protocol)) return res.status(400).json({ success: false, message: 'Only http/https URLs are allowed' });
-        if (isUnsafeHost(parsed.hostname)) return res.status(400).json({ success: false, message: 'This URL is not allowed' });
 
-        const resp = await axios.get(raw, {
-            timeout: 8000,
-            maxRedirects: 3,
-            maxContentLength: 5 * 1024 * 1024,
-            responseType: 'text',
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PRISM-Reader/1.0)' },
-        });
+        // SSRF guard: re-validate (DNS-resolving) the URL at EVERY hop and follow
+        // redirects manually with maxRedirects:0, so a public URL can't 30x-redirect
+        // to cloud metadata / loopback / RFC-1918, and DNS can't be re-pointed
+        // between check and fetch. Single canonical guard: utils/urlGuard.
+        let currentUrl = raw;
+        let resp;
+        for (let hop = 0; hop < 4; hop++) {
+            const check = await assertSafeUrl(currentUrl);
+            if (!check.ok) return res.status(400).json({ success: false, message: check.reason });
 
-        const dom = new JSDOM(resp.data, { url: raw });
+            resp = await axios.get(currentUrl, {
+                timeout: 8000,
+                maxRedirects: 0,
+                validateStatus: (s) => (s >= 200 && s < 400),
+                maxContentLength: 5 * 1024 * 1024,
+                responseType: 'text',
+                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PRISM-Reader/1.0)' },
+            });
+
+            if (resp.status >= 300 && resp.status < 400 && resp.headers.location) {
+                currentUrl = new URL(resp.headers.location, currentUrl).toString();
+                continue; // loop re-validates the new target before fetching it
+            }
+            break; // 2xx — got the page
+        }
+        if (resp.status >= 300) return res.status(502).json({ success: false, message: 'Too many redirects.' });
+
+        const parsed = new URL(currentUrl);
+        const dom = new JSDOM(resp.data, { url: currentUrl });
         const article = new Readability(dom.window.document).parse();
         if (!article || !article.content) {
             return res.status(422).json({ success: false, message: 'Could not extract a readable view of this page.' });

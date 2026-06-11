@@ -17,6 +17,15 @@ const OFFICE_EXT = /\.(pptx?|docx?|xlsx?)$/i;
 const IMG_EXT = /\.(png|jpe?g|gif|webp|svg)$/i;
 const PDF_EXT = /\.pdf$/i;
 
+// Only ever put http(s) URLs in an href / iframe-src. A stored resource link
+// carrying a `javascript:`/`data:` scheme would otherwise execute on click.
+const safeHref = (u) => {
+    try {
+        const p = new URL(u, window.location.origin);
+        return (p.protocol === 'http:' || p.protocol === 'https:') ? p.href : '#';
+    } catch { return '#'; }
+};
+
 /**
  * ResourcePreview — opens any resource IN-APP (no redirect):
  *  - YouTube/Vimeo → embedded player
@@ -60,7 +69,7 @@ const ResourcePreview = ({ resource, onClose, onSummarize }) => {
                     {isArticle && onSummarize && (
                         <button className="btn btn-secondary btn-sm" onClick={() => onSummarize(resource)}><FiZap /> AI Summary</button>
                     )}
-                    <a className="btn btn-secondary btn-sm" href={src} target="_blank" rel="noopener noreferrer"><FiExternalLink /> Original</a>
+                    <a className="btn btn-secondary btn-sm" href={safeHref(src)} target="_blank" rel="noopener noreferrer"><FiExternalLink /> Original</a>
                     <button className="icon-btn" onClick={onClose} aria-label="Close"><FiX /></button>
                 </div>
             </div>
@@ -77,18 +86,18 @@ const ResourcePreview = ({ resource, onClose, onSummarize }) => {
                 )}
 
                 {isPdf && (
-                    <iframe src={src} title={resource?.title} style={{ width: '100%', height: '72vh', border: 'none', borderRadius: 'var(--radius-md)' }} />
+                    <iframe src={safeHref(src)} title={resource?.title} style={{ width: '100%', height: '72vh', border: 'none', borderRadius: 'var(--radius-md)' }} />
                 )}
 
                 {isImage && (
-                    <div style={{ textAlign: 'center' }}><img src={src} alt={resource?.title} style={{ maxWidth: '100%', borderRadius: 'var(--radius-md)' }} /></div>
+                    <div style={{ textAlign: 'center' }}><img src={safeHref(src)} alt={resource?.title} style={{ maxWidth: '100%', borderRadius: 'var(--radius-md)' }} /></div>
                 )}
 
                 {isOffice && (
                     <div>
                         <iframe src={officeUrl} title={resource?.title} style={{ width: '100%', height: '72vh', border: 'none', borderRadius: 'var(--radius-md)' }} />
                         <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-                            Rendered via Microsoft Office viewer. <a className="btn btn-secondary btn-sm" href={src} download><FiDownload /> Download</a>
+                            Rendered via Microsoft Office viewer. <a className="btn btn-secondary btn-sm" href={safeHref(src)} download><FiDownload /> Download</a>
                         </p>
                     </div>
                 )}
@@ -107,7 +116,7 @@ const ResourcePreview = ({ resource, onClose, onSummarize }) => {
                         {reader.status === 'error' && (
                             <div className="empty-state">
                                 <p>{reader.error}</p>
-                                <a className="btn btn-action" href={src} target="_blank" rel="noopener noreferrer" style={{ marginTop: 12 }}><FiExternalLink /> Open original</a>
+                                <a className="btn btn-action" href={safeHref(src)} target="_blank" rel="noopener noreferrer" style={{ marginTop: 12 }}><FiExternalLink /> Open original</a>
                             </div>
                         )}
                         {resource?.description && <p style={{ color: 'var(--text-secondary)', marginTop: 16 }}>{resource.description}</p>}
