@@ -339,13 +339,33 @@ async function seed() {
     await QuestionBank.deleteMany({});
     console.log('Cleared existing question bank');
 
+    // Per-question difficulty (B3 — real difficulty, hand-graded per item, not random).
+    // Index-aligned with the *_QUESTIONS arrays above. Falls back to 'medium' if the
+    // array is shorter than the question list (defensive against future additions).
+    const APT_DIFF = [
+        'medium', 'medium', 'easy', 'easy', 'medium', 'medium', 'medium', 'medium', // 1-8
+        'easy', 'easy', 'hard', 'medium', 'medium', 'easy', 'medium', 'easy',        // 9-16
+        'medium', 'easy', 'hard', 'medium', 'hard', 'easy', 'easy', 'easy',          // 17-24
+        'easy', 'easy', 'easy', 'easy', 'easy', 'medium', 'easy', 'hard',            // 25-32
+        'easy', 'medium', 'easy', 'medium', 'hard', 'medium', 'medium',              // 33-39
+    ];
+    const TECH_DIFF = [
+        'easy', 'easy', 'easy', 'medium', 'easy', 'hard', 'medium', 'easy', 'medium', 'easy', // 1-10 DSA
+        'medium', 'medium', 'medium', 'medium', 'easy',                                        // 11-15 Algorithms
+        'medium', 'easy', 'easy', 'easy', 'medium', 'medium',                                  // 16-21 DBMS
+        'medium', 'easy', 'medium', 'medium', 'hard',                                          // 22-26 OS
+        'easy', 'medium', 'easy', 'medium', 'easy',                                            // 27-31 Networks
+        'easy', 'easy', 'medium', 'medium', 'medium',                                          // 32-36 OOP
+        'easy', 'easy', 'easy', 'medium', 'hard',                                              // 37-41 System Design
+    ];
+
     // Seed aptitude
-    const aptDocs = APTITUDE_QUESTIONS.map(q => ({ ...q, type: 'aptitude', difficulty: 'medium', verified: true }));
+    const aptDocs = APTITUDE_QUESTIONS.map((q, i) => ({ ...q, type: 'aptitude', difficulty: APT_DIFF[i] || 'medium', verified: true }));
     await QuestionBank.insertMany(aptDocs);
     console.log(`✅ Seeded ${aptDocs.length} aptitude questions`);
 
     // Seed technical
-    const techDocs = TECHNICAL_QUESTIONS.map(q => ({ ...q, type: 'technical', difficulty: 'medium', verified: true }));
+    const techDocs = TECHNICAL_QUESTIONS.map((q, i) => ({ ...q, type: 'technical', difficulty: TECH_DIFF[i] || 'medium', verified: true }));
     await QuestionBank.insertMany(techDocs);
     console.log(`✅ Seeded ${techDocs.length} technical questions`);
 

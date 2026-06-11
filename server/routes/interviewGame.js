@@ -198,18 +198,39 @@ const QuestionBank = require('../models/QuestionBank');
 
 // ─── ROUTES ───
 
+// B3: difficulty-biased sampling. Returns `size` questions, preferring the chosen
+// difficulty and topping up from other difficulties when the bank is too thin at
+// that level — so a round never starves (aptitude needs 15 but a single difficulty
+// band may hold fewer). The chosen difficulty therefore DOMINATES the round as far
+// as the data allows, instead of difficulty being ignored entirely.
+const VALID_DIFF = ['easy', 'medium', 'hard'];
+const sampleByDifficulty = async (type, difficulty, size) => {
+  const diff = VALID_DIFF.includes(difficulty) ? difficulty : 'medium';
+  const primary = await QuestionBank.aggregate([
+    { $match: { type, verified: true, difficulty: diff } },
+    { $sample: { size } },
+  ]);
+  if (primary.length >= size) return primary;
+  const have = primary.map((d) => d._id);
+  const fill = await QuestionBank.aggregate([
+    { $match: { type, verified: true, _id: { $nin: have } } },
+    { $sample: { size: size - primary.length } },
+  ]);
+  return [...primary, ...fill];
+};
+
 // GET questions for a round (from curated bank, AI fallback for GD)
 router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
   const round = req.params.round;
+  // Difficulty hint from the client (the game's chosen level). Sampling is biased
+  // by it; grading is still server-authoritative, so trusting this hint is safe.
+  const difficulty = req.query.difficulty;
   try {
     let questions = [];
     switch (round) {
       case 'aptitude': {
-        // Random 15 from curated bank
-        const docs = await QuestionBank.aggregate([
-          { $match: { type: 'aptitude', verified: true } },
-          { $sample: { size: 15 } }
-        ]);
+        // 15 from curated bank, biased to the chosen difficulty
+        const docs = await sampleByDifficulty('aptitude', difficulty, 15);
         questions = docs.map((q, i) => ({ id: `apt_${i}`, q: q.q, opts: q.opts, ans: q.ans, explanation: q.explanation }));
         // AI fallback if bank is empty
         if (questions.length < 5) {
@@ -220,10 +241,7 @@ router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
       }
       case 'technical1':
       case 'technical2': {
-        const docs = await QuestionBank.aggregate([
-          { $match: { type: 'technical', verified: true } },
-          { $sample: { size: 10 } }
-        ]);
+        const docs = await sampleByDifficulty('technical', difficulty, 10);
         questions = docs.map((q, i) => ({ id: `tech_${i}`, q: q.q, opts: q.opts, ans: q.ans, explanation: q.explanation }));
         if (questions.length < 5) {
           const mcqs = await generateMCQs('technical', 10);
@@ -251,10 +269,7 @@ router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
         break;
       }
       case 'coding': {
-        const docs = await QuestionBank.aggregate([
-          { $match: { type: 'coding', verified: true } },
-          { $sample: { size: 2 } }
-        ]);
+        const docs = await sampleByDifficulty('coding', difficulty, 2);
         questions = docs.map(p => ({
           id: p._id.toString(),
           title: p.title,
@@ -267,7 +282,7 @@ router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
         if (questions.length < 1) {
           // AI fallback: verify the generated test cases against the model's own
           // reference solution before they can grade anyone (see validateCodingProblems).
-          const generated = await generateCodingProblems(2, 'medium');
+          const generated = await generateCodingProblems(2, VALID_DIFF.includes(difficulty) ? difficulty : 'medium');
           let problems = await validateCodingProblems(generated);
           // If validation discarded everything (e.g. the reference solution can't
           // run), fall back to the hand-verified problem so the round is never empty.

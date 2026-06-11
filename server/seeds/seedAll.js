@@ -20,6 +20,8 @@ const LearningPath = require('../models/LearningPath');
 const CodeSubmission = require('../models/CodeSubmission');
 const ResumeAnalysis = require('../models/ResumeAnalysis');
 const ResumeDraft = require('../models/ResumeDraft');
+const authoredCoding = require('./data/codingProblems');
+const { verifyProblem } = require('../utils/codingGrader');
 
 const seedAll = async () => {
     try {
@@ -175,69 +177,42 @@ const seedAll = async () => {
         // 5. CODING QUESTIONS (30+)
         // ════════════════════════════════════════
         console.log('💻 Seeding coding questions...');
-        const codingQs = [
-            { title: 'Two Sum', description: 'Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.', difficulty: 'easy', sampleInput: 'nums = [2,7,11,15], target = 9', sampleOutput: '[0,1]' },
-            { title: 'Reverse Linked List', description: 'Given the head of a singly linked list, reverse the list, and return the reversed list.', difficulty: 'easy', sampleInput: 'head = [1,2,3,4,5]', sampleOutput: '[5,4,3,2,1]' },
-            { title: 'Valid Parentheses', description: 'Given a string s containing just the characters \'(\', \')\', \'{\', \'}\', \'[\' and \']\', determine if the input string is valid.', difficulty: 'easy', sampleInput: 's = "([])"', sampleOutput: 'true' },
-            { title: 'Maximum Subarray', description: 'Given an integer array nums, find the subarray with the largest sum, and return its sum.', difficulty: 'medium', sampleInput: 'nums = [-2,1,-3,4,-1,2,1,-5,4]', sampleOutput: '6' },
-            { title: 'Binary Tree Level Order Traversal', description: 'Given the root of a binary tree, return the level order traversal of its nodes\' values.', difficulty: 'medium', sampleInput: 'root = [3,9,20,null,null,15,7]', sampleOutput: '[[3],[9,20],[15,7]]' },
-            { title: 'Merge Intervals', description: 'Given an array of intervals, merge all overlapping intervals.', difficulty: 'medium', sampleInput: 'intervals = [[1,3],[2,6],[8,10],[15,18]]', sampleOutput: '[[1,6],[8,10],[15,18]]' },
-            { title: 'Longest Substring Without Repeating Characters', description: 'Given a string s, find the length of the longest substring without repeating characters.', difficulty: 'medium', sampleInput: 's = "abcabcbb"', sampleOutput: '3' },
-            { title: 'LRU Cache', description: 'Design a data structure that follows the constraints of a Least Recently Used (LRU) cache.', difficulty: 'hard', sampleInput: 'capacity = 2, operations = [put(1,1),put(2,2),get(1)]', sampleOutput: '[null,null,1]' },
-            { title: 'Median of Two Sorted Arrays', description: 'Given two sorted arrays nums1 and nums2, return the median of the two sorted arrays.', difficulty: 'hard', sampleInput: 'nums1 = [1,3], nums2 = [2]', sampleOutput: '2.0' },
-            { title: 'Trapping Rain Water', description: 'Given n non-negative integers representing an elevation map, compute how much water it can trap after raining.', difficulty: 'hard', sampleInput: 'height = [0,1,0,2,1,0,1,3,2,1,2,1]', sampleOutput: '6' },
-            { title: 'Best Time to Buy and Sell Stock', description: 'Find the maximum profit from buying and selling a stock once.', difficulty: 'easy', sampleInput: 'prices = [7,1,5,3,6,4]', sampleOutput: '5' },
-            { title: 'Climbing Stairs', description: 'You are climbing a staircase. It takes n steps. Each time you can climb 1 or 2 steps. How many distinct ways?', difficulty: 'easy', sampleInput: 'n = 3', sampleOutput: '3' },
-            { title: '3Sum', description: 'Given an integer array, return all triplets that sum to zero.', difficulty: 'medium', sampleInput: 'nums = [-1,0,1,2,-1,-4]', sampleOutput: '[[-1,-1,2],[-1,0,1]]' },
-            { title: 'Course Schedule', description: 'Determine if you can finish all courses given prerequisites (cycle detection in DAG).', difficulty: 'medium', sampleInput: 'numCourses = 2, prerequisites = [[1,0]]', sampleOutput: 'true' },
-            { title: 'Serialize and Deserialize Binary Tree', description: 'Design an algorithm to serialize and deserialize a binary tree.', difficulty: 'hard', sampleInput: 'root = [1,2,3,null,null,4,5]', sampleOutput: '[1,2,3,null,null,4,5]' },
-            { title: 'Find Median from Data Stream', description: 'Design a data structure that supports addNum and findMedian efficiently.', difficulty: 'hard', sampleInput: 'addNum(1), addNum(2), findMedian()', sampleOutput: '1.5' },
-            { title: 'Coin Change', description: 'Find the fewest number of coins needed to make up a given amount.', difficulty: 'medium', sampleInput: 'coins = [1,2,5], amount = 11', sampleOutput: '3' },
-            { title: 'Word Break', description: 'Given a string s and a dictionary, determine if s can be segmented into dictionary words.', difficulty: 'medium', sampleInput: 's = "leetcode", dict = ["leet","code"]', sampleOutput: 'true' },
-            { title: 'Rotate Image', description: 'Rotate the given n x n 2D matrix by 90 degrees clockwise in-place.', difficulty: 'medium', sampleInput: 'matrix = [[1,2,3],[4,5,6],[7,8,9]]', sampleOutput: '[[7,4,1],[8,5,2],[9,6,3]]' },
-            { title: 'N-Queens', description: 'Place N queens on an NxN chessboard such that no two queens attack each other.', difficulty: 'hard', sampleInput: 'n = 4', sampleOutput: '[[".Q..","...Q","Q...","..Q."],["..Q.","Q...","...Q",".Q.."]]' },
-            { title: 'Implement Trie', description: 'Implement a trie data structure with insert, search, and startsWith operations.', difficulty: 'medium', sampleInput: 'insert("apple"), search("apple"), startsWith("app")', sampleOutput: '[null, true, true]' },
-            { title: 'Number of Islands', description: 'Given a 2D grid map, count the number of islands (connected \'1\'s).', difficulty: 'medium', sampleInput: 'grid = [["1","1","0"],["1","1","0"],["0","0","1"]]', sampleOutput: '2' },
-            { title: 'Word Ladder', description: 'Find the shortest transformation sequence from beginWord to endWord.', difficulty: 'hard', sampleInput: 'beginWord = "hit", endWord = "cog", wordList = ["hot","dot","dog","lot","log","cog"]', sampleOutput: '5' },
-            { title: 'Longest Increasing Subsequence', description: 'Find the length of the longest strictly increasing subsequence.', difficulty: 'medium', sampleInput: 'nums = [10,9,2,5,3,7,101,18]', sampleOutput: '4' },
-            { title: 'Regular Expression Matching', description: 'Implement regular expression matching with \'.\' and \'*\' support.', difficulty: 'hard', sampleInput: 's = "aa", p = "a*"', sampleOutput: 'true' },
-        ];
-        // Map each problem to a sensible topic (no more round-robin mis-tagging, bug R5).
-        const codingTopicByTitle = {
-            'Two Sum': 'Data Structures',
-            'Reverse Linked List': 'Linked Lists',
-            'Valid Parentheses': 'Stacks & Queues',
-            'Maximum Subarray': 'Dynamic Programming',
-            'Binary Tree Level Order Traversal': 'Binary Trees & BST',
-            'Merge Intervals': 'Sorting & Searching',
-            'Longest Substring Without Repeating Characters': 'String Algorithms',
-            'LRU Cache': 'Data Structures',
-            'Median of Two Sorted Arrays': 'Sorting & Searching',
-            'Trapping Rain Water': 'Dynamic Programming',
-            'Best Time to Buy and Sell Stock': 'Dynamic Programming',
-            'Climbing Stairs': 'Dynamic Programming',
-            '3Sum': 'Sorting & Searching',
-            'Course Schedule': 'Graph Theory',
-            'Serialize and Deserialize Binary Tree': 'Binary Trees & BST',
-            'Find Median from Data Stream': 'Heap & Priority Queue',
-            'Coin Change': 'Dynamic Programming',
-            'Word Break': 'Dynamic Programming',
-            'Rotate Image': 'Data Structures',
-            'N-Queens': 'Recursion & Backtracking',
-            'Implement Trie': 'String Algorithms',
-            'Number of Islands': 'Graph Theory',
-            'Word Ladder': 'Graph Theory',
-            'Longest Increasing Subsequence': 'Dynamic Programming',
-            'Regular Expression Matching': 'Dynamic Programming'
-        };
-        const codingQuestions = await CodingQuestion.insertMany(
-            codingQs.map((q, i) => ({
-                ...q,
-                topic: (topicByName[codingTopicByTitle[q.title]] || topicByName['Data Structures'] || topics[0])._id,
-                companyTags: [companies[i % companies.length]._id, companies[(i + 3) % companies.length]._id]
-            }))
-        );
-        console.log(`   ✅ ${codingQuestions.length} coding questions`);
+        // Unified, gradeable coding-practice bank (C2). Each authored problem ships
+        // a Python reference solution; we run it here (verifyProblem) to produce
+        // verified expected outputs — A7-safe, never hand-typed — so the standalone
+        // /coding-questions page can grade submissions and track solved state.
+        // Verification runs each problem's reference through executeCode, which
+        // REFUSES local execution under NODE_ENV=production with no Judge0 — every
+        // reference would then fail and zero problems would seed, silently. Warn loudly.
+        if (process.env.NODE_ENV === 'production' && !process.env.JUDGE0_API_URL) {
+            console.warn('   ⚠️  NODE_ENV=production with no JUDGE0_API_URL: coding-problem verification will fail and seed 0 problems. Seed with a non-production env or configure Judge0.');
+        }
+        const codingDocs = [];
+        for (let i = 0; i < authoredCoding.length; i++) {
+            const p = authoredCoding[i];
+            const { testCases, verified, reason } = await verifyProblem(p);
+            if (!verified) {
+                console.warn(`   ⚠️  Skipped unverified coding problem "${p.title}": ${reason || 'verification failed'}`);
+                continue;
+            }
+            codingDocs.push({
+                title: p.title,
+                description: p.description,
+                difficulty: p.difficulty,
+                category: p.category,
+                topic: (topicByName[p.topicName] || topicByName['Data Structures'] || topics[0])._id,
+                companyTags: [companies[i % companies.length]._id, companies[(i + 3) % companies.length]._id],
+                examples: p.examples || [],
+                testCases,
+                boilerplate: p.boilerplate,
+                referenceSolution: p.reference,
+                verified: true,
+                sampleInput: p.examples?.[0]?.input || '',
+                sampleOutput: p.examples?.[0]?.output || '',
+            });
+        }
+        const codingQuestions = await CodingQuestion.insertMany(codingDocs);
+        console.log(`   ✅ ${codingQuestions.length} coding questions (verified, gradeable)`);
 
         // ════════════════════════════════════════
         // 6. PROGRESS for each mentee

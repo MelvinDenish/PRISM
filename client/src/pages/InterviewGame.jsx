@@ -32,6 +32,7 @@ const InterviewGame = () => {
     const [roundScore, setRoundScore] = useState(null);
     const [mode, setMode] = useState('full');
     const [singleRound, setSingleRound] = useState(null);
+    const [difficulty, setDifficulty] = useState('medium');
     const [failSuggestions, setFailSuggestions] = useState(null);
     const [loadingQuestions, setLoadingQuestions] = useState(false);
     const [menuTab, setMenuTab] = useState('play'); // play | leaderboard | history
@@ -104,7 +105,7 @@ const InterviewGame = () => {
         setFailSuggestions(null);
         setAiEval(null);
         try {
-            const { data } = await startInterviewGame({ difficulty: 'medium' });
+            const { data } = await startInterviewGame({ difficulty });
             setGame(data.game);
             setCurrentRound(gameMode === 'single' && selectedRoundIdx !== null ? selectedRoundIdx : 0);
             setPhase('round-intro');
@@ -155,7 +156,7 @@ const InterviewGame = () => {
         }
 
         try {
-            const { data } = await getGameQuestions(round.type, game._id);
+            const { data } = await getGameQuestions(round.type, game._id, game.difficulty || difficulty);
             setQuestions(data.questions || []);
             setCurrentQ(0);
             setAnswers([]);
@@ -419,6 +420,19 @@ const InterviewGame = () => {
                                 </p>
                                 <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 20 }}>
                                     {ROUNDS.map((r, i) => (<span key={r.type} className="badge badge-info" style={{ fontSize: 12 }}>{i + 1}. {r.name}</span>))}
+                                </div>
+                                <div style={{ marginBottom: 20 }}>
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Difficulty</div>
+                                    <div style={{ display: 'inline-flex', gap: 8 }}>
+                                        {['easy', 'medium', 'hard'].map((d) => (
+                                            <button
+                                                key={d}
+                                                className={`btn btn-sm ${difficulty === d ? 'btn-primary' : 'btn-secondary'}`}
+                                                style={{ textTransform: 'capitalize' }}
+                                                onClick={() => setDifficulty(d)}
+                                            >{d}</button>
+                                        ))}
+                                    </div>
                                 </div>
                                 <button className="btn btn-primary btn-lg" onClick={() => startGame('full')}><FiPlay /> Start Full Interview</button>
                             </div>

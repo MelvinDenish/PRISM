@@ -82,6 +82,9 @@ export const setAvailability = (data) => api.post('/availability', data);
 export const getCodingQuestions = (params) => api.get('/coding-questions', { params });
 export const getCodingQuestion = (id) => api.get(`/coding-questions/${id}`);
 export const createCodingQuestion = (data) => api.post('/coding-questions', data);
+export const submitCodingSolution = (id, data) => api.post(`/coding-questions/${id}/submit`, data);
+export const getCodingProgress = () => api.get('/coding-questions/progress');
+export const getCodingSubmissions = (id) => api.get(`/coding-questions/${id}/submissions`);
 
 
 
@@ -104,7 +107,7 @@ export const markAllNotificationsRead = () => api.patch('/notifications/read-all
 
 // Interview Game
 export const startInterviewGame = (data) => api.post('/interview-game/start', data);
-export const getGameQuestions = (round, gameId) => api.get(`/interview-game/questions/${round}`, { params: { gameId } });
+export const getGameQuestions = (round, gameId, difficulty) => api.get(`/interview-game/questions/${round}`, { params: { gameId, difficulty } });
 export const submitGameRound = (data) => api.post('/interview-game/submit-round', data);
 export const getGameHistory = () => api.get('/interview-game/history');
 export const getGame = (id) => api.get(`/interview-game/${id}`);
