@@ -5,6 +5,7 @@ const InterviewGame = require('../models/InterviewGame');
 const { gradeMcqRound, sanitizeGame } = require('../utils/interviewGameScoring');
 const { executeCode } = require('./codeExecution');
 const Groq = require('groq-sdk');
+const { emit: emitSignals } = require('../agent/services/signals');
 const router = express.Router();
 
 // Normalize program output for comparison (trailing whitespace/newlines vary).
@@ -12,6 +13,16 @@ const normOut = (s) => String(s == null ? '' : s).replace(/\r\n/g, '\n').replace
 
 // Round types graded server-side from the stored answer key (MCQ rounds).
 const MCQ_ROUNDS = ['aptitude', 'technical1', 'technical2'];
+
+// P6 spine: which readiness pillar each game round feeds.
+const PILLAR_BY_ROUND = {
+    aptitude: 'aptitude',
+    technical1: 'cs_core',
+    technical2: 'cs_core',
+    coding: 'dsa',
+    hr: 'communication',
+    gd: 'communication',
+};
 
 const getGroq = () => {
   if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY not configured');
@@ -446,6 +457,14 @@ router.post('/submit-round', protect, async (req, res) => {
     round.score = Math.max(0, Math.min(score, 100));
     round.status = 'completed';
     round.completedAt = new Date();
+    // P6 spine: report this round as skill evidence (best-effort, never throws).
+    await emitSignals(req.user._id, [{
+        pillar: PILLAR_BY_ROUND[roundType] || 'cs_core',
+        skill: roundType,
+        score: round.score / 100,
+        source: 'interview_game',
+        sourceId: game._id,
+    }]);
     // Keep server-generated coding feedback; otherwise take the client's text.
     if (!round.feedback) round.feedback = typeof req.body.feedback === 'string' ? req.body.feedback : '';
 
