@@ -134,6 +134,7 @@ export const generateResumeContent = (data) => api.post('/resume-builder/generat
 export const generateCoverLetter = (data) => api.post('/resume-builder/cover-letter', data);
 
 // Learning Paths
+export const submitOnboarding = (data) => api.put('/auth/onboarding', data);
 export const getLearningPaths = () => api.get('/learning-paths');
 export const getLearningPath = (id) => api.get(`/learning-paths/${id}`);
 export const generateLearningPath = (data) => api.post('/learning-paths/generate', data);

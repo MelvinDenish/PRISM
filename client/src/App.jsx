@@ -25,6 +25,7 @@ import LearningPaths from './pages/LearningPaths';
 import NotFound from './pages/NotFound';
 import VideoCall from './pages/VideoCall';
 import GDRooms from './pages/GDRooms';
+import Onboarding from './pages/Onboarding';
 import './index.css';
 
 const ProtectedRoute = ({ children }) => {
@@ -52,6 +53,7 @@ const App = () => {
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
           <Route path="/interview/:id" element={<ProtectedRoute><TechnicalInterview /></ProtectedRoute>} />
           <Route path="/video-call/:sessionId" element={<ProtectedRoute><VideoCall /></ProtectedRoute>} />
           <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>

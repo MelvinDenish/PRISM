@@ -15,6 +15,8 @@ const userSchema = new mongoose.Schema({
     aimingCompany: String,
     currentCompany: String,
     experienceLevel: String,
+    // C7: set once the mentee completes the diagnostic onboarding flow.
+    onboarded: { type: Boolean, default: false },
     experience: { type: Number, default: 0 },
     college: String,
     graduationYear: Number,

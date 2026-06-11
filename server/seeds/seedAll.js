@@ -72,7 +72,8 @@ const seedAll = async () => {
         const adminData = { name: 'PRISM Admin', email: 'admin@prism.dev', password: hash, role: 'admin', bio: 'Platform administrator' };
 
         const mentors = await User.insertMany(mentorData);
-        const mentees = await User.insertMany(menteeData);
+        // Demo mentees already have rich data — skip the C7 diagnostic for them.
+        const mentees = await User.insertMany(menteeData.map((m) => ({ ...m, onboarded: true })));
         const admin = await User.create(adminData);
         console.log(`   ✅ ${mentors.length} mentors, ${mentees.length} mentees, 1 admin`);
 

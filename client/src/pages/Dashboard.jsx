@@ -10,6 +10,8 @@ const Dashboard = () => {
     const { user } = useAuth();
     if (user?.role === 'admin') return <Navigate to="/admin" replace />;
     if (user?.role === 'mentor') return <MentorDashboard />;
+    // C7: first-time mentees do the diagnostic before landing on a dashboard of zeros.
+    if (user?.role === 'mentee' && !user.onboarded) return <Navigate to="/onboarding" replace />;
     return <MenteeDashboard />;
 };
 

@@ -75,8 +75,15 @@ export const AuthProvider = ({ children }) => {
         setUser(null);
     };
 
+    // Re-hydrate the user from the server (e.g. after onboarding flips a flag).
+    const refreshUser = async () => {
+        const res = await getMe();
+        setUser(res.data.user);
+        return res.data.user;
+    };
+
     return (
-        <AuthContext.Provider value={{ user, loading, error, login, register, logout }}>
+        <AuthContext.Provider value={{ user, loading, error, login, register, logout, refreshUser }}>
             {children}
         </AuthContext.Provider>
     );

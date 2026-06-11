@@ -141,6 +141,19 @@ router.get('/me', protect, asyncHandler(async (req, res) => {
     res.json({ success: true, user });
 }));
 
+// PUT /api/auth/onboarding — persist the mentee diagnostic and flip `onboarded`.
+// The generated prep plan is created separately by the client via
+// /learning-paths/generate, so this stays a thin profile write.
+router.put('/onboarding', protect, asyncHandler(async (req, res) => {
+    const { aimingCompany, experienceLevel, skills } = req.body;
+    const update = { onboarded: true };
+    if (typeof aimingCompany === 'string') update.aimingCompany = aimingCompany.trim();
+    if (['beginner', 'intermediate', 'advanced'].includes(experienceLevel)) update.experienceLevel = experienceLevel;
+    if (Array.isArray(skills)) update.skills = skills.filter((s) => typeof s === 'string').slice(0, 20);
+    const user = await User.findByIdAndUpdate(req.user._id, update, { new: true }).select('-password');
+    res.json({ success: true, user });
+}));
+
 // POST /api/auth/forgot-password — issue a reset token (emailed). Always 200 so
 // the response can't be used to enumerate which emails are registered.
 router.post('/forgot-password', authLimiter, validate(forgotPasswordSchema), asyncHandler(async (req, res) => {
