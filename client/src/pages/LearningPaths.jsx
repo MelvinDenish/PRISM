@@ -50,7 +50,7 @@ const LearningPaths = () => {
             setCreating(false);
             setSelectedPath(data.path);
         } catch (err) {
-            const msg = err.response?.data?.message || 'Failed to generate path. Check that GROQ_API_KEY is configured on the server.';
+            const msg = err.response?.data?.message || 'Couldn’t generate the learning path right now. Please try again in a moment.';
             setGenerateError(msg);
         }
         setGenerating(false);

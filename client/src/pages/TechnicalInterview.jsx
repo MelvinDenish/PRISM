@@ -64,6 +64,7 @@ const TechnicalInterview = () => {
     const isRemote = useRef(false);
     const timerRef = useRef(null);
     const chatEndRef = useRef(null);
+    const aiInitedRef = useRef(false); // guard: greet via AI interviewer only once
 
     // ═══════════════════════════════════════════
     // INITIALIZATION
@@ -88,14 +89,20 @@ const TechnicalInterview = () => {
 
         socketRef.current.on('room-participants', (p) => {
             setParticipants(p);
-            // Check if a mentor is in the room
-            const hasMentor = p.some(pt => pt.userId !== user._id);
+            // Only a participant whose authenticated role is 'mentor' counts —
+            // another mentee joining must not flip the room into mentor mode and
+            // silently disable the AI interviewer (was: any other participant).
+            const hasMentor = p.some(pt => pt.userId !== user._id && pt.role === 'mentor');
             if (hasMentor) {
                 setMode('mentor');
             } else {
-                // No mentor — start AI mode
+                // No mentor — start AI mode. Guard so the AI greets only once even
+                // though room-participants can fire on every presence change.
                 setMode('ai');
-                initAIInterviewer();
+                if (!aiInitedRef.current) {
+                    aiInitedRef.current = true;
+                    initAIInterviewer();
+                }
             }
         });
 

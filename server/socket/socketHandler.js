@@ -59,10 +59,14 @@ const socketHandler = (io) => {
             const room = rooms.get(roomId);
             // Remove existing entry for this user
             room.participants = room.participants.filter(p => p.userId !== userId);
-            room.participants.push({ socketId: socket.id, userId, userName });
+            // Include the authenticated role so the client can tell a real mentor
+            // from another mentee — a second mentee must NOT flip the room into
+            // "mentor interview" mode (which silently disables the AI interviewer).
+            const role = socket.user.role;
+            room.participants.push({ socketId: socket.id, userId, userName, role });
 
             // Notify others in room
-            socket.to(roomId).emit('user-joined', { userId, userName, socketId: socket.id });
+            socket.to(roomId).emit('user-joined', { userId, userName, role, socketId: socket.id });
 
             // Send current code state to new joiner
             socket.emit('sync-code', { code: room.code });
@@ -164,6 +168,17 @@ const socketHandler = (io) => {
         });
 
         // ==================== DISCONNECT ====================
+
+        // `disconnecting` fires while socket.rooms is still populated — use it to
+        // tell GD rooms a participant left so their presence list shrinks (the
+        // `disconnect` event below runs after rooms are already cleared).
+        socket.on('disconnecting', () => {
+            socket.rooms.forEach((r) => {
+                if (typeof r === 'string' && r.startsWith('gd-')) {
+                    socket.to(r).emit('gd-user-left', { userId: authUserId, socketId: socket.id });
+                }
+            });
+        });
 
         socket.on('disconnect', () => {
             // Clean up from interview rooms

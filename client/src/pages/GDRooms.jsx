@@ -91,6 +91,12 @@ const GDRooms = () => {
                         : [...prev, { _id: joinedUserId, name: joinedName, userId: joinedUserId }]
                 ));
             });
+            // Shrink the presence list when someone leaves (server emits this on
+            // socket disconnect) — without it the participant count only ever grew.
+            socketRef.current.on('gd-user-left', ({ userId: leftUserId }) => {
+                if (!leftUserId) return;
+                setGdParticipants((prev) => prev.filter((p) => (p.userId || p._id) !== leftUserId));
+            });
         } catch (err) { console.error(err); }
     };
 

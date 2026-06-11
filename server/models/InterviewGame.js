@@ -12,7 +12,11 @@ const roundSchema = new mongoose.Schema({
     // Server-authoritative coding test cases (with expected outputs) for the
     // coding round, so submit-round can run the user's code and grade it without
     // trusting the client. SECURITY: stripped by sanitizeGame(), never sent out.
+    // `problems` holds the test cases for EVERY problem served in the round so the
+    // round score reflects all of them (the UI grades two problems). `testCases`
+    // is the legacy single-problem shape, kept so in-flight games still grade.
     servedCoding: {
+        problems: [{ problemId: String, testCases: [{ input: String, expectedOutput: String, _id: false }], _id: false }],
         testCases: [{ input: String, expectedOutput: String, _id: false }],
         _id: false,
     },

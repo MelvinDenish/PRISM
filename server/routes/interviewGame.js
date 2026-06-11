@@ -85,6 +85,31 @@ const generateGDTopic = async () => {
   return completion.choices[0]?.message?.content?.trim() || 'Is artificial intelligence a threat or an opportunity for the workforce?';
 };
 
+// Hand-verified safe coding problem used when AI generation fails or when AI test
+// cases can't be validated. Has no `referenceSolution`, so it passes straight
+// through validateCodingProblems and its known-correct test cases grade fairly.
+const FALLBACK_CODING_PROBLEM = {
+  id: 'find_max',
+  title: 'Find Maximum Element',
+  difficulty: 'Easy',
+  description: 'Given an array of n integers, find and print the maximum element.\n\nInput: First line n, second line n space-separated integers.\nOutput: The maximum element.',
+  examples: [{ input: '5\n3 1 4 1 5', output: '5', explanation: 'Maximum of [3,1,4,1,5] is 5' }],
+  testCases: [
+    { input: '5\n3 1 4 1 5', expectedOutput: '5' },
+    { input: '1\n42', expectedOutput: '42' },
+    { input: '3\n-1 -5 -2', expectedOutput: '-1' },
+    { input: '4\n10 20 30 40', expectedOutput: '40' },
+    { input: '6\n7 7 7 7 7 7', expectedOutput: '7' },
+  ],
+  boilerplate: {
+    javascript: `const lines = require('fs').readFileSync('/dev/stdin','utf8').trim().split('\\n');\nconst n = parseInt(lines[0]);\nconst arr = lines[1].split(' ').map(Number);\n// Your code here\nconsole.log(Math.max(...arr));`,
+    python: `n = int(input())\narr = list(map(int, input().split()))\n# Your code here\nprint(max(arr))`,
+    cpp: `#include <iostream>\n#include <algorithm>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n    int arr[n];\n    for(int i=0;i<n;i++) cin >> arr[i];\n    // Your code here\n    cout << *max_element(arr, arr+n) << endl;\n    return 0;\n}`,
+    java: `import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        int n = sc.nextInt();\n        int max = Integer.MIN_VALUE;\n        for(int i=0;i<n;i++) max = Math.max(max, sc.nextInt());\n        System.out.println(max);\n    }\n}`,
+    c: `#include <stdio.h>\n#include <limits.h>\nint main() {\n    int n; scanf("%d", &n);\n    int max = INT_MIN;\n    for(int i=0;i<n;i++) { int x; scanf("%d", &x); if(x>max) max=x; }\n    printf("%d\\n", max);\n    return 0;\n}`
+  }
+};
+
 // Generate coding problems via Groq
 const generateCodingProblems = async (count, difficulty = 'medium') => {
   const groq = getGroq();
@@ -103,6 +128,9 @@ The problems should test: arrays, strings, searching, sorting, dynamic programmi
 Input format: first line = n (size), second line = space-separated values, third line = target/parameter if needed.
 Output format: single line output.
 
+Also include a WORKING Python 3 reference solution (reads stdin, prints stdout)
+that actually solves the problem — it is used to verify the test cases.
+
 Return as JSON array:
 [{
   "id": "snake_case_id",
@@ -111,6 +139,7 @@ Return as JSON array:
   "description": "Full problem description with input/output format",
   "examples": [{"input": "...", "output": "...", "explanation": "..."}],
   "testCases": [{"input": "stdin input", "expectedOutput": "expected stdout"}],
+  "referenceSolution": "complete runnable Python 3 program that reads the input and prints the correct output",
   "boilerplate": {
     "javascript": "code with // Your code here placeholder",
     "python": "code with # Your code here placeholder",
@@ -129,29 +158,40 @@ Return as JSON array:
     const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     return JSON.parse(cleaned);
   } catch {
-    // Fallback: return a simple problem
-    return [{
-      id: 'find_max',
-      title: 'Find Maximum Element',
-      difficulty: 'Easy',
-      description: 'Given an array of n integers, find and print the maximum element.\n\nInput: First line n, second line n space-separated integers.\nOutput: The maximum element.',
-      examples: [{ input: '5\n3 1 4 1 5', output: '5', explanation: 'Maximum of [3,1,4,1,5] is 5' }],
-      testCases: [
-        { input: '5\n3 1 4 1 5', expectedOutput: '5' },
-        { input: '1\n42', expectedOutput: '42' },
-        { input: '3\n-1 -5 -2', expectedOutput: '-1' },
-        { input: '4\n10 20 30 40', expectedOutput: '40' },
-        { input: '6\n7 7 7 7 7 7', expectedOutput: '7' },
-      ],
-      boilerplate: {
-        javascript: `const lines = require('fs').readFileSync('/dev/stdin','utf8').trim().split('\\n');\nconst n = parseInt(lines[0]);\nconst arr = lines[1].split(' ').map(Number);\n// Your code here\nconsole.log(Math.max(...arr));`,
-        python: `n = int(input())\narr = list(map(int, input().split()))\n# Your code here\nprint(max(arr))`,
-        cpp: `#include <iostream>\n#include <algorithm>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n    int arr[n];\n    for(int i=0;i<n;i++) cin >> arr[i];\n    // Your code here\n    cout << *max_element(arr, arr+n) << endl;\n    return 0;\n}`,
-        java: `import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        int n = sc.nextInt();\n        int max = Integer.MIN_VALUE;\n        for(int i=0;i<n;i++) max = Math.max(max, sc.nextInt());\n        System.out.println(max);\n    }\n}`,
-        c: `#include <stdio.h>\n#include <limits.h>\nint main() {\n    int n; scanf("%d", &n);\n    int max = INT_MIN;\n    for(int i=0;i<n;i++) { int x; scanf("%d", &x); if(x>max) max=x; }\n    printf("%d\\n", max);\n    return 0;\n}`
-      }
-    }];
+    // Parse failure → one hand-verified problem so the round is never empty.
+    return [FALLBACK_CODING_PROBLEM];
   }
+};
+
+// Verify AI-generated coding test cases before they're ever used to grade a user.
+// The model's claimed `expectedOutput` can be wrong, so we run its OWN Python
+// reference solution and trust the reference's actual output as the expected
+// output. Cases the reference can't produce cleanly are dropped; a problem left
+// with too few verified cases is discarded entirely — better to serve no AI
+// problem than to grade someone against a hallucinated answer key. Problems with
+// no referenceSolution (the hand-curated fallback / verified bank) pass through.
+const validateCodingProblems = async (problems) => {
+  const out = [];
+  for (const p of problems || []) {
+    const ref = p?.referenceSolution;
+    if (!ref || typeof ref !== 'string') { out.push(p); continue; }
+    const verified = [];
+    for (const tc of p.testCases || []) {
+      try {
+        const r = await executeCode('python', ref, tc.input || '');
+        if (r && r.exitCode === 0) {
+          const actual = normOut(r.stdout);
+          if (actual !== '') verified.push({ input: tc.input, expectedOutput: actual });
+        }
+      } catch (_) { /* unrunnable case is dropped */ }
+    }
+    if (verified.length >= 3) {
+      // eslint-disable-next-line no-unused-vars
+      const { referenceSolution, ...rest } = p;
+      out.push({ ...rest, testCases: verified });
+    }
+  }
+  return out;
 };
 
 const QuestionBank = require('../models/QuestionBank');
@@ -225,7 +265,13 @@ router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
           boilerplate: p.boilerplate,
         }));
         if (questions.length < 1) {
-          const problems = await generateCodingProblems(2, 'medium');
+          // AI fallback: verify the generated test cases against the model's own
+          // reference solution before they can grade anyone (see validateCodingProblems).
+          const generated = await generateCodingProblems(2, 'medium');
+          let problems = await validateCodingProblems(generated);
+          // If validation discarded everything (e.g. the reference solution can't
+          // run), fall back to the hand-verified problem so the round is never empty.
+          if (problems.length < 1) problems = [FALLBACK_CODING_PROBLEM];
           questions = problems.map(p => ({
             id: p.id, title: p.title, difficulty: p.difficulty,
             description: p.description, examples: p.examples,
@@ -263,9 +309,13 @@ router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
         if (game && game.user.equals(req.user._id)) {
           const gameRound = game.rounds.find((r) => r.type === 'coding');
           if (gameRound) {
-            const first = questions[0];
+            // Store test cases for EVERY served problem so submit-round can grade
+            // all of them (the UI has the user solve two). `testCases` (first
+            // problem) is kept for backward compatibility with any in-flight game.
+            const mapTests = (p) => (p?.testCases || []).map((t) => ({ input: t.input, expectedOutput: t.expectedOutput || t.output }));
             gameRound.servedCoding = {
-              testCases: (first?.testCases || []).map((t) => ({ input: t.input, expectedOutput: t.expectedOutput || t.output })),
+              problems: questions.map((p) => ({ problemId: String(p.id), testCases: mapTests(p) })),
+              testCases: mapTests(questions[0]),
             };
             await game.save();
           }
@@ -325,10 +375,40 @@ router.post('/submit-round', protect, async (req, res) => {
       const result = gradeMcqRound(round.servedQuestions, answers);
       score = result.score;
       round.answers = result.gradedAnswers;
+    } else if (roundType === 'coding' && round.servedCoding?.problems?.length) {
+      // SERVER-AUTHORITATIVE coding grade across ALL served problems (the UI has
+      // the user solve two). The per-problem code comes from `answers`
+      // [{ problemId, language, code }]; the client-supplied aiScore is ignored.
+      // Each problem scores 0..100 on its own hidden tests; the round is their mean
+      // — matching what the UI displays so the shown score equals the stored score.
+      const problems = round.servedCoding.problems;
+      const byId = new Map();
+      if (Array.isArray(answers)) {
+        for (const a of answers) if (a && a.problemId != null) byId.set(String(a.problemId), a);
+      }
+      const parts = [];
+      let pctSum = 0;
+      for (let i = 0; i < problems.length; i++) {
+        const prob = problems[i];
+        const submission = byId.get(String(prob.problemId));
+        const tests = prob.testCases || [];
+        const code = submission?.code || (String(prob.problemId) === String(answers?.[0]?.problemId) ? req.body.code : '');
+        if (!code || !tests.length) { parts.push(`P${i + 1}: 0/${tests.length}`); continue; }
+        const language = String(submission?.language || req.body.language || 'python');
+        let passed = 0;
+        for (const tc of tests) {
+          try {
+            const out = await executeCode(language, code, tc.input || '');
+            if (out && out.exitCode === 0 && normOut(out.stdout) === normOut(tc.expectedOutput)) passed += 1;
+          } catch (_) { /* a failing/erroring test simply doesn't count */ }
+        }
+        pctSum += tests.length ? (passed / tests.length) * 100 : 0;
+        parts.push(`P${i + 1}: ${passed}/${tests.length}`);
+      }
+      score = Math.round(pctSum / problems.length);
+      round.feedback = `Passed hidden tests — ${parts.join(' · ')}.`;
     } else if (roundType === 'coding' && req.body.code && round.servedCoding?.testCases?.length) {
-      // SERVER-AUTHORITATIVE coding grade: run the submitted code in the sandbox
-      // against the stored hidden test cases. The client-supplied aiScore is
-      // ignored. Falls back below only if code/test cases are unavailable.
+      // LEGACY single-problem path for games started before multi-problem grading.
       const tests = round.servedCoding.testCases;
       const language = String(req.body.language || 'python');
       let passed = 0;
