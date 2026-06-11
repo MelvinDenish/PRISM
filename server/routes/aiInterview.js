@@ -5,6 +5,7 @@ const { getGroq, GEN_MODEL, evalCompletion } = require('../utils/aiModels');
 const { rubricBlock, RUBRIC_VERSION } = require('../utils/interviewRubric');
 const User = require('../models/User');
 const InterviewAttempt = require('../models/InterviewAttempt');
+const { emit: emitSignals } = require('../agent/services/signals');
 const router = express.Router();
 
 // Cap client-supplied AI conversation context to bound Groq token cost and
@@ -170,6 +171,15 @@ Only respond with the JSON, no extra text.`;
           model: modelUsed,
         });
         attemptId = attempt._id;
+        // P6 spine: only standalone interviews emit (the Interview Game's rounds
+        // already emit via /submit-round — persist:false there, no double count).
+        await emitSignals(req.user._id, [{
+          pillar: type === 'technical' ? 'cs_core' : 'communication',
+          skill: typeof req.body.topic === 'string' ? req.body.topic.slice(0, 60) : type,
+          score: (Number(evaluation.overallScore) || 0) / 100,
+          source: 'ai_interview',
+          sourceId: attempt._id,
+        }]);
       } catch (saveErr) {
         // Persistence is best-effort — never fail the evaluation because of it.
         console.warn('InterviewAttempt save failed:', saveErr.message);
