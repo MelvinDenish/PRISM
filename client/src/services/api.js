@@ -42,6 +42,7 @@ export const deleteUser = (id) => api.delete(`/users/${id}`);
 
 // Companies
 export const getCompanies = () => api.get('/companies');
+export const getCompanyTrack = (id) => api.get(`/companies/${id}/track`);
 export const createCompany = (data) => api.post('/companies', data);
 export const updateCompany = (id, data) => api.put(`/companies/${id}`, data);
 export const deleteCompany = (id) => api.delete(`/companies/${id}`);

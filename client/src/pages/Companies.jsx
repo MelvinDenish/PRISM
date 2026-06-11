@@ -1,21 +1,39 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getCompanies, createCompany, deleteCompany } from '../services/api';
-import { FiPlus, FiTrash2, FiX, FiBriefcase, FiClipboard, FiZap } from 'react-icons/fi';
+import { getCompanies, createCompany, deleteCompany, getCompanyTrack } from '../services/api';
+import { FiPlus, FiTrash2, FiX, FiBriefcase, FiClipboard, FiZap, FiTarget, FiCheckCircle } from 'react-icons/fi';
 import Reveal from '../components/motion/Reveal';
 import PageHero from '../components/ui/PageHero';
 import { SkeletonGrid } from '../components/ui/Skeleton';
 import Modal from '../components/ui/Modal';
 
+const diffColors = { easy: 'badge-success', medium: 'badge-warning', hard: 'badge-danger' };
+
 const Companies = () => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [companies, setCompanies] = useState([]);
     const [showAdd, setShowAdd] = useState(false);
     const [form, setForm] = useState({ name: '', description: '', interviewPattern: '', difficultyLevel: '' });
     const [loading, setLoading] = useState(true);
+    const [track, setTrack] = useState(null);
+    const [trackLoading, setTrackLoading] = useState(false);
 
     useEffect(() => { fetch(); }, []);
     const fetch = async () => { setLoading(true); const r = await getCompanies(); setCompanies(r.data.companies || []); setLoading(false); };
+
+    const openTrack = async (c) => {
+        setTrack({ company: c, problems: null });
+        setTrackLoading(true);
+        try {
+            const { data } = await getCompanyTrack(c._id);
+            setTrack(data);
+        } catch {
+            setTrack({ company: c, problems: [], solvedCount: 0, totalCount: 0 });
+        }
+        setTrackLoading(false);
+    };
 
     const handleCreate = async (e) => {
         e.preventDefault();
@@ -52,6 +70,7 @@ const Companies = () => {
                                 {c.interviewPattern && <div className="chip"><FiClipboard /> {c.interviewPattern}</div>}
                                 {c.difficultyLevel && <div className="chip"><FiZap /> {c.difficultyLevel}</div>}
                             </div>
+                            <button className="btn btn-secondary btn-sm" style={{ width: '100%', marginTop: 12 }} onClick={() => openTrack(c)}><FiTarget /> Prep Track</button>
                         </Reveal>
                     ))}
                 </div>
@@ -66,6 +85,57 @@ const Companies = () => {
                             <div className="form-group"><label>Difficulty</label><input className="form-input" value={form.difficultyLevel} onChange={(e) => setForm({ ...form, difficultyLevel: e.target.value })} placeholder="Easy / Medium / Hard" /></div>
                             <button className="btn btn-primary" style={{ width: '100%' }}>Add Company</button>
                         </form>
+                </Modal>
+            )}
+
+            {track && (
+                <Modal onClose={() => setTrack(null)} size="lg">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <span className="company-emblem">{track.company?.name?.[0]?.toUpperCase() || 'C'}</span>
+                            <div>
+                                <h2 style={{ fontSize: 20 }}>{track.company?.name} Prep Track</h2>
+                                {typeof track.solvedCount === 'number' && track.totalCount > 0 && (
+                                    <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{track.solvedCount}/{track.totalCount} tagged problems solved</p>
+                                )}
+                            </div>
+                        </div>
+                        <button className="icon-btn" onClick={() => setTrack(null)}><FiX /></button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+                        {track.company?.interviewPattern && <div className="chip"><FiClipboard /> {track.company.interviewPattern}</div>}
+                        {track.company?.difficultyLevel && <div className="chip"><FiZap /> {track.company.difficultyLevel}</div>}
+                    </div>
+
+                    {trackLoading ? <div className="spinner" /> : (
+                        <>
+                            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Tagged coding problems</h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {(track.problems || []).map((p) => (
+                                    <div
+                                        key={p._id}
+                                        className="card card-clickable"
+                                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer' }}
+                                        onClick={() => navigate('/coding-questions')}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                                            <FiCheckCircle style={{ flexShrink: 0, color: p.solved ? 'var(--accent-success, #10b981)' : 'var(--border, #334155)' }} />
+                                            <span style={{ fontSize: 14, fontWeight: p.solved ? 600 : 400 }}>{p.title}</span>
+                                            {p.topic && <span className="chip" style={{ fontSize: 11 }}>{p.topic}</span>}
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                                            {!p.gradeable && <span className="chip" style={{ fontSize: 10 }}>run-only</span>}
+                                            <span className={`badge ${diffColors[p.difficulty] || ''}`}>{p.difficulty}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                                {(!track.problems || track.problems.length === 0) && (
+                                    <div className="empty-state"><p>No problems tagged for this company yet.</p></div>
+                                )}
+                            </div>
+                        </>
+                    )}
                 </Modal>
             )}
         </div>

@@ -1,5 +1,7 @@
 const express = require('express');
 const Company = require('../models/Company');
+const CodingQuestion = require('../models/CodingQuestion');
+const CodeSubmission = require('../models/CodeSubmission');
 const { protect, authorize } = require('../middleware/auth');
 const router = express.Router();
 
@@ -19,6 +21,45 @@ router.get('/:id', async (req, res) => {
         const company = await Company.findById(req.params.id);
         if (!company) return res.status(404).json({ success: false, message: 'Company not found' });
         res.json({ success: true, company });
+    } catch (error) {
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+    }
+});
+
+// GET /api/companies/:id/track — company-specific prep track (C1):
+// interview pattern + the coding problems tagged to this company, annotated
+// with the caller's solved state (reuses C2's CodeSubmission tracking).
+router.get('/:id/track', protect, async (req, res) => {
+    try {
+        const company = await Company.findById(req.params.id);
+        if (!company) return res.status(404).json({ success: false, message: 'Company not found' });
+
+        const problems = await CodingQuestion.find({ companyTags: company._id })
+            .select('title difficulty category verified testCases topic')
+            .populate('topic', 'name')
+            .sort({ difficulty: 1 })
+            .lean();
+
+        const solvedIds = await CodeSubmission.distinct('question', { user: req.user._id, passed: true });
+        const solvedSet = new Set(solvedIds.map(String));
+
+        const items = problems.map((p) => ({
+            _id: p._id,
+            title: p.title,
+            difficulty: p.difficulty,
+            topic: p.topic?.name,
+            gradeable: !!(p.verified && p.testCases?.length),
+            solved: solvedSet.has(String(p._id)),
+        }));
+        const solvedCount = items.filter((i) => i.solved).length;
+
+        res.json({
+            success: true,
+            company: { _id: company._id, name: company.name, description: company.description, interviewPattern: company.interviewPattern, difficultyLevel: company.difficultyLevel },
+            problems: items,
+            solvedCount,
+            totalCount: items.length,
+        });
     } catch (error) {
         res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
