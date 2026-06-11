@@ -136,6 +136,10 @@ export const generateCoverLetter = (data) => api.post('/resume-builder/cover-let
 
 // Learning Paths
 export const submitOnboarding = (data) => api.put('/auth/onboarding', data);
+export const getBehavioralAnswers = () => api.get('/behavioral');
+export const createBehavioralAnswer = (data) => api.post('/behavioral', data);
+export const updateBehavioralAnswer = (id, data) => api.put(`/behavioral/${id}`, data);
+export const deleteBehavioralAnswer = (id) => api.delete(`/behavioral/${id}`);
 export const getLearningPaths = () => api.get('/learning-paths');
 export const getLearningPath = (id) => api.get(`/learning-paths/${id}`);
 export const generateLearningPath = (data) => api.post('/learning-paths/generate', data);

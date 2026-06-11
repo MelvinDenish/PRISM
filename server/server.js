@@ -55,6 +55,7 @@ app.use('/api/interview-game', require('./routes/interviewGame'));
 app.use('/api/ai-interview', require('./routes/aiInterview'));
 app.use('/api/resume-builder', require('./routes/resumeBuilder'));
 app.use('/api/learning-paths', require('./routes/learningPaths'));
+app.use('/api/behavioral', require('./routes/behavioralAnswers'));
 app.use('/api/code-execution', require('./routes/codeExecution'));
 app.use('/api/group-discussion', require('./routes/groupDiscussion'));
 app.use('/api/gd-rooms', require('./routes/gdRooms'));

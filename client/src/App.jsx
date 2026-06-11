@@ -26,6 +26,7 @@ import NotFound from './pages/NotFound';
 import VideoCall from './pages/VideoCall';
 import GDRooms from './pages/GDRooms';
 import Onboarding from './pages/Onboarding';
+import BehavioralBank from './pages/BehavioralBank';
 import './index.css';
 
 const ProtectedRoute = ({ children }) => {
@@ -73,6 +74,7 @@ const App = () => {
             <Route path="notifications" element={<Notifications />} />
             <Route path="companies" element={<Companies />} />
             <Route path="coding-questions" element={<CodingQuestions />} />
+            <Route path="behavioral" element={<BehavioralBank />} />
             <Route path="admin" element={<RoleRoute roles={['admin']}><Admin /></RoleRoute>} />
           </Route>
           <Route path="*" element={<NotFound />} />

@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
     FiHome, FiBook, FiUsers, FiCalendar,
     FiFileText, FiBarChart2, FiBell, FiLogOut, FiSettings, FiCode, FiBriefcase,
-    FiMap, FiPlay, FiEdit, FiX, FiVideo
+    FiMap, FiPlay, FiEdit, FiX, FiVideo, FiMessageSquare
 } from 'react-icons/fi';
 import Brand from './Brand';
 import ThemeToggle from './ThemeToggle';
@@ -29,6 +29,7 @@ const Sidebar = ({ isOpen, collapsed, onClose }) => {
             { to: '/learning-paths', icon: <FiMap />, label: 'Learning Paths' },
             { to: '/coding-questions', icon: <FiCode />, label: 'Coding Questions' },
             { to: '/interview-game', icon: <FiPlay />, label: 'Interview Game' },
+            { to: '/behavioral', icon: <FiMessageSquare />, label: 'STAR Bank' },
         ]},
         { label: 'Career', items: [
             { to: '/mentors', icon: <FiUsers />, label: 'Find Mentors' },
