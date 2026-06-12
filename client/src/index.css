@@ -1276,6 +1276,25 @@ body, .sidebar, .card, .glass-card, .stat-card, .dash-hero, .modal, .form-input,
   .rb-paper { zoom: 0.8; max-height: none; }
 }
 
+/* Canvas / NL-refine command bar (Copilot P3) */
+.rb-canvas-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.rb-canvas-jd { width: 100%; min-height: 80px; resize: vertical; }
+.rb-cmd-row { display: flex; gap: 10px; align-items: stretch; margin-top: 12px; }
+.rb-cmd-row .rb-cmd-input { flex: 1; min-width: 0; }
+.rb-canvas-help { color: var(--text-muted); font-size: 12.5px; margin: 6px 0 0; }
+.rb-canvas-changed {
+  display: inline-flex; flex-wrap: wrap; gap: 6px;
+  margin: 8px 0 0; font-size: 12px; color: var(--text-muted);
+}
+.rb-canvas-changed .chip { font-size: 11.5px; }
+.rb-canvas-error { color: var(--accent-danger); font-size: 13px; margin-top: 8px; }
+/* Highlight a section briefly after refine names it in changedSections. */
+.rb-section-highlight { animation: rb-flash 2s ease-out; }
+@keyframes rb-flash {
+  0%   { box-shadow: 0 0 0 2px #10b981, 0 0 24px rgba(16,185,129,0.45); }
+  100% { box-shadow: 0 0 0 0 transparent, 0 0 0 transparent; }
+}
+
 /* ---- In-app article reader ---- */
 .reader-content {
   max-width: 68ch;

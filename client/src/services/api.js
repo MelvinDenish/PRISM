@@ -133,6 +133,10 @@ export const updateResumeDraft = (id, data) => api.put(`/resume-builder/drafts/$
 export const deleteResumeDraft = (id) => api.delete(`/resume-builder/drafts/${id}`);
 export const generateResumeContent = (data) => api.post('/resume-builder/generate', data);
 export const generateCoverLetter = (data) => api.post('/resume-builder/cover-letter', data);
+// Resume Canvas (Copilot P3) — agent-driven flow on top of ResumeDraft
+export const generateResumeDraft = (data) => api.post('/resume-builder/drafts/generate', data || {});
+export const refineResumeDraft = (id, instruction) => api.post(`/resume-builder/drafts/${id}/refine`, { instruction });
+export const exportResumeDraft = (id, format) => api.post(`/resume-builder/drafts/${id}/export`, { format });
 
 // Learning Paths
 export const submitOnboarding = (data) => api.put('/auth/onboarding', data);

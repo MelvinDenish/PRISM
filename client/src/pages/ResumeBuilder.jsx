@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { getResumeDrafts, saveResumeDraft, updateResumeDraft, deleteResumeDraft, generateResumeContent, generateCoverLetter } from '../services/api';
-import { FiPlus, FiTrash2, FiDownload, FiZap, FiFileText, FiEdit, FiSave, FiArrowLeft, FiFile } from 'react-icons/fi';
+import { useState, useEffect, useRef } from 'react';
+import { getResumeDrafts, saveResumeDraft, updateResumeDraft, deleteResumeDraft, generateResumeContent, generateCoverLetter, generateResumeDraft, refineResumeDraft, exportResumeDraft, downloadArtifact, getResumeDraft } from '../services/api';
+import { FiPlus, FiTrash2, FiDownload, FiZap, FiFileText, FiEdit, FiSave, FiArrowLeft, FiFile, FiSliders, FiSend } from 'react-icons/fi';
 import { saveAs } from 'file-saver';
 import Reveal from '../components/motion/Reveal';
 import PageHero from '../components/ui/PageHero';
@@ -30,23 +30,66 @@ const ResumeBuilder = () => {
         jobDescription: ''
     });
     const [skillInput, setSkillInput] = useState('');
+    // ── Canvas (Copilot P3) state ──
+    const [canvasJD, setCanvasJD] = useState('');
+    const [canvasGenerating, setCanvasGenerating] = useState(false);
+    const [canvasRefining, setCanvasRefining] = useState(false);
+    const [canvasInstruction, setCanvasInstruction] = useState('');
+    const [canvasError, setCanvasError] = useState('');
+    const [canvasChanged, setCanvasChanged] = useState([]);
+    const [canvasExporting, setCanvasExporting] = useState(null); // 'pdf' | 'docx' | null
+    const highlightTimer = useRef(null);
 
     useEffect(() => { loadDrafts(); }, []);
+    useEffect(() => () => { if (highlightTimer.current) clearTimeout(highlightTimer.current); }, []);
+
+    // Hydrate the form (the editor + preview share this shape) from a saved draft.
+    const hydrateForm = (draft) => ({
+        name: draft.name || 'My Resume',
+        template: draft.template || 'modern',
+        personalInfo: draft.personalInfo || { fullName: '', email: '', phone: '', location: '', linkedin: '', github: '', summary: '' },
+        education: draft.education?.length ? draft.education : [{ institution: '', degree: '', field: '', startDate: '', endDate: '', gpa: '' }],
+        experience: draft.experience?.length ? draft.experience : [{ company: '', position: '', startDate: '', endDate: '', current: false, description: '' }],
+        skills: draft.skills || [],
+        projects: draft.projects?.length ? draft.projects : [{ name: '', description: '', technologies: '', link: '' }],
+        coverLetter: draft.coverLetter || { template: 'professional', content: '', jobTitle: '', companyName: '' },
+        jobDescription: draft.jobDescription || '',
+    });
 
     const loadDrafts = async () => {
         try { const { data } = await getResumeDrafts(); setDrafts(data.drafts || []); } catch {}
     };
 
+    const blankForm = () => ({
+        name: 'My Resume', template: 'modern',
+        personalInfo: { fullName: '', email: '', phone: '', location: '', linkedin: '', github: '', summary: '' },
+        education: [{ institution: '', degree: '', field: '', startDate: '', endDate: '', gpa: '' }],
+        experience: [{ company: '', position: '', startDate: '', endDate: '', current: false, description: '' }],
+        skills: [], projects: [{ name: '', description: '', technologies: '', link: '' }],
+        coverLetter: { template: 'professional', content: '', jobTitle: '', companyName: '' },
+        jobDescription: ''
+    });
+
+    // New blank draft → land on the canvas (preferred flow).
     const newDraft = () => {
         setCurrent(null);
-        setForm({ name: 'My Resume', template: 'modern', personalInfo: { fullName: '', email: '', phone: '', location: '', linkedin: '', github: '', summary: '' }, education: [{ institution: '', degree: '', field: '', startDate: '', endDate: '', gpa: '' }], experience: [{ company: '', position: '', startDate: '', endDate: '', current: false, description: '' }], skills: [], projects: [{ name: '', description: '', technologies: '', link: '' }], coverLetter: { template: 'professional', content: '', jobTitle: '', companyName: '' }, jobDescription: '' });
-        setStep(1);
+        setForm(blankForm());
+        setCanvasJD('');
+        setCanvasInstruction('');
+        setCanvasChanged([]);
+        setCanvasError('');
+        setStep('canvas');
     };
 
     const editDraft = (draft) => {
         setCurrent(draft._id);
-        setForm({ name: draft.name, template: draft.template, personalInfo: draft.personalInfo || {}, education: draft.education?.length ? draft.education : [{}], experience: draft.experience?.length ? draft.experience : [{}], skills: draft.skills || [], projects: draft.projects?.length ? draft.projects : [{}], coverLetter: draft.coverLetter || {}, jobDescription: draft.jobDescription || '' });
-        setStep(1);
+        setForm(hydrateForm(draft));
+        // Land on the canvas (live preview + NL refine). Advanced toggle goes to step 1.
+        setStep('canvas');
+        setCanvasJD(draft.jobDescription || '');
+        setCanvasInstruction('');
+        setCanvasChanged([]);
+        setCanvasError('');
     };
 
     const saveDraft = async () => {
@@ -107,6 +150,97 @@ const ResumeBuilder = () => {
             setForm(prev => ({ ...prev, coverLetter: { ...prev.coverLetter, content: data.coverLetter } }));
         } catch {}
         setCoverLetterGen(false);
+    };
+
+    // ── Canvas (Copilot P3) handlers ──
+
+    // Briefly flash the named sections in the preview after a refine.
+    const flashChanged = (sections) => {
+        if (!Array.isArray(sections) || sections.length === 0) return;
+        setCanvasChanged(sections);
+        if (highlightTimer.current) clearTimeout(highlightTimer.current);
+        highlightTimer.current = setTimeout(() => setCanvasChanged([]), 2200);
+    };
+
+    // "Generate from my profile" — server pulls the User profile + canvasJD,
+    // persists a new ResumeDraft, returns it. We hydrate the form so the preview
+    // and the (hidden) wizard reflect the new draft.
+    const generateFromProfile = async () => {
+        setCanvasGenerating(true);
+        setCanvasError('');
+        try {
+            const { data } = await generateResumeDraft({ jobDescription: canvasJD || undefined });
+            if (!data?.draft) throw new Error('No draft returned');
+            setCurrent(data.draft._id);
+            setForm(hydrateForm(data.draft));
+            setCanvasJD(data.draft.jobDescription || canvasJD || '');
+            loadDrafts();
+            flashChanged(['personalInfo', 'experience', 'skills', 'projects', 'education']);
+        } catch (err) {
+            setCanvasError(err?.response?.data?.message || err.message || 'Could not generate resume.');
+        }
+        setCanvasGenerating(false);
+    };
+
+    // NL refine — POST to /drafts/:id/refine, update form in place,
+    // highlight the sections the server says changed.
+    const refineWithInstruction = async () => {
+        if (!current) {
+            setCanvasError('Save or generate a draft first.');
+            return;
+        }
+        const instruction = canvasInstruction.trim();
+        if (instruction.length < 1 || instruction.length > 500) {
+            setCanvasError('Instruction must be 1–500 characters.');
+            return;
+        }
+        setCanvasRefining(true);
+        setCanvasError('');
+        try {
+            const { data } = await refineResumeDraft(current, instruction);
+            if (!data?.draft) throw new Error('No draft returned');
+            setForm(hydrateForm(data.draft));
+            flashChanged(data.changedSections || []);
+            setCanvasInstruction('');
+        } catch (err) {
+            setCanvasError(err?.response?.data?.message || err.message || 'Refinement failed.');
+        }
+        setCanvasRefining(false);
+    };
+
+    // Server-rendered export → real .docx/.pdf via the generateDocument pipeline,
+    // then trigger a browser download through the existing downloadArtifact helper.
+    const exportViaServer = async (fmt) => {
+        if (!current) {
+            // Save first so we have a draft id, then export.
+            try { await saveDraft(); } catch { /* surfaced below */ }
+        }
+        const id = current;
+        if (!id) {
+            setCanvasError('Could not save the draft to export.');
+            return;
+        }
+        setCanvasExporting(fmt);
+        setCanvasError('');
+        try {
+            const { data } = await exportResumeDraft(id, fmt);
+            if (!data?.artifact?.id) throw new Error('No artifact returned');
+            const filename = `${form.personalInfo?.fullName || form.name || 'resume'}.${fmt}`;
+            await downloadArtifact(data.artifact.id, filename);
+        } catch (err) {
+            setCanvasError(err?.response?.data?.message || err.message || `${fmt.toUpperCase()} export failed.`);
+        }
+        setCanvasExporting(null);
+    };
+
+    // Refresh the form from server in case mid-canvas state drifted (used after
+    // entering the manual wizard and coming back). Best-effort; silent on fail.
+    const reloadCurrentDraft = async () => {
+        if (!current) return;
+        try {
+            const { data } = await getResumeDraft(current);
+            if (data?.draft) setForm(hydrateForm(data.draft));
+        } catch { /* noop */ }
     };
 
     const updatePersonal = (key, val) => setForm(prev => ({ ...prev, personalInfo: { ...prev.personalInfo, [key]: val } }));
@@ -192,6 +326,121 @@ const ResumeBuilder = () => {
         );
     }
 
+    // CANVAS VIEW (Copilot P3) — generate from profile, NL refine, live preview, export.
+    // This is the primary edit surface; the legacy step wizard is reachable via the
+    // "Advanced: manual editor" toggle.
+    if (step === 'canvas') {
+        const refineDisabled = canvasRefining || canvasGenerating || !canvasInstruction.trim();
+        return (
+            <div className="page">
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 24 }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setStep(0)}><FiArrowLeft /> Back</button>
+                    <h2 style={{ fontSize: 20, fontWeight: 700 }}>{form.name || 'New Resume'}</h2>
+                    <button
+                        className="btn btn-secondary btn-sm"
+                        title="Open the step-by-step editor"
+                        onClick={async () => { await reloadCurrentDraft(); setStep(1); }}
+                    ><FiSliders /> Advanced: manual editor</button>
+                    <button className="btn btn-primary btn-sm" onClick={saveDraft} disabled={loading}><FiSave /> {loading ? 'Saving…' : 'Save'}</button>
+                </div>
+
+                <div className="rb-layout">
+                    <div className="rb-editor">
+                        <div className="glass-card" style={{ marginBottom: 16 }}>
+                            <h3 className="card-title" style={{ marginBottom: 8 }}><FiZap /> Generate from my profile</h3>
+                            <p className="rb-canvas-help">We pull your saved profile (skills, experience, education) and tailor it to the job description below. Leave the JD blank for a general resume.</p>
+                            <div className="form-group" style={{ marginTop: 12 }}>
+                                <label>Job description (optional)</label>
+                                <textarea
+                                    className="form-textarea rb-canvas-jd"
+                                    rows={4}
+                                    value={canvasJD}
+                                    onChange={e => setCanvasJD(e.target.value)}
+                                    placeholder="Paste the role you're targeting, or leave blank for a general resume."
+                                />
+                            </div>
+                            <div className="rb-canvas-actions">
+                                <button
+                                    className="btn btn-action"
+                                    onClick={generateFromProfile}
+                                    disabled={canvasGenerating}
+                                >
+                                    <FiZap /> {canvasGenerating ? 'Generating…' : (current ? 'Regenerate from profile' : 'Generate from my profile')}
+                                </button>
+                                {!current && (
+                                    <button className="btn btn-secondary btn-sm" onClick={() => setStep(1)}>
+                                        <FiSliders /> Or start a blank draft
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="glass-card" style={{ marginBottom: 16 }}>
+                            <h3 className="card-title" style={{ marginBottom: 8 }}><FiEdit /> Refine with an instruction</h3>
+                            <p className="rb-canvas-help">Tell the AI what to change — e.g. "make the summary one sentence", "tighten the bullets in the second job", "reorder skills to put Python first". Existing employers, degrees and dates are preserved.</p>
+                            <div className="rb-cmd-row">
+                                <input
+                                    className="form-input rb-cmd-input"
+                                    type="text"
+                                    maxLength={500}
+                                    placeholder={current ? 'What should I change?' : 'Generate a draft first to enable refinement.'}
+                                    value={canvasInstruction}
+                                    onChange={e => setCanvasInstruction(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter' && !refineDisabled) refineWithInstruction(); }}
+                                    disabled={!current || canvasRefining}
+                                />
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={refineWithInstruction}
+                                    disabled={refineDisabled || !current}
+                                >
+                                    <FiSend /> {canvasRefining ? 'Refining…' : 'Refine'}
+                                </button>
+                            </div>
+                            {canvasChanged.length > 0 && (
+                                <div className="rb-canvas-changed">
+                                    <span>Just updated:</span>
+                                    {canvasChanged.map(s => <span key={s} className="chip">{s}</span>)}
+                                </div>
+                            )}
+                            {canvasError && <p className="rb-canvas-error" role="alert">{canvasError}</p>}
+                        </div>
+
+                        <div className="glass-card">
+                            <h3 className="card-title" style={{ marginBottom: 8 }}><FiDownload /> Export</h3>
+                            <p className="rb-canvas-help">Server-rendered .pdf / .docx — the live preview on the right is the source of truth.</p>
+                            <div className="rb-canvas-actions" style={{ marginTop: 12 }}>
+                                <button
+                                    className="btn btn-action"
+                                    onClick={() => exportViaServer('pdf')}
+                                    disabled={canvasExporting !== null}
+                                >
+                                    <FiDownload /> {canvasExporting === 'pdf' ? 'Exporting PDF…' : 'Export PDF'}
+                                </button>
+                                <button
+                                    className="btn btn-secondary"
+                                    onClick={() => exportViaServer('docx')}
+                                    disabled={canvasExporting !== null}
+                                >
+                                    <FiFile /> {canvasExporting === 'docx' ? 'Exporting DOCX…' : 'Export DOCX'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <aside className="rb-preview">
+                        <div className="rb-preview-bar">
+                            <span className="rb-preview-label">Live preview</span>
+                        </div>
+                        <div className="rb-paper">
+                            <ResumePreview form={form} highlighted={canvasChanged} />
+                        </div>
+                    </aside>
+                </div>
+            </div>
+        );
+    }
+
     const steps = ['Template', 'Personal', 'Education', 'Experience', 'Skills & Projects', 'Cover Letter', 'Preview'];
 
     return (
@@ -199,6 +448,13 @@ const ResumeBuilder = () => {
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 24 }}>
                 <button className="btn btn-secondary btn-sm" onClick={() => setStep(0)}><FiArrowLeft /> Back</button>
                 <h2 style={{ fontSize: 20, fontWeight: 700 }}>{form.name || 'New Resume'}</h2>
+                {current && (
+                    <button
+                        className="btn btn-secondary btn-sm"
+                        title="Switch to the canvas / AI flow"
+                        onClick={() => setStep('canvas')}
+                    ><FiZap /> Canvas view</button>
+                )}
                 <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={saveDraft} disabled={loading}><FiSave /> {loading ? 'Saving...' : 'Save'}</button>
             </div>
 
