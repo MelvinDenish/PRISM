@@ -27,6 +27,9 @@ import VideoCall from './pages/VideoCall';
 import GDRooms from './pages/GDRooms';
 import Onboarding from './pages/Onboarding';
 import BehavioralBank from './pages/BehavioralBank';
+import ReviewQueue from './pages/ReviewQueue';
+import Assistant from './pages/Assistant';
+import Artifacts from './pages/Artifacts';
 import './index.css';
 
 const ProtectedRoute = ({ children }) => {
@@ -44,6 +47,13 @@ const RoleRoute = ({ roles, children }) => {
   return roles.includes(user.role) ? children : <Navigate to="/dashboard" />;
 };
 
+// Chat-first landing: mentees land on the assistant; mentors/admins keep the
+// dashboard (their workflows are management-oriented, not prep chat).
+const LandingRedirect = () => {
+  const { user } = useAuth();
+  return <Navigate to={user?.role === 'mentee' ? '/assistant' : '/dashboard'} replace />;
+};
+
 const App = () => {
   return (
     <AuthProvider>
@@ -58,7 +68,8 @@ const App = () => {
           <Route path="/interview/:id" element={<ProtectedRoute><TechnicalInterview /></ProtectedRoute>} />
           <Route path="/video-call/:sessionId" element={<ProtectedRoute><VideoCall /></ProtectedRoute>} />
           <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-            <Route index element={<Navigate to="/dashboard" />} />
+            <Route index element={<LandingRedirect />} />
+            <Route path="assistant" element={<Assistant />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="topics" element={<Topics />} />
             <Route path="resources" element={<Resources />} />
@@ -69,12 +80,16 @@ const App = () => {
             <Route path="gd-rooms" element={<GDRooms />} />
             <Route path="interview-game" element={<InterviewGame />} />
             <Route path="resume-builder" element={<ResumeBuilder />} />
+            <Route path="artifacts" element={<Artifacts />} />
+            {/* Resume Analysis is folded into the Copilot (analyze_resume tool); route
+                kept reachable but unlinked from the sidebar (P4). */}
             <Route path="resume-analysis" element={<ResumeAnalysis />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="notifications" element={<Notifications />} />
             <Route path="companies" element={<Companies />} />
             <Route path="coding-questions" element={<CodingQuestions />} />
             <Route path="behavioral" element={<BehavioralBank />} />
+            <Route path="review" element={<ReviewQueue />} />
             <Route path="admin" element={<RoleRoute roles={['admin']}><Admin /></RoleRoute>} />
           </Route>
           <Route path="*" element={<NotFound />} />

@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
     FiHome, FiBook, FiUsers, FiCalendar,
     FiFileText, FiBarChart2, FiBell, FiLogOut, FiSettings, FiCode, FiBriefcase,
-    FiMap, FiPlay, FiEdit, FiX, FiVideo, FiMessageSquare
+    FiMap, FiPlay, FiEdit, FiX, FiVideo, FiMessageSquare, FiRepeat, FiCpu, FiFolder
 } from 'react-icons/fi';
 import Brand from './Brand';
 import ThemeToggle from './ThemeToggle';
@@ -21,7 +21,12 @@ const Sidebar = ({ isOpen, collapsed, onClose }) => {
         if (window.innerWidth <= 768 && onClose) onClose();
     };
 
+    // Chat-first: the Copilot is pinned at the very top for every role; the
+    // existing feature tabs remain below as secondary navigation.
+    const copilotGroup = { items: [{ to: '/assistant', icon: <FiCpu />, label: 'PRISM Copilot' }] };
+
     const menteeNav = [
+        copilotGroup,
         { items: [{ to: '/dashboard', icon: <FiHome />, label: 'Dashboard' }] },
         { label: 'Prepare', items: [
             { to: '/topics', icon: <FiBook />, label: 'Topics' },
@@ -30,14 +35,20 @@ const Sidebar = ({ isOpen, collapsed, onClose }) => {
             { to: '/coding-questions', icon: <FiCode />, label: 'Coding Questions' },
             { to: '/interview-game', icon: <FiPlay />, label: 'Interview Game' },
             { to: '/behavioral', icon: <FiMessageSquare />, label: 'STAR Bank' },
+            { to: '/review', icon: <FiRepeat />, label: 'Review Queue' },
         ]},
         { label: 'Career', items: [
             { to: '/mentors', icon: <FiUsers />, label: 'Find Mentors' },
             { to: '/sessions', icon: <FiCalendar />, label: 'My Sessions' },
             { to: '/gd-rooms', icon: <FiVideo />, label: 'Group Discussion' },
             { to: '/companies', icon: <FiBriefcase />, label: 'Companies' },
-            { to: '/resume-builder', icon: <FiEdit />, label: 'Resume Builder' },
-            { to: '/resume-analysis', icon: <FiFileText />, label: 'Resume Analysis' },
+        ]},
+        // DOCUMENTS — agent-produced. My Resume is the repurposed resume canvas;
+        // Files lists everything the Copilot generated. Resume Analysis moved into
+        // the Copilot (analyze_resume tool), so it's no longer a tab here.
+        { label: 'Documents', items: [
+            { to: '/resume-builder', icon: <FiEdit />, label: 'My Resume' },
+            { to: '/artifacts', icon: <FiFolder />, label: 'Files' },
         ]},
         { label: 'Activity', items: [
             { to: '/analytics', icon: <FiBarChart2 />, label: 'Analytics' },
@@ -46,6 +57,7 @@ const Sidebar = ({ isOpen, collapsed, onClose }) => {
     ];
 
     const mentorNav = [
+        copilotGroup,
         { items: [{ to: '/dashboard', icon: <FiHome />, label: 'Dashboard' }] },
         { label: 'Mentorship', items: [
             { to: '/sessions', icon: <FiCalendar />, label: 'Sessions' },
@@ -61,6 +73,7 @@ const Sidebar = ({ isOpen, collapsed, onClose }) => {
     ];
 
     const adminNav = [
+        copilotGroup,
         { items: [
             { to: '/dashboard', icon: <FiHome />, label: 'Dashboard' },
             { to: '/admin', icon: <FiSettings />, label: 'Admin Panel' },
