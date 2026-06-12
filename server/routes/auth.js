@@ -13,6 +13,7 @@ const { sendPasswordResetEmail } = require('../utils/emailService');
 const logger = require('../utils/logger');
 const { emit: emitSignals, ensureProfile } = require('../agent/services/signals');
 const SkillSignal = require('../models/SkillSignal');
+const { randomTheme } = require('../utils/themeGenerator');
 
 const router = express.Router();
 
@@ -71,6 +72,7 @@ router.post('/register', authLimiter, validate(registerSchema), asyncHandler(asy
         name: name.trim(), email: normalizedEmail, password: hashedPassword, role,
         bio, skills, aimingCompany, currentCompany, experienceLevel,
         passwordChangedAt: new Date(),
+        theme: randomTheme(), // P5: every new user gets a distinct palette
     });
 
     // Create progress tracker for mentees
@@ -83,7 +85,7 @@ router.post('/register', authLimiter, validate(registerSchema), asyncHandler(asy
     res.status(201).json({
         success: true,
         token,
-        user: { _id: user._id, name: user.name, email: user.email, role: user.role }
+        user: { _id: user._id, name: user.name, email: user.email, role: user.role, theme: user.theme, greeting: user.greeting }
     });
 }));
 
@@ -120,6 +122,12 @@ router.post('/login', authLimiter, validate(loginSchema), asyncHandler(async (re
             await user.save();
         }
 
+        // P5: backfill a theme for users created before per-user theming.
+        if (!user.theme || !user.theme.accentPrimary) {
+            user.theme = randomTheme();
+            await user.save();
+        }
+
         const token = generateToken(user._id);
 
         res.json({
@@ -127,7 +135,7 @@ router.post('/login', authLimiter, validate(loginSchema), asyncHandler(async (re
             token,
             user: {
                 _id: user._id, name: user.name, email: user.email, role: user.role,
-                onboarded: user.onboarded,
+                onboarded: user.onboarded, theme: user.theme, greeting: user.greeting,
                 bio: user.bio, skills: user.skills, expertise: user.expertise,
                 profilePicture: user.profilePicture, aimingCompany: user.aimingCompany,
                 currentCompany: user.currentCompany, experienceLevel: user.experienceLevel,
@@ -141,6 +149,11 @@ router.post('/login', authLimiter, validate(loginSchema), asyncHandler(async (re
 // GET /api/auth/me — returns current user WITHOUT password hash
 router.get('/me', protect, asyncHandler(async (req, res) => {
     const user = await User.findById(req.user._id).select('-password');
+    // P5: lazy theme backfill for users created before per-user theming.
+    if (user && (!user.theme || !user.theme.accentPrimary)) {
+        user.theme = randomTheme();
+        await user.save();
+    }
     res.json({ success: true, user });
 }));
 

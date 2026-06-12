@@ -43,7 +43,9 @@ function relativeDate(dateStr) {
 }
 
 const Assistant = () => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
+  const firstName = user?.name?.split(' ')[0] || 'there';
+  const greeting = user?.greeting || `Hi ${firstName}, I'm PRISM Copilot`;
 
   // Conversation list (sidebar rail).
   const [convList, setConvList] = useState([]);
@@ -287,8 +289,8 @@ const Assistant = () => {
           {messages.length === 0 ? (
             <div className="assistant-welcome">
               <div className="assistant-welcome__icon"><FiCpu /></div>
-              <h1>PRISM Copilot</h1>
-              <p>Ask for anything — a prep roadmap, the right mentor, a resume check, or where to go next.</p>
+              <h1>{greeting}</h1>
+              <p>Ask for anything — a prep roadmap, the right mentor, a resume check, recolor the app, or where to go next.</p>
               <div className="assistant-suggestions">
                 {suggestions.map((s) => (
                   <button key={s} className="assistant-suggestion" onClick={() => send(s)}>{s}</button>
@@ -311,6 +313,11 @@ const Assistant = () => {
                             ? { ...msg, artifacts: [...(msg.artifacts || []), result] }
                             : msg
                         ));
+                      }
+                      // P5: a confirmed theme change → re-hydrate the user so
+                      // AuthContext re-applies the palette immediately.
+                      if (result && result.kind === 'theme') {
+                        refreshUser?.();
                       }
                     }}
                   />

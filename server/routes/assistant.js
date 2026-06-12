@@ -29,6 +29,8 @@ const { rewriteResume } = require('../agent/services/resume');
 const { generateDocument } = require('../agent/services/document');
 const Conversation = require('../models/Conversation');
 const Artifact = require('../models/Artifact');
+const User = require('../models/User');
+const { paletteFromHue } = require('../utils/themeGenerator');
 
 // Validation constants for generate_document executor
 const ALLOWED_FORMATS = ['pdf', 'docx', 'md'];
@@ -152,6 +154,19 @@ const EXECUTORS = {
     });
 
     return { kind: 'artifact', id: result.id, title: result.title, format: result.format, url: result.url };
+  },
+
+  apply_theme: async (params, ctx) => {
+    // The proposal's colors arrive from an untrusted POST body. Re-derive the
+    // whole palette server-side from the numeric hue so no client-supplied CSS
+    // string is ever persisted/applied.
+    const hue = Number(params.theme?.hue);
+    if (!Number.isFinite(hue) || hue < 0 || hue >= 360) {
+      const e = new Error('Invalid theme — no valid hue to apply.'); e.statusCode = 400; throw e;
+    }
+    const theme = paletteFromHue(hue);
+    await User.findByIdAndUpdate(ctx.userId, { theme });
+    return { kind: 'theme', applied: true, theme };
   },
 };
 

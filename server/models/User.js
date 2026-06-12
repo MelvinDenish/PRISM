@@ -1,5 +1,18 @@
 const mongoose = require('mongoose');
 
+// P5: bounded per-user theme — accent + gradient override tokens only (never
+// background/text, so it can't break contrast). Mirrors utils/themeGenerator.js.
+const themeSchema = new mongoose.Schema({
+    name: String,
+    hue: Number,
+    accentPrimary: String,
+    accentPrimaryStrong: String,
+    accentSecondary: String,
+    accentAction: String,
+    accentActionStrong: String,
+    gradientPrimary: String,
+}, { _id: false });
+
 const userSchema = new mongoose.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
@@ -27,6 +40,9 @@ const userSchema = new mongoose.Schema({
     avatarKey: String,      // storage key for an uploaded avatar (for deletion/replace)
     avatarDriver: String,   // 'local' | 's3' — which backend holds the avatar
     resumeUrl: String,
+    // P5: per-user theme + Copilot greeting.
+    theme: { type: themeSchema, default: undefined },
+    greeting: String,
     rating: { type: Number, default: 0 },
     totalReviews: { type: Number, default: 0 },
 

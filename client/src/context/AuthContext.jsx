@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { loginUser, registerUser, getMe } from '../services/api';
+import { applyUserTheme } from '../utils/theme';
 import { io } from 'socket.io-client';
 
 const AuthContext = createContext(null);
@@ -11,6 +12,10 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const socketRef = useRef(null);
+
+    // P5: apply the user's palette whenever the user object changes (mount,
+    // login, register, refreshUser). Clears back to brand colors on logout.
+    useEffect(() => { applyUserTheme(user?.theme); }, [user]);
 
     // Register user with socket for online tracking
     const registerSocket = (userData) => {

@@ -17,6 +17,7 @@ const read = require('./services/read');
 const { resolveTopic } = require('./services/learningPath');
 const { analyzeResume } = require('./services/resume');
 const { runSandboxed } = require('./services/codeRun');
+const { themeFromPrompt } = require('../utils/themeGenerator');
 const Resource = require('../models/Resource');
 
 const RUN_CODE_MAX_BYTES = 20000; // 20KB cap for agent tool (route keeps 50KB)
@@ -388,6 +389,36 @@ const TOOLS = {
         ...result,
         stdout: truncateOutput(result.stdout),
         stderr: truncateOutput(result.stderr),
+      };
+    },
+  },
+
+  // ---- Phase 5 tool --------------------------------------------------------
+
+  apply_theme: {
+    kind: 'write',
+    roles: ['mentee', 'mentor', 'admin'],
+    definition: {
+      type: 'function',
+      function: {
+        name: 'apply_theme',
+        description: "Propose recoloring the PRISM interface to a new accent palette. Use when the user asks to change/re-theme the app's colors or pick a vibe (e.g. 'make it purple', 'cyberpunk theme', 'warmer colors', 'something calmer'). This only PROPOSES — colors change only after the user confirms. Put the user's wording in `request`.",
+        parameters: {
+          type: 'object',
+          properties: {
+            request: { type: 'string', description: "The user's colour/theme request in their own words, e.g. 'purple', 'cyberpunk', 'warm sunset', 'ocean blue'." },
+          },
+          required: ['request'],
+        },
+      },
+    },
+    handler: (args) => {
+      const theme = themeFromPrompt(args.request || '');
+      return {
+        type: 'apply_theme',
+        title: `Apply the ${theme.name} theme`,
+        summary: `I'll recolour PRISM with a ${theme.name.toLowerCase()} accent palette (primary ${theme.accentPrimary}, action ${theme.accentAction}). Your light/dark background and text stay exactly as they are. Confirm to apply it across the app.`,
+        params: { theme },
       };
     },
   },
