@@ -3,8 +3,13 @@
  * (routes/codeExecution.js) and the agent run_code tool.
  *
  * Extracted so both consumers use identical validation and execution logic.
- * NEVER bypass DANGEROUS_PATTERNS — it is the only safety gate before
- * code reaches child_process / Judge0.
+ * Security model: Judge0 (an actual isolation boundary) is the sandbox.
+ * DANGEROUS_PATTERNS is a best-effort lint, NOT a sandbox — regex filters
+ * are bypassable by construction. That is why executeLocal (raw
+ * child_process) is dev-only: in production a Judge0 outage fails closed
+ * (see runSandboxed) instead of falling back to unisolated execution.
+ * Never bypass validateCode on user-submitted code, but never rely on it
+ * as the isolation boundary either.
  */
 
 const { execFile, exec } = require('child_process');
@@ -20,19 +25,25 @@ const EXEC_TIMEOUT = 10000;    // 10s
 
 const DANGEROUS_PATTERNS = {
   javascript: [
-    /require\s*\(\s*['"](?:fs|child_process|net|http|https|os|cluster|dgram|dns|tls|vm|worker_threads|perf_hooks)['"]\s*\)/i,
-    /process\.env/i,
-    /process\.exit/i,
+    // Core-module require, with or without the `node:` prefix.
+    /require\s*\(\s*['"](?:node:)?(?:fs|child_process|net|http|https|os|cluster|dgram|dns|tls|vm|worker_threads|perf_hooks)\b/i,
+    // Any require whose argument is not a plain string literal (require('f'+'s'), require(x)).
+    /require\s*\(\s*[^'")]/i,
+    /process\s*\.\s*(?:env|exit|binding|dlopen|kill)/i,
+    /globalThis\s*\[/i,
     /eval\s*\(/i,
     /Function\s*\(/i,
     /import\s*\(/i,
     /\bexecSync\b|\bspawnSync\b|\bexec\b.*require/i,
   ],
   python: [
-    /import\s+(?:os|subprocess|sys|shutil|socket|http|urllib|requests|ctypes)\b/i,
-    /from\s+(?:os|subprocess|sys|shutil|socket)\s+import/i,
+    /import\s+(?:os|subprocess|sys|shutil|socket|http|urllib|requests|ctypes|importlib)\b/i,
+    /from\s+(?:os|subprocess|sys|shutil|socket|importlib)\s+import/i,
+    /\bimportlib\b/i,
     /exec\s*\(/i,
+    /eval\s*\(/i,
     /__import__\s*\(/i,
+    /getattr\s*\(\s*__builtins__/i,
     /open\s*\(.*['"]\s*(?:\/etc|\/proc|\.\.)/i,
   ],
   cpp: [/system\s*\(/i, /popen\s*\(/i, /exec[lv]?p?\s*\(/i],
