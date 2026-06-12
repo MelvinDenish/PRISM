@@ -4,7 +4,10 @@ const { aiLimiter } = require('../middleware/rateLimit');
 const Groq = require('groq-sdk');
 const ResumeDraft = require('../models/ResumeDraft');
 const User = require('../models/User');
-const { refineDraft, generateDraftFromProfile } = require('../agent/services/resume');
+const {
+  refineDraft, generateDraftFromProfile,
+  applySectionEdit, tailorDraft, atsCheckDraft, restoreRevision,
+} = require('../agent/services/resume');
 const { generateDocument } = require('../agent/services/document');
 const router = express.Router();
 
@@ -189,6 +192,64 @@ router.post('/drafts/:id/refine', protect, aiLimiter, async (req, res) => {
       message: process.env.NODE_ENV === 'production' && status >= 500 ? 'Internal Server Error' : err.message,
     });
   }
+});
+
+// Shared statusCode→response mapper for the P7 canvas service calls.
+function _sendErr(res, err) {
+  const status = err.statusCode || 500;
+  return res.status(status).json({
+    success: false,
+    message: process.env.NODE_ENV === 'production' && status >= 500 ? 'Internal Server Error' : err.message,
+  });
+}
+
+// PATCH /drafts/:id/section — click-to-edit a single whitelisted field.
+// Body: { path, value }  →  { success, draft }
+router.patch('/drafts/:id/section', protect, async (req, res) => {
+  try {
+    const { path, value } = req.body || {};
+    const draft = await applySectionEdit({ userId: req.user._id, draftId: req.params.id, path, value });
+    return res.json({ success: true, draft });
+  } catch (err) { return _sendErr(res, err); }
+});
+
+// POST /drafts/:id/tailor — fork a JD-tailored variant draft.
+// Body: { jobDescription, company?, role? }  →  { success, draft, gaps }
+router.post('/drafts/:id/tailor', protect, aiLimiter, async (req, res) => {
+  try {
+    const { jobDescription, company, role } = req.body || {};
+    const { draft, gaps } = await tailorDraft({ userId: req.user._id, draftId: req.params.id, jobDescription, company, role });
+    return res.status(201).json({ success: true, draft, gaps });
+  } catch (err) { return _sendErr(res, err); }
+});
+
+// POST /drafts/:id/ats — score this draft against its stored JD on demand.
+// →  { success, draft, mode, analysis }
+router.post('/drafts/:id/ats', protect, aiLimiter, async (req, res) => {
+  try {
+    const { draft, mode, analysis } = await atsCheckDraft({ userId: req.user._id, draftId: req.params.id });
+    return res.json({ success: true, draft, mode, analysis });
+  } catch (err) { return _sendErr(res, err); }
+});
+
+// GET /drafts/:id/revisions — list saved revisions (newest first), no snapshots.
+router.get('/drafts/:id/revisions', protect, async (req, res) => {
+  try {
+    const draft = await ResumeDraft.findOne({ _id: req.params.id, user: req.user._id }).select('revisions');
+    if (!draft) return res.status(404).json({ success: false, message: 'Draft not found' });
+    const revisions = (draft.revisions || [])
+      .map((r) => ({ _id: r._id, at: r.at, label: r.label }))
+      .reverse();
+    return res.json({ success: true, revisions });
+  } catch (err) { return _sendErr(res, err); }
+});
+
+// POST /drafts/:id/revisions/:revId/restore — restore a saved revision.
+router.post('/drafts/:id/revisions/:revId/restore', protect, async (req, res) => {
+  try {
+    const draft = await restoreRevision({ userId: req.user._id, draftId: req.params.id, revisionId: req.params.revId });
+    return res.json({ success: true, draft });
+  } catch (err) { return _sendErr(res, err); }
 });
 
 // Build the structured-content payload generateDocument expects from a draft.

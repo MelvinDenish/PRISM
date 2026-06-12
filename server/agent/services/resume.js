@@ -14,6 +14,7 @@
 const llm = require('../llm');
 const { config } = require('../../config/env');
 const ResumeDraft = require('../../models/ResumeDraft');
+const { emit: emitSignals } = require('./signals');
 
 const MAX_INPUT = 20000;
 
@@ -251,6 +252,9 @@ async function refineDraft({ userId, draftId, instruction }) {
 
   const changedSections = _diffSections(beforeShape, afterShape);
 
+  // P7: snapshot the BEFORE state so this AI edit is one-click undoable.
+  snapshotRevision(draft, `Before refine: ${trimmed.slice(0, 40)}`);
+
   // Persist. We only touch the diffable sections — other fields (name,
   // template, jobDescription, coverLetter, certifications) are left alone.
   draft.personalInfo = afterShape.personalInfo;
@@ -262,6 +266,238 @@ async function refineDraft({ userId, draftId, instruction }) {
   await draft.save();
 
   return { draft, changedSections };
+}
+
+// ───────────────────────── P7 resume canvas ─────────────────────────
+
+const MAX_REVISIONS = 20;
+const PI_FIELDS = ['fullName', 'email', 'phone', 'location', 'linkedin', 'github', 'portfolio', 'summary'];
+const EXP_FIELDS = ['company', 'position', 'startDate', 'endDate', 'current', 'description'];
+const EDU_FIELDS = ['institution', 'degree', 'field', 'startDate', 'endDate', 'gpa'];
+const PROJ_FIELDS = ['name', 'description', 'technologies', 'link'];
+
+// Flatten a draft's content to plain text for ATS / keyword analysis.
+function draftToText(draft) {
+  const p = draft.personalInfo || {};
+  const lines = [];
+  if (p.fullName) lines.push(p.fullName);
+  [p.email, p.phone, p.location, p.linkedin, p.github, p.portfolio].filter(Boolean).forEach((x) => lines.push(x));
+  if (p.summary) lines.push(p.summary);
+  if (Array.isArray(draft.skills) && draft.skills.length) lines.push(`Skills: ${draft.skills.join(', ')}`);
+  (draft.experience || []).forEach((e) => {
+    if (!e) return;
+    const head = [e.position, e.company].filter(Boolean).join(' at ');
+    if (head) lines.push(head);
+    if (e.description) lines.push(e.description);
+  });
+  (draft.education || []).forEach((e) => {
+    if (!e) return;
+    const head = [e.degree, e.field, e.institution].filter(Boolean).join(', ');
+    if (head) lines.push(head);
+  });
+  (draft.projects || []).forEach((pr) => {
+    if (!pr) return;
+    if (pr.name) lines.push(pr.name);
+    if (pr.description) lines.push(pr.description);
+    if (pr.technologies) lines.push(`Technologies: ${pr.technologies}`);
+  });
+  return lines.filter(Boolean).join('\n');
+}
+
+// Parse LLM draft JSON (fence-strip). Throws 422 (keep prior state) on failure.
+function parseDraftJSON(message, label) {
+  try {
+    const raw = (message.content || '{}').replace(/```json\n?/g, '').replace(/```\n?/g, '');
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
+    return parsed;
+  } catch {
+    const e = new Error(`The ${label} could not be parsed cleanly. Draft left unchanged.`); e.statusCode = 422; throw e;
+  }
+}
+
+// Guard: an AI edit may not ADD employers/degrees/projects — that's invention.
+function assertNoInvention(beforeShape, afterShape) {
+  if (afterShape.experience.length > beforeShape.experience.length
+      || afterShape.education.length > beforeShape.education.length
+      || afterShape.projects.length > beforeShape.projects.length) {
+    const e = new Error('The edit tried to add new entries. Draft left unchanged.'); e.statusCode = 422; throw e;
+  }
+}
+
+// Push a snapshot of the draft's current diffable sections onto revisions, cap 20.
+function snapshotRevision(draft, label) {
+  const snapshot = shapeDraft({
+    personalInfo: draft.personalInfo, education: draft.education,
+    experience: draft.experience, skills: draft.skills, projects: draft.projects,
+  });
+  draft.revisions.push({ at: new Date(), label: (label || 'edit').slice(0, 80), snapshot });
+  if (draft.revisions.length > MAX_REVISIONS) {
+    draft.revisions = draft.revisions.slice(draft.revisions.length - MAX_REVISIONS);
+  }
+}
+
+/**
+ * Click-to-edit: apply a single field edit identified by a whitelisted path.
+ * Paths: `personalInfo.<field>`, `skills` (value = array | comma string),
+ *        `experience.<i>.<field>`, `education.<i>.<field>`, `projects.<i>.<field>`.
+ * No revision snapshot (manual edits are continuous; only AI edits snapshot).
+ */
+async function applySectionEdit({ userId, draftId, path, value }) {
+  if (!path || typeof path !== 'string') { const e = new Error('A field path is required'); e.statusCode = 400; throw e; }
+  const draft = await ResumeDraft.findOne({ _id: draftId, user: userId });
+  if (!draft) { const e = new Error('Draft not found'); e.statusCode = 404; throw e; }
+
+  const parts = path.split('.');
+  const root = parts[0];
+  const cap = (s) => String(s == null ? '' : s).slice(0, 2000);
+
+  if (root === 'personalInfo' && parts.length === 2 && PI_FIELDS.includes(parts[1])) {
+    if (!draft.personalInfo) draft.personalInfo = {};
+    draft.personalInfo[parts[1]] = cap(value);
+    draft.markModified('personalInfo');
+  } else if (root === 'skills' && parts.length === 1) {
+    const arr = Array.isArray(value) ? value : String(value || '').split(',');
+    draft.skills = arr.map((s) => String(s).trim()).filter(Boolean).slice(0, 50);
+  } else if ((root === 'experience' || root === 'education' || root === 'projects') && parts.length === 3) {
+    const idx = Number(parts[1]);
+    const field = parts[2];
+    const fields = root === 'experience' ? EXP_FIELDS : root === 'education' ? EDU_FIELDS : PROJ_FIELDS;
+    if (!Number.isInteger(idx) || idx < 0 || idx >= (draft[root] || []).length || !fields.includes(field)) {
+      const e = new Error('Invalid field path'); e.statusCode = 400; throw e;
+    }
+    draft[root][idx][field] = field === 'current' ? !!value : cap(value);
+    draft.markModified(root);
+  } else {
+    const e = new Error('Unsupported field path'); e.statusCode = 400; throw e;
+  }
+  await draft.save();
+  return draft;
+}
+
+/**
+ * JD tailoring: fork the draft into a linked variant whose EXISTING content is
+ * reordered/rephrased toward the job description. Skills the JD wants but the
+ * resume lacks are returned as `gaps[]` (suggestions) — NEVER inserted (the
+ * hallucination guard). Gaps + ATS score come from the deterministic analysis,
+ * not the LLM. Emits a best-effort `resume` signal. Returns { draft, gaps }.
+ */
+async function tailorDraft({ userId, draftId, jobDescription, company, role }) {
+  if (!jobDescription || typeof jobDescription !== 'string' || !jobDescription.trim()) {
+    const e = new Error('A job description is required to tailor.'); e.statusCode = 400; throw e;
+  }
+  const jd = jobDescription.trim().slice(0, MAX_INPUT);
+  if (!config.hasLLM()) {
+    const e = new Error('Resume tailoring needs an AI model, which is not configured on this server.'); e.statusCode = 503; throw e;
+  }
+  const parent = await ResumeDraft.findOne({ _id: draftId, user: userId });
+  if (!parent) { const e = new Error('Draft not found'); e.statusCode = 404; throw e; }
+
+  const beforeShape = shapeDraft({
+    personalInfo: parent.personalInfo, education: parent.education,
+    experience: parent.experience, skills: parent.skills, projects: parent.projects,
+  });
+
+  let message;
+  try {
+    message = await llm.chat({
+      model: llm.GEN_MODEL(),
+      temperature: 0.3,
+      max_tokens: 2500,
+      messages: [
+        { role: 'system', content: 'You are an expert resume editor tailoring a resume to a target job. Reorder, rephrase, and re-emphasize the EXISTING content so the most JD-relevant experience and skills come first, mirroring the JD\'s wording where it is truthful. NEVER invent employers, degrees, schools, dates, projects, or skills that are not already present. If the JD requires skills the resume lacks, DO NOT add them — leave them out. Return ONLY a JSON object with EXACTLY these top-level keys: personalInfo {fullName,email,phone,location,linkedin,github,portfolio,summary}, education [{institution,degree,field,startDate,endDate,gpa}], experience [{company,position,startDate,endDate,current,description}], skills [string], projects [{name,description,technologies,link}]. No markdown, no commentary, no code fences.' },
+        { role: 'user', content: `CURRENT RESUME (JSON):\n${JSON.stringify(beforeShape)}\n\nTARGET JOB DESCRIPTION:\n${jd}` },
+      ],
+    });
+  } catch (llmErr) { const e = new Error(`LLM tailoring failed: ${llmErr.message}`); e.statusCode = 502; throw e; }
+
+  const parsed = parseDraftJSON(message, 'tailored resume');
+  for (const key of DIFFABLE_SECTIONS) {
+    if (!(key in parsed)) { const e = new Error(`Tailored resume missing section "${key}". Draft left unchanged.`); e.statusCode = 422; throw e; }
+  }
+  const afterShape = shapeDraft(parsed);
+  assertNoInvention(beforeShape, afterShape);
+
+  // Deterministic gaps + ATS score from the keyword/Gemini analysis of the
+  // tailored content vs the JD. Best-effort — tailoring still yields a variant.
+  let gaps = [];
+  let atsScore = null;
+  try {
+    const { result } = await analyzeResume(draftToText({ ...afterShape }), jd);
+    gaps = Array.isArray(result.missingKeywords) ? result.missingKeywords.slice(0, 20) : [];
+    atsScore = Number(result.matchScore);
+  } catch { /* analysis is best-effort */ }
+
+  const variantName = (company || role)
+    ? `Tailored — ${[role, company].filter(Boolean).join(' @ ')}`
+    : `Tailored — ${parent.name}`;
+  const variant = await ResumeDraft.create({
+    user: userId,
+    name: variantName.slice(0, 100),
+    template: parent.template,
+    parentDraft: parent._id,
+    targetCompany: String(company || '').slice(0, 100),
+    targetRole: String(role || '').slice(0, 100),
+    jobDescription: jd,
+    gaps,
+    atsScore: Number.isFinite(atsScore) ? atsScore : null,
+    atsCheckedAt: Number.isFinite(atsScore) ? new Date() : null,
+    lastGenerated: new Date(),
+    // Seed the variant's history with the parent's pre-tailor content.
+    revisions: [{ at: new Date(), label: `Forked from "${parent.name}"`.slice(0, 80), snapshot: beforeShape }],
+    ...afterShape,
+  });
+
+  if (Number.isFinite(atsScore)) {
+    await emitSignals(userId, [{
+      pillar: 'resume', skill: 'jd_tailor', score: atsScore / 100,
+      source: 'resume_analysis', sourceId: variant._id,
+    }]);
+  }
+  return { draft: variant, gaps };
+}
+
+/**
+ * On-demand ATS check of a draft against its stored job description. Caches the
+ * score + gaps on the draft and emits a best-effort `resume` signal.
+ * Returns { draft, mode, analysis }.
+ */
+async function atsCheckDraft({ userId, draftId }) {
+  const draft = await ResumeDraft.findOne({ _id: draftId, user: userId });
+  if (!draft) { const e = new Error('Draft not found'); e.statusCode = 404; throw e; }
+  const jd = (draft.jobDescription || '').trim();
+  if (!jd) {
+    const e = new Error('Add a target job description first (tailor to a JD or set one) so the resume can be scored.'); e.statusCode = 400; throw e;
+  }
+  const { result, mode } = await analyzeResume(draftToText(draft), jd);
+  draft.atsScore = Number(result.matchScore) || 0;
+  draft.atsCheckedAt = new Date();
+  draft.gaps = Array.isArray(result.missingKeywords) ? result.missingKeywords.slice(0, 20) : [];
+  await draft.save();
+  await emitSignals(userId, [{
+    pillar: 'resume', skill: 'ats_match', score: draft.atsScore / 100,
+    source: 'resume_analysis', sourceId: draft._id,
+  }]);
+  return { draft, mode, analysis: result };
+}
+
+/** Restore a draft to a saved revision. Snapshots current state first (undoable). */
+async function restoreRevision({ userId, draftId, revisionId }) {
+  const draft = await ResumeDraft.findOne({ _id: draftId, user: userId });
+  if (!draft) { const e = new Error('Draft not found'); e.statusCode = 404; throw e; }
+  const rev = draft.revisions.id(revisionId);
+  if (!rev) { const e = new Error('Revision not found'); e.statusCode = 404; throw e; }
+  snapshotRevision(draft, 'Before restore');
+  const shaped = shapeDraft(rev.snapshot || {});
+  draft.personalInfo = shaped.personalInfo;
+  draft.education = shaped.education;
+  draft.experience = shaped.experience;
+  draft.skills = shaped.skills;
+  draft.projects = shaped.projects;
+  draft.lastGenerated = new Date();
+  await draft.save();
+  return draft;
 }
 
 /**
@@ -352,4 +588,8 @@ async function rewriteResume({ userId, resumeText, jobDescription }) {
   });
 }
 
-module.exports = { analyzeResume, rewriteResume, refineDraft, generateDraftFromProfile };
+module.exports = {
+  analyzeResume, rewriteResume, refineDraft, generateDraftFromProfile,
+  // P7 resume canvas
+  applySectionEdit, tailorDraft, atsCheckDraft, restoreRevision,
+};
