@@ -63,6 +63,7 @@ app.use('/api/gd-rooms', require('./routes/gdRooms'));
 app.use('/api/summarize', require('./routes/summarize'));
 app.use('/api/rtc', require('./routes/rtc'));
 app.use('/api/assistant', require('./routes/assistant'));
+app.use('/api/artifacts', require('./routes/artifacts'));
 app.use('/api/prep-profile', require('./routes/prepProfile'));
 
 // Health check

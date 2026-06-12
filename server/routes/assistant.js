@@ -26,7 +26,14 @@ const { runAgent } = require('../agent/runAgent');
 const { createLearningPath } = require('../agent/services/learningPath');
 const { bookSession } = require('../agent/services/mentorship');
 const { rewriteResume } = require('../agent/services/resume');
+const { generateDocument } = require('../agent/services/document');
 const Conversation = require('../models/Conversation');
+
+// Validation constants for generate_document executor
+const ALLOWED_FORMATS = ['pdf', 'docx', 'md'];
+const ALLOWED_KINDS   = ['resume', 'cover_letter', 'document'];
+const MAX_TITLE_LEN   = 200;
+const MAX_CONTENT_LEN = 102400; // 100KB
 
 const router = express.Router();
 
@@ -98,6 +105,40 @@ const EXECUTORS = {
       jobDescription: params.jobDescription,
     });
     return { kind: 'resume_rewrite', id: String(draft._id), name: draft.name, link: '/resume-builder' };
+  },
+
+  generate_document: async (params, ctx) => {
+    // Server-side re-validation (params arrive from an untrusted POST body).
+    const { title, format, kind, content, conversationId } = params;
+    if (!title || typeof title !== 'string' || title.trim().length === 0) {
+      const e = new Error('title is required'); e.statusCode = 400; throw e;
+    }
+    if (!ALLOWED_FORMATS.includes(format)) {
+      const e = new Error(`format must be one of: ${ALLOWED_FORMATS.join(', ')}`); e.statusCode = 400; throw e;
+    }
+    if (kind && !ALLOWED_KINDS.includes(kind)) {
+      const e = new Error(`kind must be one of: ${ALLOWED_KINDS.join(', ')}`); e.statusCode = 400; throw e;
+    }
+    if (!content || typeof content !== 'string' || content.trim().length === 0) {
+      const e = new Error('content is required'); e.statusCode = 400; throw e;
+    }
+    if (title.length > MAX_TITLE_LEN) {
+      const e = new Error(`title must be under ${MAX_TITLE_LEN} characters`); e.statusCode = 400; throw e;
+    }
+    if (content.length > MAX_CONTENT_LEN) {
+      const e = new Error('content exceeds the 100KB limit'); e.statusCode = 400; throw e;
+    }
+
+    const result = await generateDocument({
+      userId: ctx.userId,
+      conversationId: conversationId || undefined,
+      kind: kind || 'document',
+      title: title.trim(),
+      format,
+      content,
+    });
+
+    return { kind: 'artifact', id: result.id, title: result.title, format: result.format, url: result.url };
   },
 };
 
