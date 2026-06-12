@@ -184,6 +184,35 @@ export const listConversations = () => api.get('/assistant/conversations');
 export const getConversation = (id) => api.get(`/assistant/conversations/${id}`);
 export const deleteConversation = (id) => api.delete(`/assistant/conversations/${id}`);
 
+// Artifacts (generated downloadable files)
+export const listArtifacts = () => api.get('/artifacts');
+
+/**
+ * Download an artifact as a blob and trigger a browser save-file dialog.
+ * Uses fetch+Authorization so the JWT is sent (never puts the token in the URL).
+ * @param {string} id   Artifact document _id
+ * @param {string} filename  Suggested filename for the download
+ */
+export const downloadArtifact = async (id, filename = 'document') => {
+  const token = localStorage.getItem('prism_token');
+  const baseUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api$/, '');
+  const response = await fetch(`${baseUrl}/api/artifacts/${id}/download`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) {
+    throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(objectUrl);
+};
+
 // ── Prep profile / readiness spine (P6) ──
 export const getPrepProfile = () => api.get('/prep-profile');
 export const updatePrepProfile = (data) => api.put('/prep-profile', data);

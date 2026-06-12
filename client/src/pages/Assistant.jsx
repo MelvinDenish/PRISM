@@ -9,6 +9,7 @@ import {
 } from '../services/api';
 import ChatMessage from '../components/chat/ChatMessage';
 import ProposalCard from '../components/chat/ProposalCard';
+import ArtifactCard from '../components/chat/ArtifactCard';
 import './Assistant.css';
 
 // Role-aware starter prompts (chat-first front door to the platform).
@@ -102,6 +103,7 @@ const Assistant = () => {
           role: m.role,
           content: m.content,
           proposedActions: m.proposedActions || [],
+          artifacts: (m.artifacts || []).filter((a) => a && a.kind === 'artifact'),
         }))
       );
     } catch {
@@ -298,7 +300,23 @@ const Assistant = () => {
               <div key={i}>
                 <ChatMessage role={m.role} content={m.content} />
                 {m.proposedActions?.map((action, j) => (
-                  <ProposalCard key={`${i}-${j}`} action={action} conversationId={activeConvId} />
+                  <ProposalCard
+                    key={`${i}-${j}`}
+                    action={action}
+                    conversationId={activeConvId}
+                    onConfirmed={(result) => {
+                      if (result && result.kind === 'artifact') {
+                        setMessages((prev) => prev.map((msg, idx) =>
+                          idx === i
+                            ? { ...msg, artifacts: [...(msg.artifacts || []), result] }
+                            : msg
+                        ));
+                      }
+                    }}
+                  />
+                ))}
+                {m.artifacts?.map((artifact, j) => (
+                  <ArtifactCard key={`artifact-${i}-${j}`} artifact={artifact} />
                 ))}
               </div>
             ))
