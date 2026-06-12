@@ -161,16 +161,24 @@ async function generateDocument({ userId, conversationId, kind = 'document', tit
     folder: 'artifacts',
   });
 
-  const artifact = await Artifact.create({
-    user: userId,
-    ...(conversationId ? { conversation: conversationId } : {}),
-    kind,
-    title,
-    format,
-    artifactKey: key,
-    artifactDriver: storage.driver,
-    sizeBytes: buffer.byteLength,
-  });
+  // If the DB row fails to persist, the file on disk would be orphaned and
+  // unreachable through any owner-gated route. Best-effort delete + rethrow.
+  let artifact;
+  try {
+    artifact = await Artifact.create({
+      user: userId,
+      ...(conversationId ? { conversation: conversationId } : {}),
+      kind,
+      title,
+      format,
+      artifactKey: key,
+      artifactDriver: storage.driver,
+      sizeBytes: buffer.byteLength,
+    });
+  } catch (createErr) {
+    try { await storage.deleteFile(key); } catch (_) { /* best-effort */ }
+    throw createErr;
+  }
 
   const id = String(artifact._id);
   return {

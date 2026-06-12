@@ -30,6 +30,10 @@ app.use(express.urlencoded({ extended: true }));
 app.use(requestContext);   // request id + structured request logging
 app.use('/api', generalLimiter); // broad rate-limit safety net
 
+// Artifacts are private — they must only be reachable through the
+// ownership-checked /api/artifacts/:id/download route, never the static mount.
+app.use('/uploads/artifacts', (req, res) => res.status(404).json({ success: false, message: 'Not found' }));
+
 // Serve locally-stored uploads when STORAGE_DRIVER=local (no-op for s3).
 // Files are written to server/uploads by utils/storage/local.js.
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

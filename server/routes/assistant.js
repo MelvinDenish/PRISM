@@ -28,6 +28,7 @@ const { bookSession } = require('../agent/services/mentorship');
 const { rewriteResume } = require('../agent/services/resume');
 const { generateDocument } = require('../agent/services/document');
 const Conversation = require('../models/Conversation');
+const Artifact = require('../models/Artifact');
 
 // Validation constants for generate_document executor
 const ALLOWED_FORMATS = ['pdf', 'docx', 'md'];
@@ -127,6 +128,18 @@ const EXECUTORS = {
     }
     if (content.length > MAX_CONTENT_LEN) {
       const e = new Error('content exceeds the 100KB limit'); e.statusCode = 400; throw e;
+    }
+
+    // Per-user cap: at most 30 documents in any rolling 24h window. Prevents a
+    // single account from exhausting disk/storage budget via the assistant.
+    const last24h = await Artifact.countDocuments({
+      user: ctx.userId,
+      createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+    });
+    if (last24h >= 30) {
+      const e = new Error('Daily document limit reached (30). Try again tomorrow.');
+      e.statusCode = 429;
+      throw e;
     }
 
     const result = await generateDocument({

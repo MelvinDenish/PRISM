@@ -12,7 +12,7 @@
  * as the isolation boundary either.
  */
 
-const { execFile, exec } = require('child_process');
+const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -23,23 +23,36 @@ const LANG_MAP = { javascript: 63, python: 71, java: 62, cpp: 54, c: 50 };
 const MAX_CODE_LENGTH = 50000; // 50KB — used by the HTTP route (preserves existing cap)
 const EXEC_TIMEOUT = 10000;    // 10s
 
+// JavaScript lint patterns split into two passes (see validateCode / stripNonCode):
+//   - jsLiteralPatterns: must inspect STRING CONTENTS, so they run against the
+//     original source (strings intact). Matching a string literal like
+//     `require('fs')` written inside a JS string is an accepted false positive
+//     — literally spelling out a dangerous require is suspicious anyway.
+//   - jsStrippedPatterns: run against source with comments & string bodies
+//     stripped so honest code (`// require fs`, "You require a permit") isn't
+//     rejected.
+const jsLiteralPatterns = [
+  // Core-module require, with or without the `node:` prefix.
+  /require\s*\(\s*['"](?:node:)?(?:fs|child_process|net|http|https|os|cluster|dgram|dns|tls|vm|worker_threads|perf_hooks)\b/i,
+  // Any require that is not a single clean string literal — blocks
+  // require(x), require('f'+'s'), require(`fs`), require('fs',...).
+  /require\s*\(\s*(?!['"][^'"]*['"]\s*\))/i,
+];
+
+const jsStrippedPatterns = [
+  // Bare `require` reference without an immediate call — blocks aliasing
+  // (const r = require; r('fs')).
+  /\brequire\b(?!\s*\()/i,
+  /process\s*\.\s*(?:env|exit|binding|dlopen|kill)/i,
+  /globalThis\s*\[/i,
+  /eval\s*\(/i,
+  /Function\s*\(/i,
+  /import\s*\(/i,
+  /\bexecSync\b|\bspawnSync\b|\bexec\b.*require/i,
+];
+
 const DANGEROUS_PATTERNS = {
-  javascript: [
-    // Core-module require, with or without the `node:` prefix.
-    /require\s*\(\s*['"](?:node:)?(?:fs|child_process|net|http|https|os|cluster|dgram|dns|tls|vm|worker_threads|perf_hooks)\b/i,
-    // Any require that is not a single clean string literal — blocks
-    // require(x), require('f'+'s'), require(`fs`), require('fs',...).
-    /require\s*\(\s*(?!['"][^'"]*['"]\s*\))/i,
-    // Bare `require` reference without an immediate call — blocks aliasing
-    // (const r = require; r('fs')).
-    /\brequire\b(?!\s*\()/i,
-    /process\s*\.\s*(?:env|exit|binding|dlopen|kill)/i,
-    /globalThis\s*\[/i,
-    /eval\s*\(/i,
-    /Function\s*\(/i,
-    /import\s*\(/i,
-    /\bexecSync\b|\bspawnSync\b|\bexec\b.*require/i,
-  ],
+  javascript: [...jsLiteralPatterns, ...jsStrippedPatterns],
   python: [
     /import\s+(?:os|subprocess|sys|shutil|socket|http|urllib|requests|ctypes|importlib)\b/i,
     /from\s+(?:os|subprocess|sys|shutil|socket|importlib)\s+import/i,
@@ -55,18 +68,51 @@ const DANGEROUS_PATTERNS = {
   java: [/Runtime\.getRuntime\(\)\.exec/i, /ProcessBuilder/i, /System\.exit/i],
 };
 
+// Strip line/block comments and string/template-literal BODIES so the lint
+// patterns run against executable text only (best-effort, not a parser).
+function stripNonCode(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\/\/[^\n]*/g, ' ')
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+    .replace(/`(?:[^`\\]|\\.)*`/g, '``');
+}
+
 /**
  * Validate code against size + dangerous-pattern rules.
+ *
+ * For JavaScript we run TWO passes:
+ *  (a) jsLiteralPatterns against the ORIGINAL source (so we can inspect string
+ *      contents like require('fs') module-literals),
+ *  (b) jsStrippedPatterns against source with comments and string bodies
+ *      stripped (so honest code in comments/strings isn't a false positive).
+ *
+ * Other languages run their patterns against the original source as before.
+ *
  * @returns {string|null}  error message or null if safe
  */
 function validateCode(language, sourceCode, maxBytes = MAX_CODE_LENGTH) {
   if (sourceCode.length > maxBytes) {
     return `Code exceeds maximum length of ${Math.round(maxBytes / 1024)}KB`;
   }
+  const RESTRICTED = 'Code contains restricted operations (file system access, network calls, or system commands are not allowed)';
+
+  if (language === 'javascript') {
+    for (const pattern of jsLiteralPatterns) {
+      if (pattern.test(sourceCode)) return RESTRICTED;
+    }
+    const stripped = stripNonCode(sourceCode);
+    for (const pattern of jsStrippedPatterns) {
+      if (pattern.test(stripped)) return RESTRICTED;
+    }
+    return null;
+  }
+
   const patterns = DANGEROUS_PATTERNS[language] || [];
   for (const pattern of patterns) {
     if (pattern.test(sourceCode)) {
-      return 'Code contains restricted operations (file system access, network calls, or system commands are not allowed)';
+      return RESTRICTED;
     }
   }
   return null;
@@ -113,8 +159,9 @@ function executeLocal(language, sourceCode, stdin = '') {
           const outPath = path.join(tmpDir, `${id}.exe`);
           fs.writeFileSync(filePath, sourceCode);
           cleanupFiles.push(filePath, outPath);
-          exec(`g++ "${filePath}" -o "${outPath}" 2>&1`, { timeout: 10000 }, (compErr, compOut, compStderr) => {
-            if (compErr) { cleanup(cleanupFiles); return resolve({ stdout: '', stderr: compOut || compStderr || compErr.message, exitCode: 1 }); }
+          // execFile (no shell) — no risk of compiler args being shell-interpolated.
+          execFile('g++', [filePath, '-o', outPath], { timeout: 10000 }, (compErr, compStdout, compStderr) => {
+            if (compErr) { cleanup(cleanupFiles); return resolve({ stdout: '', stderr: compStderr || compStdout || compErr.message, exitCode: 1 }); }
             const child = execFile(outPath, [], { timeout: 5000 }, (err, stdout, stderr) => {
               cleanup(cleanupFiles);
               resolve({ stdout: stdout || '', stderr: stderr || '', exitCode: err ? err.code || 1 : 0 });
@@ -129,8 +176,8 @@ function executeLocal(language, sourceCode, stdin = '') {
           const outPathC = path.join(tmpDir, `${id}.exe`);
           fs.writeFileSync(filePath, sourceCode);
           cleanupFiles.push(filePath, outPathC);
-          exec(`gcc "${filePath}" -o "${outPathC}" 2>&1`, { timeout: 10000 }, (compErr, compOut, compStderr) => {
-            if (compErr) { cleanup(cleanupFiles); return resolve({ stdout: '', stderr: compOut || compStderr || compErr.message, exitCode: 1 }); }
+          execFile('gcc', [filePath, '-o', outPathC], { timeout: 10000 }, (compErr, compStdout, compStderr) => {
+            if (compErr) { cleanup(cleanupFiles); return resolve({ stdout: '', stderr: compStderr || compStdout || compErr.message, exitCode: 1 }); }
             const child = execFile(outPathC, [], { timeout: 5000 }, (err, stdout, stderr) => {
               cleanup(cleanupFiles);
               resolve({ stdout: stdout || '', stderr: stderr || '', exitCode: err ? err.code || 1 : 0 });
@@ -147,9 +194,9 @@ function executeLocal(language, sourceCode, stdin = '') {
           filePath = path.join(javaDir, 'Main.java');
           fs.writeFileSync(filePath, javaCode);
           cleanupFiles.push(javaDir);
-          exec(`javac "${filePath}" 2>&1`, { timeout: 15000 }, (compErr, compOut, compStderr) => {
-            if (compErr) { cleanupDir(javaDir); return resolve({ stdout: '', stderr: compOut || compStderr || compErr.message, exitCode: 1 }); }
-            const child = exec(`java -cp "${javaDir}" Main`, { timeout: 5000 }, (err, stdout, stderr) => {
+          execFile('javac', [filePath], { timeout: 15000 }, (compErr, compStdout, compStderr) => {
+            if (compErr) { cleanupDir(javaDir); return resolve({ stdout: '', stderr: compStderr || compStdout || compErr.message, exitCode: 1 }); }
+            const child = execFile('java', ['-cp', javaDir, 'Main'], { timeout: 5000 }, (err, stdout, stderr) => {
               cleanupDir(javaDir);
               resolve({ stdout: stdout || '', stderr: stderr || '', exitCode: err ? err.code || 1 : 0 });
             });
@@ -214,7 +261,17 @@ async function runSandboxed({ language, code, stdin = '', maxBytes = MAX_CODE_LE
       stderr: result.stderr || result.compile_output || '',
       exitCode: result.status && result.status.id === 3 ? 0 : 1,
     };
-  } catch {
+  } catch (err) {
+    // A timed-out run is the USER's fault (infinite loop, slow algorithm) — it
+    // must NOT be retried locally; that would just hang again unsandboxed.
+    // AbortSignal.timeout throws TimeoutError on Node 18+, AbortError on abort.
+    if (err && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+      return {
+        stdout: '',
+        stderr: 'Execution timed out (10s limit).',
+        exitCode: 1,
+      };
+    }
     if (config.isProduction()) {
       return {
         stdout: '',

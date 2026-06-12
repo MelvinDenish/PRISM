@@ -103,15 +103,19 @@ router.get('/:id/download', protect, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid artifact key' });
     }
 
-    if (!fs.existsSync(resolved)) {
+    // Stat the on-disk file: also catches the missing-file case in one call,
+    // and gives a Content-Length that matches the bytes we're actually about
+    // to stream (DB sizeBytes can drift if the file is replaced manually).
+    let stat;
+    try {
+      stat = await fs.promises.stat(resolved);
+    } catch (_) {
       return res.status(404).json({ success: false, message: 'Artifact file not found on disk' });
     }
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    if (artifact.sizeBytes > 0) {
-      res.setHeader('Content-Length', artifact.sizeBytes);
-    }
+    res.setHeader('Content-Length', stat.size);
 
     const stream = fs.createReadStream(resolved);
     stream.on('error', (streamErr) => {

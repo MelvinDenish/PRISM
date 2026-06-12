@@ -20,7 +20,16 @@ const { runSandboxed } = require('./services/codeRun');
 const Resource = require('../models/Resource');
 
 const RUN_CODE_MAX_BYTES = 20000; // 20KB cap for agent tool (route keeps 50KB)
+const RUN_CODE_OUTPUT_LIMIT = 4096; // chars per stream returned to the LLM
 const SUPPORTED_LANGUAGES = ['javascript', 'python', 'java', 'cpp', 'c'];
+
+/** Cap a stream of output so the LLM context isn't blown by a noisy program. */
+function truncateOutput(s) {
+  if (typeof s !== 'string') return '';
+  return s.length > RUN_CODE_OUTPUT_LIMIT
+    ? `${s.slice(0, RUN_CODE_OUTPUT_LIMIT)}\n… [output truncated]`
+    : s;
+}
 
 /** @type {Record<string, { definition: object, kind: 'read'|'write', roles: string[], handler: Function }>} */
 const TOOLS = {
@@ -368,12 +377,18 @@ const TOOLS = {
       if (!args.code || typeof args.code !== 'string') {
         throw new Error('code is required.');
       }
-      return runSandboxed({
+      const result = await runSandboxed({
         language: args.language,
         code: args.code,
         stdin: args.stdin || '',
         maxBytes: RUN_CODE_MAX_BYTES,
       });
+      // Cap stdout/stderr so a runaway loop or huge dump can't blow the LLM context.
+      return {
+        ...result,
+        stdout: truncateOutput(result.stdout),
+        stderr: truncateOutput(result.stderr),
+      };
     },
   },
 };
