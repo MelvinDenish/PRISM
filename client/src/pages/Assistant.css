@@ -48,8 +48,22 @@
   color: var(--text-muted);
   text-align: center;
 }
+/* Wrapper holds the item button and delete button as siblings (no nested buttons). */
+.assistant-sidebar__item-wrapper {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  transition: background 0.12s;
+}
+.assistant-sidebar__item-wrapper:hover {
+  background: var(--bg-card-hover);
+}
+.assistant-sidebar__item-wrapper--active {
+  background: var(--bg-subtle);
+}
 .assistant-sidebar__item {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -60,15 +74,11 @@
   cursor: pointer;
   font-size: 0.85rem;
   text-align: left;
-  transition: background 0.12s;
-  position: relative;
 }
-.assistant-sidebar__item:hover {
-  background: var(--bg-card-hover);
+.assistant-sidebar__item-wrapper:hover .assistant-sidebar__item {
   color: var(--text-primary);
 }
-.assistant-sidebar__item--active {
-  background: var(--bg-subtle);
+.assistant-sidebar__item-wrapper--active .assistant-sidebar__item {
   color: var(--text-primary);
 }
 .assistant-sidebar__item-icon {
@@ -95,6 +105,7 @@
 }
 .assistant-sidebar__item-delete {
   flex-shrink: 0;
+  align-self: center;
   width: 22px; height: 22px;
   display: grid; place-items: center;
   border: none; background: transparent;
@@ -104,8 +115,9 @@
   opacity: 0;
   transition: opacity 0.12s, color 0.12s;
   font-size: 0.8rem;
+  margin-right: 0.4rem;
 }
-.assistant-sidebar__item:hover .assistant-sidebar__item-delete { opacity: 1; }
+.assistant-sidebar__item-wrapper:hover .assistant-sidebar__item-delete { opacity: 1; }
 .assistant-sidebar__item-delete:hover { color: var(--accent-danger); }
 
 /* Backdrop (mobile only) */

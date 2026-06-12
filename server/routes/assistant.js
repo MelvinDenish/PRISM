@@ -142,31 +142,46 @@ router.post('/chat', protect, aiLimiter, async (req, res) => {
       if (!doc) {
         return res.status(404).json({ success: false, message: 'Conversation not found' });
       }
+      // Cap existing conversations at 200 messages to prevent unbounded growth.
+      if (doc.messages.length >= 200) {
+        return res.status(400).json({
+          success: false,
+          message: 'This conversation is full — start a new chat.',
+        });
+      }
     } else {
-      doc = new Conversation({ user: userId, title: autoTitle(message), messages: [] });
+      // Create a new conversation doc (no messages yet; both turns will be $push-ed atomically).
+      doc = await Conversation.create({ user: userId, title: autoTitle(message), messages: [] });
     }
 
-    // Append user turn to the DB document.
-    doc.messages.push({ role: 'user', content: message.trim() });
-
-    // Build the messages array for the agent (role + content pairs only).
-    const agentMessages = doc.messages.map((m) => ({ role: m.role, content: m.content }));
+    // Build the messages array for the agent (existing history + new user turn).
+    const userTurn = {
+      role: 'user',
+      content: message.trim(),
+    };
+    const agentMessages = [
+      ...doc.messages.map((m) => ({ role: m.role, content: m.content })),
+      { role: userTurn.role, content: userTurn.content },
+    ];
 
     // Run the agent.
     const result = await runAgent({ messages: agentMessages, userId, role: req.user.role });
 
-    // Append assistant turn WITH metadata.
-    doc.messages.push({
+    // Build the assistant turn with metadata.
+    const assistantTurn = {
       role: 'assistant',
       content: result.reply || '',
       proposedActions: result.proposedActions || [],
       toolsUsed: result.toolsUsed || [],
       artifacts: [],
-    });
+    };
 
-    // Mark messages as modified (Mixed sub-doc) and persist.
-    doc.markModified('messages');
-    await doc.save();
+    // Atomically persist both turns (timestamps.updatedAt is updated automatically by Mongoose).
+    await Conversation.findOneAndUpdate(
+      { _id: doc._id, user: userId },
+      { $push: { messages: { $each: [userTurn, assistantTurn] } } },
+      { new: true }
+    );
 
     return res.json({
       success: true,

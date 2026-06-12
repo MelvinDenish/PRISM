@@ -61,6 +61,11 @@ const Assistant = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const scrollRef = useRef(null);
+  // Ref always mirrors activeConvId so async callbacks can detect a mid-flight
+  // conversation switch without stale closure values.
+  const activeConvIdRef = useRef(activeConvId);
+  useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
+
   const suggestions = SUGGESTIONS[user?.role] || SUGGESTIONS.mentee;
 
   // Auto-scroll to bottom when messages or loading state changes.
@@ -135,29 +140,42 @@ const Assistant = () => {
     const content = (text ?? input).trim();
     if (!content || loading) return;
 
+    // Capture the conversation id at call time so we can detect a mid-flight switch.
+    const capturedId = activeConvId;
+
     setMessages((prev) => [...prev, { role: 'user', content }]);
     setInput('');
     setError('');
     setLoading(true);
 
     try {
-      const { data } = await sendAssistantMessage({ conversationId: activeConvId, message: content });
+      const { data } = await sendAssistantMessage({ conversationId: capturedId, message: content });
 
-      // Update active conversation id (set on first message of a new chat).
       const returnedId = data.conversationId;
-      setActiveConvId(returnedId);
+      // Determine whether the user switched conversations while the request was in flight.
+      // New-chat case: capturedId is null; user "stays" if the ref is still null (no selection).
+      // Existing-chat case: user stays if the ref still points to the same id.
+      const userStayed =
+        capturedId === null
+          ? activeConvIdRef.current === null
+          : activeConvIdRef.current === capturedId;
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: data.reply || '',
-          proposedActions: data.proposedActions || [],
-        },
-      ]);
+      if (userStayed) {
+        // Safe to apply the reply to the currently visible conversation.
+        setActiveConvId(returnedId);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: data.reply || '',
+            proposedActions: data.proposedActions || [],
+          },
+        ]);
+      }
+      // If the user switched away we silently discard the reply (it's already persisted
+      // server-side and will reappear when they reload that conversation).
 
-      // Refresh sidebar list (upsert the conversation with its current title/date).
-      // We do a lightweight refresh rather than re-fetching the full list.
+      // Always refresh sidebar list so the new/bumped conversation appears.
       setConvList((prev) => {
         const exists = prev.find((c) => c._id === returnedId);
         if (exists) {
@@ -172,11 +190,18 @@ const Assistant = () => {
       });
 
       // Reload list fully on first message of a brand-new conversation so the title appears.
-      if (!activeConvId && returnedId) {
+      if (!capturedId && returnedId) {
         loadConvList();
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'The assistant is unavailable right now.');
+      // Only surface the error if the user is still looking at the same conversation.
+      const userStillHere =
+        capturedId === null
+          ? activeConvIdRef.current === null
+          : activeConvIdRef.current === capturedId;
+      if (userStillHere) {
+        setError(err.response?.data?.message || 'The assistant is unavailable right now.');
+      }
     } finally {
       setLoading(false);
     }
@@ -207,16 +232,20 @@ const Assistant = () => {
             <div className="assistant-sidebar__empty">No past chats yet.</div>
           )}
           {convList.map((c) => (
-            <button
+            <div
               key={c._id}
-              className={`assistant-sidebar__item${activeConvId === c._id ? ' assistant-sidebar__item--active' : ''}`}
-              onClick={() => selectConversation(c._id)}
+              className={`assistant-sidebar__item-wrapper${activeConvId === c._id ? ' assistant-sidebar__item-wrapper--active' : ''}`}
             >
-              <FiMessageSquare className="assistant-sidebar__item-icon" />
-              <div className="assistant-sidebar__item-body">
-                <span className="assistant-sidebar__item-title">{c.title}</span>
-                <span className="assistant-sidebar__item-date">{relativeDate(c.updatedAt)}</span>
-              </div>
+              <button
+                className="assistant-sidebar__item"
+                onClick={() => selectConversation(c._id)}
+              >
+                <FiMessageSquare className="assistant-sidebar__item-icon" />
+                <div className="assistant-sidebar__item-body">
+                  <span className="assistant-sidebar__item-title">{c.title}</span>
+                  <span className="assistant-sidebar__item-date">{relativeDate(c.updatedAt)}</span>
+                </div>
+              </button>
               <button
                 className="assistant-sidebar__item-delete"
                 onClick={(e) => handleDelete(e, c._id)}
@@ -225,7 +254,7 @@ const Assistant = () => {
               >
                 <FiTrash2 />
               </button>
-            </button>
+            </div>
           ))}
         </div>
       </aside>
@@ -269,7 +298,7 @@ const Assistant = () => {
               <div key={i}>
                 <ChatMessage role={m.role} content={m.content} />
                 {m.proposedActions?.map((action, j) => (
-                  <ProposalCard key={`${i}-${j}`} action={action} />
+                  <ProposalCard key={`${i}-${j}`} action={action} conversationId={activeConvId} />
                 ))}
               </div>
             ))
