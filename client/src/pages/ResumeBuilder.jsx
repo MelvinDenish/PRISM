@@ -92,14 +92,18 @@ const ResumeBuilder = () => {
         setCanvasError('');
     };
 
+    // Returns the draft id (existing or newly created) so callers that need it
+    // immediately — e.g. export — don't have to wait for the async setCurrent.
     const saveDraft = async () => {
         setLoading(true);
+        let id = current;
         try {
             if (current) { await updateResumeDraft(current, form); }
-            else { const { data } = await saveResumeDraft(form); setCurrent(data.draft._id); }
+            else { const { data } = await saveResumeDraft(form); id = data.draft._id; setCurrent(id); }
             loadDrafts();
         } catch (err) { console.error(err); }
         setLoading(false);
+        return id;
     };
 
     const removeDraft = async (id) => {
@@ -211,11 +215,12 @@ const ResumeBuilder = () => {
     // Server-rendered export → real .docx/.pdf via the generateDocument pipeline,
     // then trigger a browser download through the existing downloadArtifact helper.
     const exportViaServer = async (fmt) => {
-        if (!current) {
-            // Save first so we have a draft id, then export.
-            try { await saveDraft(); } catch { /* surfaced below */ }
+        // saveDraft returns the id synchronously (setCurrent is async, so reading
+        // `current` here would still be null on a first-time export).
+        let id = current;
+        if (!id) {
+            try { id = await saveDraft(); } catch { /* surfaced below */ }
         }
-        const id = current;
         if (!id) {
             setCanvasError('Could not save the draft to export.');
             return;
