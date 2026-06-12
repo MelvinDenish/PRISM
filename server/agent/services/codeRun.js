@@ -27,8 +27,12 @@ const DANGEROUS_PATTERNS = {
   javascript: [
     // Core-module require, with or without the `node:` prefix.
     /require\s*\(\s*['"](?:node:)?(?:fs|child_process|net|http|https|os|cluster|dgram|dns|tls|vm|worker_threads|perf_hooks)\b/i,
-    // Any require whose argument is not a plain string literal (require('f'+'s'), require(x)).
-    /require\s*\(\s*[^'")]/i,
+    // Any require that is not a single clean string literal — blocks
+    // require(x), require('f'+'s'), require(`fs`), require('fs',...).
+    /require\s*\(\s*(?!['"][^'"]*['"]\s*\))/i,
+    // Bare `require` reference without an immediate call — blocks aliasing
+    // (const r = require; r('fs')).
+    /\brequire\b(?!\s*\()/i,
     /process\s*\.\s*(?:env|exit|binding|dlopen|kill)/i,
     /globalThis\s*\[/i,
     /eval\s*\(/i,
