@@ -164,8 +164,17 @@ router.post('/chat', protect, aiLimiter, async (req, res) => {
       { role: userTurn.role, content: userTurn.content },
     ];
 
-    // Run the agent.
-    const result = await runAgent({ messages: agentMessages, userId, role: req.user.role });
+    // Run the agent. If it throws on a freshly created conversation, remove the
+    // empty doc so a failed first message doesn't orphan a blank chat in the rail.
+    let result;
+    try {
+      result = await runAgent({ messages: agentMessages, userId, role: req.user.role });
+    } catch (agentErr) {
+      if (!conversationId) {
+        await Conversation.deleteOne({ _id: doc._id, user: userId }).catch(() => {});
+      }
+      throw agentErr;
+    }
 
     // Build the assistant turn with metadata.
     const assistantTurn = {
