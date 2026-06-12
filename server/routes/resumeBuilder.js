@@ -3,6 +3,9 @@ const { protect } = require('../middleware/auth');
 const { aiLimiter } = require('../middleware/rateLimit');
 const Groq = require('groq-sdk');
 const ResumeDraft = require('../models/ResumeDraft');
+const User = require('../models/User');
+const { refineDraft, generateDraftFromProfile } = require('../agent/services/resume');
+const { generateDocument } = require('../agent/services/document');
 const router = express.Router();
 
 // GET user's drafts
@@ -124,6 +127,161 @@ CRITICAL RULES:
 
     res.json({ success: true, generated: result });
   } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
+});
+
+// GENERATE a full ResumeDraft from the user's profile (+ optional JD).
+// Persists the draft and returns it — this is the entry point for the
+// agent-driven Resume Canvas flow.
+router.post('/drafts/generate', protect, aiLimiter, async (req, res) => {
+  try {
+    const { jobDescription } = req.body || {};
+    // Pull a minimal profile snapshot from the User document. We only send
+    // fields the LLM can actually use — never password/internal flags.
+    const user = await User.findById(req.user._id)
+      .select('name email bio skills expertise aimingCompany currentCompany experienceLevel experience college graduationYear linkedin github')
+      .lean();
+    const profile = {
+      name: user?.name || '',
+      email: user?.email || '',
+      bio: user?.bio || '',
+      skills: user?.skills || [],
+      expertise: user?.expertise || [],
+      aimingCompany: user?.aimingCompany || '',
+      currentCompany: user?.currentCompany || '',
+      experienceLevel: user?.experienceLevel || '',
+      yearsOfExperience: user?.experience || 0,
+      college: user?.college || '',
+      graduationYear: user?.graduationYear || '',
+      linkedin: user?.linkedin || '',
+      github: user?.github || '',
+    };
+
+    const draft = await generateDraftFromProfile({
+      userId: req.user._id,
+      profile,
+      jobDescription,
+    });
+    return res.status(201).json({ success: true, draft });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    return res.status(status).json({
+      success: false,
+      message: process.env.NODE_ENV === 'production' && status >= 500 ? 'Internal Server Error' : err.message,
+    });
+  }
+});
+
+// REFINE a draft with a natural-language instruction.
+// Body: { instruction }  →  { success, draft, changedSections }
+router.post('/drafts/:id/refine', protect, aiLimiter, async (req, res) => {
+  try {
+    const { instruction } = req.body || {};
+    const { draft, changedSections } = await refineDraft({
+      userId: req.user._id,
+      draftId: req.params.id,
+      instruction,
+    });
+    return res.json({ success: true, draft, changedSections });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    return res.status(status).json({
+      success: false,
+      message: process.env.NODE_ENV === 'production' && status >= 500 ? 'Internal Server Error' : err.message,
+    });
+  }
+});
+
+// Build the structured-content payload generateDocument expects from a draft.
+function _buildResumeSections(draft) {
+  const p = draft.personalInfo || {};
+  const sections = [];
+
+  // Header: name + contact line + links
+  const headerParas = [];
+  if (p.fullName) headerParas.push(p.fullName);
+  const contactBits = [p.email, p.phone, p.location].filter(Boolean);
+  if (contactBits.length) headerParas.push(contactBits.join(' • '));
+  const linkBits = [p.linkedin, p.github, p.portfolio].filter(Boolean);
+  if (linkBits.length) headerParas.push(linkBits.join(' • '));
+  if (headerParas.length) sections.push({ paragraphs: headerParas });
+
+  if (p.summary) sections.push({ heading: 'Summary', paragraphs: [p.summary] });
+
+  if (Array.isArray(draft.skills) && draft.skills.length) {
+    sections.push({ heading: 'Skills', paragraphs: [draft.skills.join(' • ')] });
+  }
+
+  const expEntries = (draft.experience || []).filter((e) => e && (e.company || e.position));
+  if (expEntries.length) {
+    const paragraphs = [];
+    for (const e of expEntries) {
+      const title = [e.position, e.company].filter(Boolean).join(' — ');
+      const dates = `${e.startDate || ''} – ${e.current ? 'Present' : (e.endDate || '')}`.trim();
+      paragraphs.push([title, dates].filter(Boolean).join('  |  '));
+      if (e.description) paragraphs.push(e.description);
+    }
+    sections.push({ heading: 'Experience', paragraphs });
+  }
+
+  const eduEntries = (draft.education || []).filter((e) => e && (e.institution || e.degree));
+  if (eduEntries.length) {
+    const paragraphs = [];
+    for (const e of eduEntries) {
+      const degree = [e.degree, e.field].filter(Boolean).join(', ');
+      const dates = `${e.startDate || ''} – ${e.endDate || ''}`.trim();
+      const head = [degree, dates].filter(Boolean).join('  |  ');
+      if (head) paragraphs.push(head);
+      const sub = [e.institution, e.gpa ? `GPA: ${e.gpa}` : ''].filter(Boolean).join(' • ');
+      if (sub) paragraphs.push(sub);
+    }
+    sections.push({ heading: 'Education', paragraphs });
+  }
+
+  const projEntries = (draft.projects || []).filter((p) => p && p.name);
+  if (projEntries.length) {
+    const paragraphs = [];
+    for (const pr of projEntries) {
+      paragraphs.push(pr.name);
+      if (pr.description) paragraphs.push(pr.description);
+      if (pr.technologies) paragraphs.push(`Tech: ${pr.technologies}`);
+    }
+    sections.push({ heading: 'Projects', paragraphs });
+  }
+
+  return { sections };
+}
+
+// EXPORT a draft to docx/pdf via the shared document service.
+// Body: { format: 'docx'|'pdf' }  →  { success, artifact: {id,title,format,url} }
+router.post('/drafts/:id/export', protect, async (req, res) => {
+  try {
+    const { format } = req.body || {};
+    if (format !== 'docx' && format !== 'pdf') {
+      return res.status(400).json({ success: false, message: 'format must be "docx" or "pdf"' });
+    }
+    const draft = await ResumeDraft.findOne({ _id: req.params.id, user: req.user._id });
+    if (!draft) return res.status(404).json({ success: false, message: 'Draft not found' });
+
+    const titleBase = (draft.personalInfo && draft.personalInfo.fullName)
+      || draft.name
+      || 'Resume';
+    const title = `${titleBase} — Resume`.slice(0, 120);
+
+    const content = _buildResumeSections(draft);
+    const artifact = await generateDocument({
+      userId: req.user._id,
+      kind: 'resume',
+      title,
+      format,
+      content,
+    });
+    return res.json({ success: true, artifact });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message,
+    });
+  }
 });
 
 // GENERATE cover letter
