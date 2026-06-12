@@ -174,9 +174,15 @@ export const setGDRoomStatus = (id, status) => api.patch(`/gd-rooms/${id}/status
 export const getRtcToken = (roomName) => api.post('/rtc/token', { roomName });
 
 // Agentic assistant ("PRISM Copilot")
-// messages: [{ role: 'user' | 'assistant', content }]
-export const sendAssistantMessage = (messages) => api.post('/assistant/chat', { messages });
-export const confirmAssistantAction = (proposedAction) => api.post('/assistant/confirm', { proposedAction });
+// Persistent path: sendAssistantMessage({ conversationId?, message })
+// Legacy stateless path still works if caller passes { messages } array directly.
+export const sendAssistantMessage = ({ conversationId, message } = {}) =>
+  api.post('/assistant/chat', { conversationId, message });
+export const confirmAssistantAction = (proposedAction, conversationId) =>
+  api.post('/assistant/confirm', { proposedAction, ...(conversationId ? { conversationId } : {}) });
+export const listConversations = () => api.get('/assistant/conversations');
+export const getConversation = (id) => api.get(`/assistant/conversations/${id}`);
+export const deleteConversation = (id) => api.delete(`/assistant/conversations/${id}`);
 
 // ── Prep profile / readiness spine (P6) ──
 export const getPrepProfile = () => api.get('/prep-profile');
