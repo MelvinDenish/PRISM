@@ -54,6 +54,42 @@ router.get('/', async (req, res) => {
     }
 });
 
+// Fraction of an extracted article's visible text that lives inside links.
+// Changelogs / roadmaps / link directories are link-dominated; real articles
+// are mostly prose.
+function readerLinkDensity(html) {
+    try {
+        const doc = new JSDOM(String(html)).window.document;
+        const total = (doc.body.textContent || '').replace(/\s+/g, ' ').trim().length;
+        if (!total) return 1;
+        let linkLen = 0;
+        doc.querySelectorAll('a').forEach((a) => { linkLen += (a.textContent || '').trim().length; });
+        return linkLen / total;
+    } catch { return 0; }
+}
+
+// Decide whether a Readability parse is actually an article worth reading
+// in-app. Homepages, roadmaps and changelogs DO extract as "content"
+// (cp-algorithms.com/ extracts its news list, which is what users were seeing),
+// but they are not articles — for those we 422 so the client falls back to its
+// "open original" view instead of rendering a confusing dump.
+function isReadableArticle(pageUrl, article) {
+    // 1. A bare site root (https://site/, /index.html) is a homepage.
+    let path = '/';
+    try { path = new URL(pageUrl).pathname; } catch { /* keep default */ }
+    const trimmedPath = path.replace(/\/+$/, '');
+    if (trimmedPath === '' || /^\/index\.html?$/i.test(trimmedPath)) return false;
+
+    // 2. Too little prose to be a real article (JS-app landing pages, near-empty).
+    const textLen = (article.textContent || '').trim().length;
+    if (textLen < 600) return false;
+
+    // 3. Link-dominated content (changelogs, roadmaps, link indexes).
+    if (readerLinkDensity(article.content) > 0.5) return false;
+
+    return true;
+}
+
 // GET /api/resources/reader?url=  — fetch an external article and return
 // readable, sanitized HTML so it can be previewed IN-APP (no redirect).
 // Auth-gated + SSRF-guarded to avoid being an open proxy.
@@ -93,6 +129,9 @@ router.get('/reader', protect, async (req, res) => {
         const article = new Readability(dom.window.document).parse();
         if (!article || !article.content) {
             return res.status(422).json({ success: false, message: 'Could not extract a readable view of this page.' });
+        }
+        if (!isReadableArticle(currentUrl, article)) {
+            return res.status(422).json({ success: false, message: 'This looks like a homepage or link index, not an article. Open the original to read it.' });
         }
         res.json({
             success: true,
@@ -195,3 +234,6 @@ router.delete('/:id', protect, authorize('admin', 'mentor'), async (req, res) =>
 });
 
 module.exports = router;
+// Exposed for verification scripts (seeds/verifyReaderGuard.js).
+module.exports._isReadableArticle = isReadableArticle;
+module.exports._readerLinkDensity = readerLinkDensity;
