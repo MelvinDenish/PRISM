@@ -128,6 +128,7 @@ export const summarizeArticle = (data) => api.post('/summarize', data);
 
 // Resume Builder
 export const getResumeDesignSystem = () => api.get('/resume-builder/design-system');
+export const resumeIntake = (messages) => api.post('/resume-builder/intake', { messages });
 export const getResumeDrafts = () => api.get('/resume-builder/drafts');
 export const getResumeDraft = (id) => api.get(`/resume-builder/drafts/${id}`);
 export const saveResumeDraft = (data) => api.post('/resume-builder/drafts', data);

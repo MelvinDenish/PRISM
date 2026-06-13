@@ -11,6 +11,7 @@ const {
 const { generateDocument } = require('../agent/services/document');
 const { LAYOUTS, FONT_PAIRS, DENSITIES, HEADING_STYLES, SECTION_KEYS, SEED_KEYS } = require('../agent/services/resumeDesign');
 const { exportResumePdfArtifact } = require('../agent/services/resumePdf');
+const { intakeTurn } = require('../agent/services/resumeIntake');
 const router = express.Router();
 
 // Public design-system catalog for the client's design panel (display lists only;
@@ -27,6 +28,28 @@ router.get('/design-system', protect, (req, res) => {
       paletteVibes: SEED_KEYS,
     },
   });
+});
+
+// CONVERSATIONAL INTAKE — chat that asks for details (prefilled from profile),
+// then finalizes content + an AI-chosen design into a new draft.
+// Body: { messages: [{role,content}] }  →  { success, reply } | { success, draft }
+router.post('/intake', protect, aiLimiter, async (req, res) => {
+  try {
+    const { messages } = req.body || {};
+    const user = await User.findById(req.user._id)
+      .select('name email bio skills expertise aimingCompany currentCompany experienceLevel experience college graduationYear linkedin github').lean();
+    const profile = {
+      name: user?.name || '', email: user?.email || '', bio: user?.bio || '', skills: user?.skills || [],
+      expertise: user?.expertise || [], aimingCompany: user?.aimingCompany || '', currentCompany: user?.currentCompany || '',
+      experienceLevel: user?.experienceLevel || '', yearsOfExperience: user?.experience || 0,
+      college: user?.college || '', graduationYear: user?.graduationYear || '', linkedin: user?.linkedin || '', github: user?.github || '',
+    };
+    const result = await intakeTurn({ userId: req.user._id, messages, profile });
+    return res.json({ success: true, ...result });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    return res.status(status).json({ success: false, message: process.env.NODE_ENV === 'production' && status >= 500 ? 'Internal Server Error' : err.message });
+  }
 });
 
 // GET user's drafts
