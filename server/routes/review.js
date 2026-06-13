@@ -8,6 +8,7 @@ const CodingQuestion = require('../models/CodingQuestion');
 const QuestionBank = require('../models/QuestionBank');
 const Progress = require('../models/Progress');
 const { emit: emitSignals } = require('../agent/services/signals');
+const { upsertReviewItems } = require('../agent/services/reviewQueue');
 const router = express.Router();
 
 const fail = (res, err) => res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
@@ -92,20 +93,11 @@ async function collectCandidates(userId) {
 }
 
 // Idempotent: insert any new candidates (preserving the schedule of existing ones
-// via $setOnInsert). Returns how many were newly added.
+// via $setOnInsert). Returns how many were newly added. Shares the upsert path
+// with the Interview Game via agent/services/reviewQueue.
 async function populate(userId) {
     const candidates = await collectCandidates(userId);
-    if (!candidates.length) return 0;
-    const now = new Date();
-    const ops = candidates.map((c) => ({
-        updateOne: {
-            filter: { user: userId, kind: c.kind, sourceKey: c.sourceKey },
-            update: { $setOnInsert: { ...c, user: userId, box: 1, dueAt: now, mastered: false, timesReviewed: 0, createdAt: now, updatedAt: now } },
-            upsert: true,
-        },
-    }));
-    const result = await ReviewItem.bulkWrite(ops, { ordered: false });
-    return result.upsertedCount || 0;
+    return upsertReviewItems(userId, candidates);
 }
 
 // POST /api/review/refresh — rescan sources and add any new review items.

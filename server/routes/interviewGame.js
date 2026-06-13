@@ -6,6 +6,11 @@ const { gradeMcqRound, sanitizeGame } = require('../utils/interviewGameScoring')
 const { executeCode } = require('./codeExecution');
 const Groq = require('groq-sdk');
 const { emit: emitSignals } = require('../agent/services/signals');
+const { upsertReviewItems } = require('../agent/services/reviewQueue');
+const { resolveTemplate, difficultyFromReadiness } = require('../utils/gameTemplates');
+const Company = require('../models/Company');
+const PrepProfile = require('../models/PrepProfile');
+const BehavioralAnswer = require('../models/BehavioralAnswer');
 const router = express.Router();
 
 // Normalize program output for comparison (trailing whitespace/newlines vary).
@@ -79,6 +84,36 @@ Return as JSON array of strings: ["question1","question2",...]` }
     const raw = completion.choices[0]?.message?.content || '[]';
     return JSON.parse(raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim());
   } catch { return ["Tell me about yourself.", "What are your strengths?", "Where do you see yourself in 5 years?", "Why should we hire you?", "Describe a challenging situation."]; }
+};
+
+// P8: HR questions personalized to the target company/role, steered AWAY from
+// competencies the candidate already has STAR stories for (so the round fills
+// coverage gaps). Best-effort — callers fall back to the bank on empty/throw.
+const generatePersonalizedHR = async (count, { company, role, coveredTags }) => {
+  const groq = getGroq();
+  const ctx = [
+    company ? `target company: ${company}` : '',
+    role ? `target role: ${role}` : '',
+    coveredTags?.length ? `The candidate ALREADY has strong stories about: ${coveredTags.join(', ')}. Ask about OTHER competencies instead.` : '',
+  ].filter(Boolean).join('\n');
+  const completion = await groq.chat.completions.create({
+    model: 'llama-3.1-8b-instant',
+    messages: [
+      { role: 'system', content: 'You are an HR interview question generator. Return ONLY a JSON array of strings. No extra text.' },
+      { role: 'user', content: `Generate ${count} HR/behavioral interview questions for a placement interview.
+${ctx}
+Cover a spread of competencies (teamwork, leadership, failure handling, conflict, motivation, career goals, pressure). Make them realistic and specific to the context above where relevant.
+
+Return as JSON array of strings: ["question1","question2",...]` }
+    ],
+    max_tokens: 1500,
+    temperature: 0.8,
+  });
+  try {
+    const raw = completion.choices[0]?.message?.content || '[]';
+    const arr = JSON.parse(raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim());
+    return Array.isArray(arr) ? arr.filter((q) => typeof q === 'string' && q.trim()) : [];
+  } catch { return []; }
 };
 
 // Generate GD topic via Groq
@@ -230,46 +265,105 @@ const sampleByDifficulty = async (type, difficulty, size) => {
   return [...primary, ...fill];
 };
 
-// GET questions for a round (from curated bank, AI fallback for GD)
+// P8: category-weighted sampling for targeted games. Biases toward a template's
+// `categoryWeights` AND the chosen difficulty, topping up across categories /
+// difficulties so a round never starves (the bank is thin per category/difficulty
+// — see the B3 lesson). Falls back to plain sampleByDifficulty when no weights.
+const sampleWeighted = async (type, roundCfg, size) => {
+  const difficulty = VALID_DIFF.includes(roundCfg?.difficulty) ? roundCfg.difficulty : 'medium';
+  const wEntries = Object.entries(roundCfg?.categoryWeights || {}).filter(([, w]) => Number(w) > 0);
+  if (!wEntries.length) return sampleByDifficulty(type, difficulty, size);
+
+  const totalW = wEntries.reduce((a, [, w]) => a + Number(w), 0);
+  const picked = [];
+  const seen = new Set();
+  const nin = () => picked.map((d) => d._id);
+  const take = (docs) => { for (const d of docs) { const k = String(d._id); if (!seen.has(k)) { seen.add(k); picked.push(d); } } };
+
+  for (const [category, w] of wEntries) {
+    if (picked.length >= size) break;
+    const target = Math.max(1, Math.round((size * Number(w)) / totalW));
+    let want = Math.min(target, size - picked.length);
+    if (want > 0) take(await QuestionBank.aggregate([{ $match: { type, verified: true, category, difficulty, _id: { $nin: nin() } } }, { $sample: { size: want } }]));
+    want = Math.min(target, size - picked.length);
+    if (want > 0) take(await QuestionBank.aggregate([{ $match: { type, verified: true, category, _id: { $nin: nin() } } }, { $sample: { size: want } }]));
+  }
+  // Overall top-up to `size`: chosen difficulty first, then any.
+  if (picked.length < size) take(await QuestionBank.aggregate([{ $match: { type, verified: true, difficulty, _id: { $nin: nin() } } }, { $sample: { size: size - picked.length } }]));
+  if (picked.length < size) take(await QuestionBank.aggregate([{ $match: { type, verified: true, _id: { $nin: nin() } } }, { $sample: { size: size - picked.length } }]));
+  return picked.slice(0, size);
+};
+
+// Load the targeting context for a game so /questions can pick a template. Returns
+// a resolved template (role family, per-round counts, categoryWeights, difficulty).
+const templateForGame = async (gameId, userId) => {
+  if (!gameId) return null;
+  const game = await InterviewGame.findById(gameId);
+  if (!game || !game.user.equals(userId)) return null;
+  return {
+    game,
+    template: resolveTemplate({ companyName: game.companyName, role: game.targetRole, difficulty: game.difficulty }),
+  };
+};
+
+// GET questions for a round — curated bank, composed by the game's company/role
+// template (P8); AI fallback for GD and shortfalls. Round TYPES are unchanged;
+// the template only tunes per-round count / category mix / difficulty.
 router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
   const round = req.params.round;
-  // Difficulty hint from the client (the game's chosen level). Sampling is biased
-  // by it; grading is still server-authoritative, so trusting this hint is safe.
-  const difficulty = req.query.difficulty;
   try {
+    // Targeting context: the game's company/role/difficulty → a round template.
+    // Falls back to a neutral template seeded by the client's difficulty hint.
+    const ctx = await templateForGame(req.query.gameId, req.user._id);
+    const game = ctx?.game || null;
+    const template = ctx?.template || resolveTemplate({ difficulty: req.query.difficulty });
+    const rcfg = (key) => template.rounds[key] || {};
+
     let questions = [];
     switch (round) {
       case 'aptitude': {
-        // 15 from curated bank, biased to the chosen difficulty
-        const docs = await sampleByDifficulty('aptitude', difficulty, 15);
-        questions = docs.map((q, i) => ({ id: `apt_${i}`, q: q.q, opts: q.opts, ans: q.ans, explanation: q.explanation }));
+        const cfg = rcfg('aptitude');
+        const size = cfg.count || 15;
+        const docs = await sampleWeighted('aptitude', cfg, size);
+        questions = docs.map((q, i) => ({ id: `apt_${i}`, q: q.q, opts: q.opts, ans: q.ans, explanation: q.explanation, bankId: String(q._id), category: q.category, difficulty: q.difficulty }));
         // AI fallback if bank is empty
         if (questions.length < 5) {
-          const mcqs = await generateMCQs('aptitude', 15);
+          const mcqs = await generateMCQs('aptitude', size);
           questions = mcqs.map((q, i) => ({ id: `apt_${i}`, ...q }));
         }
         break;
       }
       case 'technical1':
       case 'technical2': {
-        const docs = await sampleByDifficulty('technical', difficulty, 10);
-        questions = docs.map((q, i) => ({ id: `tech_${i}`, q: q.q, opts: q.opts, ans: q.ans, explanation: q.explanation }));
+        const cfg = rcfg(round);
+        const size = cfg.count || 10;
+        const docs = await sampleWeighted('technical', cfg, size);
+        questions = docs.map((q, i) => ({ id: `tech_${i}`, q: q.q, opts: q.opts, ans: q.ans, explanation: q.explanation, bankId: String(q._id), category: q.category, difficulty: q.difficulty }));
         if (questions.length < 5) {
-          const mcqs = await generateMCQs('technical', 10);
+          const mcqs = await generateMCQs('technical', size);
           questions = mcqs.map((q, i) => ({ id: `tech_${i}`, ...q }));
         }
         break;
       }
       case 'hr': {
-        // Random 10 HR from bank
-        const docs = await QuestionBank.aggregate([
-          { $match: { type: 'hr', verified: true } },
-          { $sample: { size: 10 } }
-        ]);
-        questions = docs.map((q, i) => ({ id: `hr_${i}`, q: q.q, type: 'open' }));
-        if (questions.length < 5) {
-          const hrQs = await generateHRQuestions(10);
-          questions = hrQs.map((q, i) => ({ id: `hr_${i}`, q, type: 'open' }));
+        const cfg = rcfg('hr');
+        const size = cfg.count || 10;
+        // P8: personalize HR for targeted games (company/role + STAR-gap steering).
+        if (game && (game.companyName || game.targetRole)) {
+          let coveredTags = [];
+          try { coveredTags = await BehavioralAnswer.distinct('tags', { user: req.user._id }); } catch { /* best-effort */ }
+          try {
+            const hrQs = await generatePersonalizedHR(size, { company: game.companyName, role: game.targetRole, coveredTags: (coveredTags || []).filter(Boolean).slice(0, 12) });
+            if (hrQs.length >= 3) questions = hrQs.map((q, i) => ({ id: `hr_${i}`, q, type: 'open' }));
+          } catch { /* fall through to bank */ }
+        }
+        if (!questions.length) {
+          const docs = await QuestionBank.aggregate([{ $match: { type: 'hr', verified: true } }, { $sample: { size } }]);
+          questions = docs.map((q, i) => ({ id: `hr_${i}`, q: q.q, type: 'open' }));
+          if (questions.length < 5) {
+            const hrQs = await generateHRQuestions(size);
+            questions = hrQs.map((q, i) => ({ id: `hr_${i}`, q, type: 'open' }));
+          }
         }
         break;
       }
@@ -280,7 +374,9 @@ router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
         break;
       }
       case 'coding': {
-        const docs = await sampleByDifficulty('coding', difficulty, 2);
+        const cfg = rcfg('coding');
+        const size = cfg.count || 2;
+        const docs = await sampleByDifficulty('coding', cfg.difficulty, size);
         questions = docs.map(p => ({
           id: p._id.toString(),
           title: p.title,
@@ -293,7 +389,7 @@ router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
         if (questions.length < 1) {
           // AI fallback: verify the generated test cases against the model's own
           // reference solution before they can grade anyone (see validateCodingProblems).
-          const generated = await generateCodingProblems(2, VALID_DIFF.includes(difficulty) ? difficulty : 'medium');
+          const generated = await generateCodingProblems(size, VALID_DIFF.includes(cfg.difficulty) ? cfg.difficulty : 'medium');
           let problems = await validateCodingProblems(generated);
           // If validation discarded everything (e.g. the reference solution can't
           // run), fall back to the hand-verified problem so the round is never empty.
@@ -310,42 +406,36 @@ router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
         return res.status(400).json({ success: false, message: 'Invalid round' });
     }
 
-    // For MCQ rounds, persist the served questions + correct answers on the game
-    // so submit-round can grade server-side, then STRIP answers from the response.
+    // For MCQ rounds, persist the answer key + P8 review snapshot (bankId/q/
+    // explanation/category/difficulty) on the game (server-only), then STRIP the
+    // internal fields from the client response.
     if (MCQ_ROUNDS.includes(round)) {
-      const { gameId } = req.query;
-      if (gameId) {
-        const game = await InterviewGame.findById(gameId);
-        if (game && game.user.equals(req.user._id)) {
-          const gameRound = game.rounds.find(r => r.type === round);
-          if (gameRound) {
-            gameRound.servedQuestions = questions.map(q => ({ questionId: q.id, ans: q.ans }));
-            await game.save();
-          }
+      if (game) {
+        const gameRound = game.rounds.find(r => r.type === round);
+        if (gameRound) {
+          gameRound.servedQuestions = questions.map(q => ({
+            questionId: q.id, ans: q.ans, bankId: q.bankId,
+            q: q.q, explanation: q.explanation, category: q.category, difficulty: q.difficulty,
+          }));
+          await game.save();
         }
       }
-      // Never leak the answer key (or explanations) to the client.
-      questions = questions.map(({ ans, explanation, ...rest }) => rest);
-    } else if (round === 'coding') {
+      // Never leak the answer key, explanations or internal ids to the client.
+      questions = questions.map(({ ans, explanation, bankId, category, difficulty, ...rest }) => rest);
+    } else if (round === 'coding' && game) {
       // Persist the coding test cases on the game so submit-round can grade the
       // user's code server-side (authoritative). Client contract is unchanged.
-      const { gameId } = req.query;
-      if (gameId) {
-        const game = await InterviewGame.findById(gameId);
-        if (game && game.user.equals(req.user._id)) {
-          const gameRound = game.rounds.find((r) => r.type === 'coding');
-          if (gameRound) {
-            // Store test cases for EVERY served problem so submit-round can grade
-            // all of them (the UI has the user solve two). `testCases` (first
-            // problem) is kept for backward compatibility with any in-flight game.
-            const mapTests = (p) => (p?.testCases || []).map((t) => ({ input: t.input, expectedOutput: t.expectedOutput || t.output }));
-            gameRound.servedCoding = {
-              problems: questions.map((p) => ({ problemId: String(p.id), testCases: mapTests(p) })),
-              testCases: mapTests(questions[0]),
-            };
-            await game.save();
-          }
-        }
+      const gameRound = game.rounds.find((r) => r.type === 'coding');
+      if (gameRound) {
+        // Store test cases for EVERY served problem so submit-round can grade all
+        // of them (the UI has the user solve two). `testCases` (first problem) is
+        // kept for backward compatibility with any in-flight game.
+        const mapTests = (p) => (p?.testCases || []).map((t) => ({ input: t.input, expectedOutput: t.expectedOutput || t.output }));
+        gameRound.servedCoding = {
+          problems: questions.map((p) => ({ problemId: String(p.id), testCases: mapTests(p) })),
+          testCases: mapTests(questions[0]),
+        };
+        await game.save();
       }
     }
 
@@ -356,13 +446,39 @@ router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
   }
 });
 
-// START a new game
+// START a new game. P8: accepts { companyFocus?, company?, role?, difficulty? }.
+// Targeting defaults from the user's PrepProfile; difficulty seeds from readiness
+// when the client doesn't pick one (user-overridable).
 router.post('/start', protect, async (req, res) => {
   try {
+    const profile = await PrepProfile.findOne({ user: req.user._id }).lean().catch(() => null);
+
+    // Resolve the focus company: explicit id → lookup; else PrepProfile's top target.
+    let companyFocus = req.body.companyFocus || undefined;
+    let companyName = typeof req.body.company === 'string' ? req.body.company.trim() : '';
+    if (companyFocus) {
+      const c = await Company.findById(companyFocus).select('name').lean().catch(() => null);
+      if (c) companyName = c.name;
+    } else if (!companyName && profile?.targetCompanies?.length) {
+      const top = profile.targetCompanies[0];
+      companyName = top.name || '';
+      companyFocus = top.company || undefined;
+    }
+
+    const targetRole = (typeof req.body.role === 'string' && req.body.role.trim())
+      || profile?.targetRole || '';
+
+    // Difficulty: explicit choice wins; otherwise seed from overall readiness.
+    const difficulty = ['easy', 'medium', 'hard'].includes(req.body.difficulty)
+      ? req.body.difficulty
+      : difficultyFromReadiness(profile?.readiness?.overall);
+
     const game = await InterviewGame.create({
       user: req.user._id,
-      difficulty: req.body.difficulty || 'medium',
-      companyFocus: req.body.companyFocus,
+      difficulty,
+      companyFocus,
+      companyName: companyName.slice(0, 100),
+      targetRole: String(targetRole).slice(0, 100),
       rounds: [
         { type: 'aptitude', maxScore: 100 },
         { type: 'technical1', maxScore: 100 },
@@ -392,6 +508,7 @@ router.post('/submit-round', protect, async (req, res) => {
     if (!round) return res.status(400).json({ success: false, message: 'Invalid round' });
 
     let score = 0;
+    let reviewItemsAdded = 0;
     const roundType = round.type;
 
     if (MCQ_ROUNDS.includes(roundType)) {
@@ -401,6 +518,27 @@ router.post('/submit-round', protect, async (req, res) => {
       const result = gradeMcqRound(round.servedQuestions, answers);
       score = result.score;
       round.answers = result.gradedAnswers;
+
+      // P8: turn wrong / skipped questions into company-tagged review items. The
+      // sourceKey is the QuestionBank `bankId` (NOT the positional questionId), so
+      // the same wrong question dedups correctly across games. AI-generated
+      // fallback MCQs have no bankId and are skipped (best-effort, never throws).
+      try {
+        const gradedById = new Map((result.gradedAnswers || []).map((a) => [String(a.questionId), a]));
+        const candidates = (round.servedQuestions || [])
+          .filter((sq) => sq.bankId && sq.q)
+          .filter((sq) => {
+            const g = gradedById.get(String(sq.questionId));
+            return !g || g.isCorrect === false; // wrong or unanswered
+          })
+          .map((sq) => ({
+            kind: 'mcq', sourceKey: sq.bankId, refId: sq.bankId,
+            prompt: sq.q, answer: sq.ans, explanation: sq.explanation,
+            category: sq.category, difficulty: sq.difficulty,
+            company: game.companyName || '',
+          }));
+        reviewItemsAdded = await upsertReviewItems(req.user._id, candidates);
+      } catch (_) { /* review bookkeeping is best-effort */ }
     } else if (roundType === 'coding' && round.servedCoding?.problems?.length) {
       // SERVER-AUTHORITATIVE coding grade across ALL served problems (the UI has
       // the user solve two). The per-problem code comes from `answers`
@@ -476,7 +614,7 @@ router.post('/submit-round', protect, async (req, res) => {
       game.completedAt = new Date();
     }
     await game.save();
-    res.json({ success: true, game: sanitizeGame(game), roundScore: round.score });
+    res.json({ success: true, game: sanitizeGame(game), roundScore: round.score, reviewItemsAdded });
   } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
@@ -498,6 +636,45 @@ router.get('/:id', protect, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Not authorized for this game' });
     }
     res.json({ success: true, game: sanitizeGame(game) });
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
+});
+
+// GET /:id/report — post-game summary: per-round breakdown vs. pillar, weakest
+// rounds, company/role context, and how many review items are now due.
+router.get('/:id/report', protect, async (req, res) => {
+  try {
+    const game = await InterviewGame.findById(req.params.id);
+    if (!game) return res.status(404).json({ success: false, message: 'Game not found' });
+    if (!game.user.equals(req.user._id)) return res.status(403).json({ success: false, message: 'Not authorized for this game' });
+
+    const ROUND_LABEL = { aptitude: 'Aptitude', technical1: 'Technical I', technical2: 'Technical II', coding: 'Coding', gd: 'Group Discussion', hr: 'HR' };
+    const rounds = game.rounds.map((r) => ({
+      type: r.type, label: ROUND_LABEL[r.type] || r.type,
+      pillar: PILLAR_BY_ROUND[r.type] || 'cs_core',
+      score: r.score, status: r.status,
+    }));
+    const completed = rounds.filter((r) => r.status === 'completed');
+    const weakest = [...completed].sort((a, b) => a.score - b.score).slice(0, 2);
+
+    let company = null;
+    if (game.companyFocus) {
+      company = await Company.findById(game.companyFocus).select('name interviewPattern difficultyLevel').lean().catch(() => null);
+    }
+    if (!company && game.companyName) company = { name: game.companyName };
+
+    const ReviewItem = require('../models/ReviewItem');
+    const dueReviewCount = await ReviewItem.countDocuments({ user: req.user._id, mastered: false, dueAt: { $lte: new Date() } }).catch(() => 0);
+
+    res.json({
+      success: true,
+      report: {
+        gameId: game._id, status: game.status,
+        difficulty: game.difficulty, targetRole: game.targetRole,
+        company, rounds, weakest,
+        totalScore: game.totalScore, maxTotalScore: game.maxTotalScore,
+        dueReviewCount,
+      },
+    });
   } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
@@ -534,3 +711,7 @@ router.get('/leaderboard/top', protect, async (req, res) => {
 });
 
 module.exports = router;
+// Exposed for the P8 verify script (seeds/verifyTargetedGame.js) to exercise the
+// real sampling path without spinning up HTTP.
+module.exports.sampleWeighted = sampleWeighted;
+module.exports.sampleByDifficulty = sampleByDifficulty;
