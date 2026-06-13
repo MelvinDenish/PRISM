@@ -173,6 +173,7 @@ export const getJudgeLanguages = () => api.get('/code-execution/languages');
 export const startGroupDiscussion = (data) => api.post('/group-discussion/start', data || {});
 export const respondGroupDiscussion = (data) => api.post('/group-discussion/respond', data);
 export const evaluateGroupDiscussion = (data) => api.post('/group-discussion/evaluate', data);
+export const getGDHistory = () => api.get('/group-discussion/history');
 
 // GD Rooms (live, multi-participant video via LiveKit)
 export const getGDRooms = (params) => api.get('/gd-rooms', { params });

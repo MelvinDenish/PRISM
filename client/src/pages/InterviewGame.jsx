@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { startInterviewGame, getGameQuestions, submitGameRound, startAIInterview, chatAIInterview, evaluateAIInterview, runTestCases, runCustomCode, startGroupDiscussion, respondGroupDiscussion, evaluateGroupDiscussion, getLeaderboard, getGameHistory, getCompanies, getGameReport } from '../services/api';
+import { startInterviewGame, getGameQuestions, submitGameRound, startAIInterview, chatAIInterview, evaluateAIInterview, runTestCases, runCustomCode, startGroupDiscussion, respondGroupDiscussion, evaluateGroupDiscussion, getLeaderboard, getGameHistory, getCompanies, getGameReport, getGDHistory } from '../services/api';
 import { FiPlay, FiClock, FiAward, FiCheck, FiArrowRight, FiRotateCcw, FiSend, FiCpu, FiUser, FiAlertTriangle, FiMapPin, FiCode, FiTerminal, FiTarget, FiRefreshCw } from 'react-icons/fi';
 import Editor from '@monaco-editor/react';
 
@@ -44,6 +44,7 @@ const InterviewGame = () => {
     const [menuTab, setMenuTab] = useState('play'); // play | leaderboard | history
     const [leaderboard, setLeaderboard] = useState([]);
     const [history, setHistory] = useState([]);
+    const [gdHistory, setGdHistory] = useState([]);
     const [lbLoading, setLbLoading] = useState(false);
 
     // Coding round state
@@ -277,6 +278,7 @@ const InterviewGame = () => {
         const round = ROUNDS[currentRound];
         let submitAnswers = answers;
         let aiScore = undefined;
+        let gdSessionId = null;
 
         // MCQ rounds: compute score from isCorrect flags
         if (['aptitude', 'technical1'].includes(round.type) && answers.length > 0) {
@@ -309,10 +311,13 @@ const InterviewGame = () => {
         if (round.type === 'gd') {
             setGdLoading(true);
             try {
-                const { data } = await evaluateGroupDiscussion({ context: gdContext, topic: gdTopic });
+                const { data } = await evaluateGroupDiscussion({ context: gdContext, topic: gdTopic, gameId: game._id });
                 setGdEval(data.evaluation);
-                aiScore = data.evaluation?.overallScore || 50;
-            } catch { aiScore = Math.min(100, Math.max(20, gdUserCount * 15)); }
+                gdSessionId = data.gdSessionId || null;
+                // aiScore is intentionally NOT used for GD anymore — the server scores
+                // the round from the persisted GDSession (gdSessionId). gdEval is only
+                // for the scorecard display.
+            } catch { setGdEval(null); }
             setGdLoading(false);
             submitAnswers = [{ contributions: gdUserCount, topic: gdTopic }];
         }
@@ -346,7 +351,7 @@ const InterviewGame = () => {
             const codingExtra = round.type === 'coding'
                 ? { code: codeByProblem[questions[0]?.id] || '', language: selectedLang }
                 : {};
-            const { data } = await submitGameRound({ gameId: game._id, roundIndex: currentRound, answers: submitAnswers, aiScore, ...codingExtra });
+            const { data } = await submitGameRound({ gameId: game._id, roundIndex: currentRound, answers: submitAnswers, aiScore, gdSessionId, ...codingExtra });
             setGame(data.game);
             setRoundScore(data.roundScore);
             // P8: tally review items the server queued from this round's wrong answers.
@@ -410,7 +415,16 @@ const InterviewGame = () => {
     // ═══════════════════════════════════════════
     if (phase === 'menu') {
         const loadLeaderboard = async () => { if (leaderboard.length) return; setLbLoading(true); try { const { data } = await getLeaderboard(); setLeaderboard(data.leaderboard || []); } catch {} setLbLoading(false); };
-        const loadHistory = async () => { if (history.length) return; setLbLoading(true); try { const { data } = await getGameHistory(); setHistory(data.games || []); } catch {} setLbLoading(false); };
+        const loadHistory = async () => {
+            if (history.length || gdHistory.length) return;
+            setLbLoading(true);
+            try {
+                const [g, gd] = await Promise.allSettled([getGameHistory(), getGDHistory()]);
+                if (g.status === 'fulfilled') setHistory(g.value.data.games || []);
+                if (gd.status === 'fulfilled') setGdHistory(gd.value.data.sessions || []);
+            } catch {}
+            setLbLoading(false);
+        };
 
         return (
             <div className="page">
@@ -535,7 +549,7 @@ const InterviewGame = () => {
                     {/* History Tab */}
                     {menuTab === 'history' && (
                         <div>
-                            {lbLoading ? <div className="spinner" /> : history.length === 0 ? (
+                            {lbLoading ? <div className="spinner" /> : (history.length === 0 && gdHistory.length === 0) ? (
                                 <div className="glass-card" style={{ textAlign: 'center', padding: 40 }}>
                                     <div style={{ fontSize: 48, marginBottom: 12 }}>📊</div>
                                     <p style={{ color: 'var(--text-muted)' }}>No games played yet. Start your first interview!</p>
@@ -567,6 +581,22 @@ const InterviewGame = () => {
                                             </div>
                                         </div>
                                     ))}
+                                    {gdHistory.length > 0 && (
+                                        <div style={{ marginTop: 12 }}>
+                                            <h3 style={{ marginBottom: 12 }}>🗣️ Group Discussions</h3>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                {gdHistory.map((s) => (
+                                                    <div key={s._id} className="glass-card" style={{ padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                                                        <div style={{ minWidth: 0 }}>
+                                                            <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.topic || 'Group Discussion'}</div>
+                                                            <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{new Date(s.createdAt).toLocaleDateString()}{s.feedback?.verdict ? ` · ${s.feedback.verdict}` : ''}</div>
+                                                        </div>
+                                                        <span style={{ color: 'var(--accent-primary)', fontWeight: 700, fontSize: 16 }}>{s.scores?.overall ?? 0}%</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -1036,6 +1066,34 @@ const InterviewGame = () => {
                         <div className="glass-card" style={{ textAlign: 'left', marginBottom: 24 }}>
                             <h4 style={{ marginBottom: 12, color: 'var(--accent-primary)' }}>AI Evaluation</h4>
                             <p style={{ color: 'var(--text-secondary)', fontSize: 13, whiteSpace: 'pre-wrap' }}>{aiEval.detailedFeedback}</p>
+                        </div>
+                    )}
+
+                    {ROUNDS[currentRound]?.type === 'gd' && gdEval && (
+                        <div className="glass-card" style={{ padding: 20, marginBottom: 24, textAlign: 'left' }}>
+                            <h3 style={{ marginBottom: 12 }}>🗣️ GD Scorecard</h3>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                                {[
+                                    ['Communication', gdEval.communication],
+                                    ['Content', gdEval.contentQuality],
+                                    ['Leadership', gdEval.leadership],
+                                    ['Teamwork', gdEval.teamwork],
+                                    ['Reasoning', gdEval.reasoning],
+                                ].filter(([, v]) => typeof v === 'number').map(([label, v]) => (
+                                    <span key={label} className="badge badge-info" style={{ fontSize: 12 }}>{label}: {v}</span>
+                                ))}
+                            </div>
+                            {Array.isArray(gdEval.improvements) && gdEval.improvements.length > 0 && (
+                                <div style={{ marginBottom: 8 }}>
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Work on</div>
+                                    {gdEval.improvements.slice(0, 3).map((s, i) => (
+                                        <p key={i} style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 4, paddingLeft: 14, borderLeft: '2px solid var(--accent-warning)' }}>{s}</p>
+                                    ))}
+                                </div>
+                            )}
+                            {gdEval.detailedFeedback && (
+                                <p style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.6, marginTop: 8 }}>{gdEval.detailedFeedback}</p>
+                            )}
                         </div>
                     )}
 
