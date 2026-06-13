@@ -13,6 +13,21 @@ const resumeDraftSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     name: { type: String, default: 'Untitled Resume' },
     template: { type: String, enum: ['modern', 'classic', 'creative'], default: 'modern' },
+    // ── Generative Resume Studio ──
+    // AI-generated visual design spec. `template` is kept for backward-compat;
+    // legacy drafts (no `design`) are mapped at read-time by legacyTemplateToDesign().
+    design: {
+        layout: { type: String, default: 'single-column' },
+        palette: {
+            primary: String, accent: String, text: String,
+            muted: String, bg: String, surface: String,
+        },
+        fonts: { heading: String, body: String },
+        density: { type: String, enum: ['compact', 'normal', 'roomy'], default: 'normal' },
+        headingStyle: { type: String, enum: ['underline', 'bar', 'caps', 'plain'], default: 'underline' },
+        sectionOrder: { type: [String], default: undefined },
+        hidden: { type: [String], default: [] },
+    },
     personalInfo: {
         fullName: String, email: String, phone: String, location: String,
         linkedin: String, github: String, portfolio: String, summary: String
