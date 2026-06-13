@@ -3,70 +3,30 @@ const MentorshipSession = require('../models/MentorshipSession');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
-const { sendSessionRequestEmail } = require('../utils/emailService');
+const { bookSession } = require('../agent/services/mentorship');
 const router = express.Router();
 
-// POST /api/mentorship - Book a session
+// POST /api/mentorship - Book a session. Validation + notify + email live in the
+// shared service so the assistant's booking confirm-flow behaves identically.
+// Email stays fire-and-forget here to keep this response fast (awaitEmail=false).
 router.post('/', protect, authorize('mentee'), async (req, res) => {
     try {
         const { mentor, scheduledDate, duration, agenda, aimingCompany } = req.body;
-
-        // Validate required fields
-        if (!mentor || !scheduledDate || !agenda) {
-            return res.status(400).json({ success: false, message: 'Mentor, scheduled date, and agenda are required' });
-        }
-
-        // Reject past dates / invalid dates
-        const schedDate = new Date(scheduledDate);
-        if (Number.isNaN(schedDate.getTime()) || schedDate <= new Date()) {
-            return res.status(400).json({ success: false, message: 'Cannot book a session in the past' });
-        }
-
-        // Prevent mentee self-booking (check before any DB work)
-        if (mentor === req.user._id.toString()) {
-            return res.status(400).json({ success: false, message: 'Cannot book a session with yourself' });
-        }
-
-        // Prevent double-booking via true interval overlap. Pull the mentor's still-active
-        // future sessions, then reject if [start,end) overlaps any existing [start,end).
-        const sessionDuration = duration || 60;
-        const sessionEnd = new Date(schedDate.getTime() + sessionDuration * 60000);
-        const activeSessions = await MentorshipSession.find({
-            mentor,
-            status: { $in: ['pending', 'approved', 'in-progress'] },
-            scheduledDate: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-        }).select('scheduledDate duration');
-
-        const overlaps = activeSessions.some((s) => {
-            const existStart = new Date(s.scheduledDate).getTime();
-            const existEnd = existStart + (s.duration || 60) * 60000;
-            return existStart < sessionEnd.getTime() && existEnd > schedDate.getTime();
+        const { session } = await bookSession({
+            menteeId: req.user._id,
+            menteeName: req.user.name,
+            mentorId: mentor,
+            scheduledDate,
+            duration,
+            agenda,
+            aimingCompany,
         });
-        if (overlaps) {
-            return res.status(409).json({ success: false, message: 'Mentor has a conflicting session at that time. Please choose another slot.' });
-        }
-
-        const session = await MentorshipSession.create({
-            mentor, mentee: req.user._id, scheduledDate: schedDate, duration: sessionDuration, agenda, aimingCompany
-        });
-
-        // Notify mentor in-app
-        await Notification.create({
-            user: mentor, type: 'session',
-            message: `New mentorship session request from ${req.user.name}`
-        });
-
-        // Send email notification to mentor
-        const mentorUser = await User.findById(mentor);
-        if (mentorUser?.email) {
-            sendSessionRequestEmail(mentorUser.email, mentorUser.name, {
-                name: req.user.name, agenda, scheduledDate
-            }).catch(err => console.error('Email send error:', err));
-        }
-
         res.status(201).json({ success: true, session });
     } catch (error) {
-        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+        res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.statusCode ? error.message : (process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message),
+        });
     }
 });
 

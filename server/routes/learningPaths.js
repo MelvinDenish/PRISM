@@ -1,10 +1,8 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
 const { aiLimiter } = require('../middleware/rateLimit');
-const Groq = require('groq-sdk');
 const LearningPath = require('../models/LearningPath');
-const Resource = require('../models/Resource');
-const Topic = require('../models/Topic');
+const { createLearningPath } = require('../agent/services/learningPath');
 const router = express.Router();
 
 // GET user's learning paths
@@ -24,76 +22,20 @@ router.get('/:id', protect, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
-// GENERATE learning path with AI
+// GENERATE learning path with AI. The generation/persistence logic lives in the
+// shared service (server/agent/services/learningPath.js) so the assistant's
+// create_learning_path tool produces identical roadmaps.
 router.post('/generate', protect, aiLimiter, async (req, res) => {
   try {
     const { topicId, level = 'beginner', assessmentAnswers } = req.body;
-
-    const topic = await Topic.findById(topicId);
-    if (!topic) return res.status(404).json({ success: false, message: 'Topic not found' });
-
-    // Get available resources for this topic
-    const resources = await Resource.find({ topic: topicId }).sort({ level: 1, createdAt: 1 });
-
-    if (resources.length === 0) {
-      return res.status(400).json({ success: false, message: 'No resources available for this topic' });
-    }
-
-    let steps = [];
-    if (process.env.GROQ_API_KEY) {
-      const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-      const resourceList = resources.map(r => `ID:${r._id} | ${r.title} | Level:${r.level} | Type:${r.resourceType}`).join('\n');
-
-      const completion = await groq.chat.completions.create({
-        model: 'llama-3.1-8b-instant',
-        messages: [
-          { role: 'system', content: `You are a learning path designer. Given a topic, student level, and available resources, create an optimal ordered learning path. Return JSON array: [{ "resourceId": "...", "order": 1, "title": "step title", "description": "why this step matters", "estimatedTime": "30 min" }]. Select 15-25 resources and order them from foundational to advanced. Only return valid JSON array.` },
-          { role: 'user', content: `Topic: ${topic.name}\nStudent Level: ${level}\n${assessmentAnswers ? `Assessment: ${JSON.stringify(assessmentAnswers)}` : ''}\n\nAvailable Resources:\n${resourceList}` }
-        ],
-        max_tokens: 2000,
-        temperature: 0.4
-      });
-
-      try {
-        const raw = completion.choices[0]?.message?.content || '[]';
-        const parsed = JSON.parse(raw.replace(/```json\n?/g, '').replace(/```\n?/g, ''));
-        steps = parsed.map((s, i) => {
-          const resource = resources.find(r => r._id.toString() === s.resourceId);
-          return {
-            order: s.order || i + 1,
-            title: s.title || resource?.title || `Step ${i + 1}`,
-            description: s.description || '',
-            resource: resource?._id,
-            resourceTitle: resource?.title || s.title,
-            resourceLink: resource?.link,
-            estimatedTime: s.estimatedTime || '30 min'
-          };
-        });
-      } catch {
-        // Fallback: order by level
-        steps = resources.slice(0, 20).map((r, i) => ({
-          order: i + 1, title: r.title, description: `${r.level} level ${r.resourceType}`,
-          resource: r._id, resourceTitle: r.title, resourceLink: r.link, estimatedTime: '30 min'
-        }));
-      }
-    } else {
-      // No AI: simple ordering by level
-      const levelOrder = { beginner: 0, intermediate: 1, advanced: 2 };
-      const sorted = [...resources].sort((a, b) => (levelOrder[a.level] || 0) - (levelOrder[b.level] || 0));
-      steps = sorted.slice(0, 20).map((r, i) => ({
-        order: i + 1, title: r.title, description: `${r.level} level ${r.resourceType}`,
-        resource: r._id, resourceTitle: r.title, resourceLink: r.link, estimatedTime: '30 min'
-      }));
-    }
-
-    const path = await LearningPath.create({
-      user: req.user._id, topic: topicId, title: `${topic.name} Learning Path`,
-      description: `Personalized ${level} path for ${topic.name}`,
-      level, steps, totalSteps: steps.length, aiGenerated: !!process.env.GROQ_API_KEY
-    });
-
+    const path = await createLearningPath({ userId: req.user._id, topicId, level, assessmentAnswers });
     res.status(201).json({ success: true, path });
-  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
+  } catch (err) {
+    res.status(err.statusCode || 500).json({
+      success: false,
+      message: err.statusCode ? err.message : (process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message),
+    });
+  }
 });
 
 // UPDATE step progress

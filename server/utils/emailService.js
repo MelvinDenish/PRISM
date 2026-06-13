@@ -38,7 +38,9 @@ const sendSessionRequestEmail = async (mentorEmail, mentorName, menteeInfo) => {
                     <p style="color: #94a3b8;"><strong style="color: #e2e8f0;">${escapeHtml(menteeInfo.name)}</strong> has requested a mentorship session with you.</p>
                     ${menteeInfo.agenda ? `<p style="color: #94a3b8;"><strong>Agenda:</strong> ${escapeHtml(menteeInfo.agenda)}</p>` : ''}
                     ${menteeInfo.scheduledDate ? `<p style="color: #94a3b8;"><strong>Requested Date:</strong> ${new Date(menteeInfo.scheduledDate).toLocaleString()}</p>` : ''}
-                    <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/sessions" style="display: inline-block; margin-top: 16px; padding: 12px 24px; background: linear-gradient(135deg, #10b981, #14b8a6); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">View & Respond</a>
+                    ${menteeInfo.durationMinutes ? `<p style="color: #94a3b8;"><strong>Duration:</strong> ${escapeHtml(menteeInfo.durationMinutes)} minutes</p>` : ''}
+                    <p style="color: #94a3b8;">Sign in to review and <strong style="color: #e2e8f0;">approve or decline</strong> this request.</p>
+                    <a href="${(process.env.CLIENT_URL || 'http://localhost:5173').split(',')[0].trim()}/sessions" style="display: inline-block; margin-top: 16px; padding: 12px 24px; background: linear-gradient(135deg, #10b981, #14b8a6); color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">View &amp; Respond</a>
                     <p style="color: #64748b; font-size: 12px; margin-top: 24px;">— PRISM Platform</p>
                 </div>`
         });

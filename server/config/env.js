@@ -31,6 +31,20 @@ const SCHEMA = {
   // (B1). Both have defaults so unset never blocks boot; override per deployment.
   GROQ_GEN_MODEL: { default: 'llama-3.1-8b-instant' },
   GROQ_EVAL_MODEL: { default: 'llama-3.3-70b-versatile' },
+
+  // Agentic assistant ("PRISM Copilot") — a provider-agnostic, OpenAI-compatible
+  // LLM client (tool/function calling). Provider + model are swappable per
+  // deployment: point LLM_BASE_URL at Groq / Together / Fireworks / OpenRouter /
+  // DeepInfra and set the model names accordingly. When LLM_API_KEY is unset we
+  // fall back to GROQ_API_KEY so the assistant works out-of-the-box on the existing
+  // Groq setup; when BOTH are unset, the assistant is disabled (warn only).
+  LLM_API_KEY: { feature: 'Agentic assistant (PRISM Copilot); falls back to GROQ_API_KEY when unset', secret: true },
+  LLM_BASE_URL: { default: '' }, // empty => Groq default endpoint
+  // Orchestrator must be a strong tool-caller (anchor: Berkeley Function-Calling
+  // Leaderboard). Default to a 70B-class open model that supports tool use on Groq.
+  LLM_ORCHESTRATOR_MODEL: { default: 'llama-3.3-70b-versatile' },
+  LLM_GEN_MODEL: { default: 'llama-3.3-70b-versatile' },
+  LLM_FAST_MODEL: { default: 'llama-3.1-8b-instant' },
   GEMINI_API_KEY: { feature: 'Resume ATS analysis (falls back to keyword matching)', secret: true },
   EMAIL_USER: { feature: 'Email notifications (Gmail SMTP)', secret: true },
   EMAIL_PASS: { feature: 'Email notifications (Gmail SMTP)', secret: true },
@@ -114,6 +128,20 @@ const config = Object.freeze({
   hasGroq: () => Boolean(process.env.GROQ_API_KEY),
   groqGenModel: () => process.env.GROQ_GEN_MODEL || 'llama-3.1-8b-instant',
   groqEvalModel: () => process.env.GROQ_EVAL_MODEL || 'llama-3.3-70b-versatile',
+
+  // Agentic assistant LLM (OpenAI-compatible, provider-agnostic).
+  // When pointed at OpenRouter, a Groq key won't work there, so we DON'T fall back
+  // to GROQ_API_KEY — LLM_API_KEY (the OpenRouter key) is required.
+  hasLLM: () => /openrouter\.ai/i.test(process.env.LLM_BASE_URL || '')
+    ? Boolean(process.env.LLM_API_KEY)
+    : Boolean(process.env.LLM_API_KEY || process.env.GROQ_API_KEY),
+  llmApiKey: () => /openrouter\.ai/i.test(process.env.LLM_BASE_URL || '')
+    ? (process.env.LLM_API_KEY || '')
+    : (process.env.LLM_API_KEY || process.env.GROQ_API_KEY || ''),
+  llmBaseUrl: () => process.env.LLM_BASE_URL || '',
+  llmOrchestratorModel: () => process.env.LLM_ORCHESTRATOR_MODEL || 'llama-3.3-70b-versatile',
+  llmGenModel: () => process.env.LLM_GEN_MODEL || 'llama-3.3-70b-versatile',
+  llmFastModel: () => process.env.LLM_FAST_MODEL || 'llama-3.1-8b-instant',
   hasGemini: () => Boolean(process.env.GEMINI_API_KEY),
   hasEmail: () => Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS),
 
