@@ -9,7 +9,24 @@ const {
   applySectionEdit, tailorDraft, atsCheckDraft, restoreRevision,
 } = require('../agent/services/resume');
 const { generateDocument } = require('../agent/services/document');
+const { LAYOUTS, FONT_PAIRS, DENSITIES, HEADING_STYLES, SECTION_KEYS, SEED_KEYS } = require('../agent/services/resumeDesign');
 const router = express.Router();
+
+// Public design-system catalog for the client's design panel (display lists only;
+// buildPalette/validateDesign logic stays server-side and is never shipped).
+router.get('/design-system', protect, (req, res) => {
+  res.json({
+    success: true,
+    designSystem: {
+      layouts: LAYOUTS,
+      fontPairs: FONT_PAIRS,
+      densities: DENSITIES,
+      headingStyles: HEADING_STYLES,
+      sectionKeys: SECTION_KEYS,
+      paletteVibes: SEED_KEYS,
+    },
+  });
+});
 
 // GET user's drafts
 router.get('/drafts', protect, async (req, res) => {

@@ -127,6 +127,7 @@ export const summarizeArticle = (data) => api.post('/summarize', data);
 
 
 // Resume Builder
+export const getResumeDesignSystem = () => api.get('/resume-builder/design-system');
 export const getResumeDrafts = () => api.get('/resume-builder/drafts');
 export const getResumeDraft = (id) => api.get(`/resume-builder/drafts/${id}`);
 export const saveResumeDraft = (data) => api.post('/resume-builder/drafts', data);
@@ -175,11 +176,21 @@ export const respondGroupDiscussion = (data) => api.post('/group-discussion/resp
 export const evaluateGroupDiscussion = (data) => api.post('/group-discussion/evaluate', data);
 export const getGDHistory = () => api.get('/group-discussion/history');
 
-// GD Rooms (live, multi-participant video via LiveKit)
+// GD Rooms (live, multi-participant video via LiveKit). Rooms are private:
+// listing returns only YOUR rooms; others join with the invite code.
 export const getGDRooms = (params) => api.get('/gd-rooms', { params });
+export const getGDRoom = (id) => api.get(`/gd-rooms/${id}`);
 export const createGDRoom = (data) => api.post('/gd-rooms', data || {});
+export const joinGDRoomByCode = (code) => api.post('/gd-rooms/join-by-code', { code });
 export const joinGDRoom = (id) => api.patch(`/gd-rooms/${id}/join`);
-export const setGDRoomStatus = (id, status) => api.patch(`/gd-rooms/${id}/status`, { status });
+export const startGDRoom = (id, data) => api.post(`/gd-rooms/${id}/start`, data || {});
+export const endGDRoom = (id) => api.post(`/gd-rooms/${id}/end`);
+export const evaluateGDRoom = (id, data) => api.post(`/gd-rooms/${id}/evaluate`, data || {});
+export const getGDRoomResult = (id) => api.get(`/gd-rooms/${id}/my-result`);
+
+// Webinars (mentor 1-to-many; consolidates pending mentorship requests)
+export const createWebinar = (data) => api.post('/webinars', data);
+export const endWebinar = (id) => api.post(`/webinars/${id}/end`);
 
 // Live video (LiveKit SFU) — mint a room-scoped access token.
 // roomName is "session:<sessionId>" (1:1) or "gd:<roomId>" (group/webinar).
@@ -190,6 +201,57 @@ export const getRtcToken = (roomName) => api.post('/rtc/token', { roomName });
 // Legacy stateless path still works if caller passes { messages } array directly.
 export const sendAssistantMessage = ({ conversationId, message } = {}) =>
   api.post('/assistant/chat', { conversationId, message });
+
+// Streaming path: POST /assistant/chat/stream over SSE, read with fetch (native
+// EventSource can't attach the Bearer header). Invokes onEvent for each frame
+// ({ type: conversation|tool|token|reset|done|error }). Pass an AbortSignal to
+// cancel (e.g. the user switched conversations mid-stream). Resolves when the
+// stream ends; rejects only if the request never starts (network / non-2xx),
+// so callers can fall back to the non-streaming endpoint.
+export async function streamAssistantMessage({ conversationId, message }, { onEvent, signal } = {}) {
+  const token = localStorage.getItem('prism_token');
+  const res = await fetch(`${API_URL}/assistant/chat/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ conversationId, message }),
+    signal,
+  });
+
+  if (res.status === 401) {
+    localStorage.removeItem('prism_token');
+    if (window.location.pathname !== '/login') window.location.href = '/login?expired=1';
+    const e = new Error('Session expired'); e.status = 401; throw e;
+  }
+
+  // Non-streaming failure (429/503/500 return JSON before any SSE frame).
+  if (!res.ok || !res.body) {
+    let msg;
+    try { msg = (await res.json())?.message; } catch { /* ignore */ }
+    const e = new Error(msg || 'The assistant is unavailable right now.');
+    e.status = res.status;
+    throw e;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let nl;
+    while ((nl = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (!data) continue;
+      let ev;
+      try { ev = JSON.parse(data); } catch { continue; }
+      onEvent?.(ev);
+    }
+  }
+}
 export const confirmAssistantAction = (proposedAction, conversationId) =>
   api.post('/assistant/confirm', { proposedAction, ...(conversationId ? { conversationId } : {}) });
 export const listConversations = () => api.get('/assistant/conversations');
