@@ -1295,6 +1295,31 @@ body, .sidebar, .card, .glass-card, .stat-card, .dash-hero, .modal, .form-input,
   100% { box-shadow: 0 0 0 0 transparent, 0 0 0 transparent; }
 }
 
+/* ---- P7 canvas: click-to-edit, ATS, version history ---- */
+/* Click-to-edit targets live INSIDE the white resume sheet, so colours are fixed
+   (dark-on-paper) regardless of app theme — matching ResumePreview's inline styles. */
+.rb-edit-target { cursor: text; border-radius: 3px; transition: background 0.12s ease, box-shadow 0.12s ease; }
+.rb-edit-target:hover { background: rgba(16,185,129,0.12); box-shadow: 0 0 0 2px rgba(16,185,129,0.18); }
+.rb-edit-input {
+  font: inherit; color: #1a1a2e; background: #fff;
+  border: 1px solid #10b981; border-radius: 3px; padding: 1px 4px;
+  box-shadow: 0 0 0 3px rgba(16,185,129,0.15); outline: none;
+  width: 100%; min-width: 80px; box-sizing: border-box; resize: vertical;
+}
+.rb-ats-result { border-top: 1px solid var(--border-color); padding-top: 12px; }
+.rb-rev-overlay {
+  position: fixed; inset: 0; z-index: 60; display: flex;
+  align-items: center; justify-content: center; padding: 20px;
+  background: rgba(0,0,0,0.5);
+}
+.rb-rev-panel { width: 100%; max-width: 460px; max-height: 80vh; overflow: auto; }
+.rb-rev-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rb-rev-item {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+
 /* ---- In-app article reader ---- */
 .reader-content {
   max-width: 68ch;

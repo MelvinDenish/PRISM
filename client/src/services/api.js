@@ -137,6 +137,12 @@ export const generateCoverLetter = (data) => api.post('/resume-builder/cover-let
 export const generateResumeDraft = (data) => api.post('/resume-builder/drafts/generate', data || {});
 export const refineResumeDraft = (id, instruction) => api.post(`/resume-builder/drafts/${id}/refine`, { instruction });
 export const exportResumeDraft = (id, format) => api.post(`/resume-builder/drafts/${id}/export`, { format });
+// Resume Canvas (P7) — click-to-edit, JD tailoring + gaps, ATS chip, revisions
+export const editResumeSection = (id, path, value) => api.patch(`/resume-builder/drafts/${id}/section`, { path, value });
+export const tailorResumeDraft = (id, data) => api.post(`/resume-builder/drafts/${id}/tailor`, data);
+export const atsCheckResumeDraft = (id) => api.post(`/resume-builder/drafts/${id}/ats`);
+export const getResumeRevisions = (id) => api.get(`/resume-builder/drafts/${id}/revisions`);
+export const restoreResumeRevision = (id, revId) => api.post(`/resume-builder/drafts/${id}/revisions/${revId}/restore`);
 
 // Learning Paths
 export const submitOnboarding = (data) => api.put('/auth/onboarding', data);

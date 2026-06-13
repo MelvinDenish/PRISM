@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { getResumeDrafts, saveResumeDraft, updateResumeDraft, deleteResumeDraft, generateResumeContent, generateCoverLetter, generateResumeDraft, refineResumeDraft, exportResumeDraft, downloadArtifact, getResumeDraft } from '../services/api';
-import { FiPlus, FiTrash2, FiDownload, FiZap, FiFileText, FiEdit, FiSave, FiArrowLeft, FiFile, FiSliders, FiSend } from 'react-icons/fi';
+import { getResumeDrafts, saveResumeDraft, updateResumeDraft, deleteResumeDraft, generateResumeContent, generateCoverLetter, generateResumeDraft, refineResumeDraft, exportResumeDraft, downloadArtifact, getResumeDraft, editResumeSection, tailorResumeDraft, atsCheckResumeDraft, getResumeRevisions, restoreResumeRevision } from '../services/api';
+import { FiPlus, FiTrash2, FiDownload, FiZap, FiFileText, FiEdit, FiSave, FiArrowLeft, FiFile, FiSliders, FiSend, FiTarget, FiClock, FiRotateCcw, FiCheckCircle } from 'react-icons/fi';
 import { saveAs } from 'file-saver';
 import Reveal from '../components/motion/Reveal';
 import PageHero from '../components/ui/PageHero';
@@ -38,6 +38,16 @@ const ResumeBuilder = () => {
     const [canvasError, setCanvasError] = useState('');
     const [canvasChanged, setCanvasChanged] = useState([]);
     const [canvasExporting, setCanvasExporting] = useState(null); // 'pdf' | 'docx' | null
+    // ── P7 canvas: click-to-edit, ATS chip, JD tailoring, revisions ──
+    const [ats, setAts] = useState(null); // { score, mode, gaps }
+    const [atsChecking, setAtsChecking] = useState(false);
+    const [tailorCompany, setTailorCompany] = useState('');
+    const [tailorRole, setTailorRole] = useState('');
+    const [tailoring, setTailoring] = useState(false);
+    const [tailorGaps, setTailorGaps] = useState(null);
+    const [revisions, setRevisions] = useState([]);
+    const [showRevisions, setShowRevisions] = useState(false);
+    const [restoringId, setRestoringId] = useState(null);
     const highlightTimer = useRef(null);
 
     useEffect(() => { loadDrafts(); }, []);
@@ -78,7 +88,14 @@ const ResumeBuilder = () => {
         setCanvasInstruction('');
         setCanvasChanged([]);
         setCanvasError('');
+        resetP7();
         setStep('canvas');
+    };
+
+    // Clear the P7 canvas extras (ATS/tailor/revisions) when switching drafts.
+    const resetP7 = () => {
+        setAts(null); setTailorGaps(null); setTailorCompany(''); setTailorRole('');
+        setShowRevisions(false); setRevisions([]);
     };
 
     const editDraft = (draft) => {
@@ -90,6 +107,8 @@ const ResumeBuilder = () => {
         setCanvasInstruction('');
         setCanvasChanged([]);
         setCanvasError('');
+        resetP7();
+        if (draft.atsScore != null) setAts({ score: draft.atsScore, mode: 'cached', gaps: draft.gaps || [] });
     };
 
     // Returns the draft id (existing or newly created) so callers that need it
@@ -236,6 +255,103 @@ const ResumeBuilder = () => {
             setCanvasError(err?.response?.data?.message || err.message || `${fmt.toUpperCase()} export failed.`);
         }
         setCanvasExporting(null);
+    };
+
+    // ── P7 canvas handlers ──
+
+    // Apply a single field edit to the local form by path (optimistic mirror of
+    // the server's whitelist).
+    const applyPathToForm = (path, value) => setForm(prev => {
+        const parts = path.split('.');
+        if (parts[0] === 'personalInfo') return { ...prev, personalInfo: { ...prev.personalInfo, [parts[1]]: value } };
+        if (parts[0] === 'skills') return { ...prev, skills: String(value).split(',').map(s => s.trim()).filter(Boolean) };
+        const [root, idx, field] = parts;
+        if (['experience', 'education', 'projects'].includes(root)) {
+            const arr = [...(prev[root] || [])];
+            arr[Number(idx)] = { ...arr[Number(idx)], [field]: value };
+            return { ...prev, [root]: arr };
+        }
+        return prev;
+    });
+
+    // Click-to-edit on the live preview → PATCH the single field. Auto-saves a
+    // blank draft first so a brand-new canvas is editable immediately.
+    const handleSectionEdit = async (path, value) => {
+        applyPathToForm(path, value); // optimistic
+        let id = current;
+        if (!id) { try { id = await saveDraft(); } catch { /* surfaced below */ } }
+        if (!id) { setCanvasError('Could not save the draft to edit.'); return; }
+        try { await editResumeSection(id, path, value); }
+        catch (err) { setCanvasError(err?.response?.data?.message || 'Could not save that edit.'); }
+    };
+
+    // On-demand ATS score of the current draft against the JD in the box above.
+    const runAts = async () => {
+        let id = current;
+        if (!id) { try { id = await saveDraft(); } catch { /* surfaced below */ } }
+        if (!id) { setCanvasError('Save a draft first to run an ATS check.'); return; }
+        const jd = canvasJD.trim();
+        if (!jd && !form.jobDescription) { setCanvasError('Paste a job description above first — the ATS check scores your resume against it.'); return; }
+        setAtsChecking(true); setCanvasError('');
+        try {
+            if (jd && jd !== form.jobDescription) {
+                await updateResumeDraft(id, { jobDescription: jd });
+                setForm(prev => ({ ...prev, jobDescription: jd }));
+            }
+            const { data } = await atsCheckResumeDraft(id);
+            setAts({ score: data.draft.atsScore, mode: data.mode, gaps: data.draft.gaps || [] });
+        } catch (err) {
+            setCanvasError(err?.response?.data?.message || 'ATS check failed.');
+        }
+        setAtsChecking(false);
+    };
+
+    // Tailor the current draft to the JD → forks a linked variant we switch to.
+    const runTailor = async () => {
+        let id = current;
+        if (!id) { try { id = await saveDraft(); } catch { /* surfaced below */ } }
+        if (!id) { setCanvasError('Save a draft first to tailor it.'); return; }
+        const jd = canvasJD.trim();
+        if (!jd) { setCanvasError('Paste the target job description above to tailor your resume to it.'); return; }
+        setTailoring(true); setCanvasError(''); setTailorGaps(null);
+        try {
+            const { data } = await tailorResumeDraft(id, {
+                jobDescription: jd,
+                company: tailorCompany.trim() || undefined,
+                role: tailorRole.trim() || undefined,
+            });
+            if (!data?.draft) throw new Error('No variant returned');
+            setCurrent(data.draft._id);
+            setForm(hydrateForm(data.draft));
+            setCanvasJD(data.draft.jobDescription || jd);
+            setTailorGaps(data.gaps || []);
+            setAts({ score: data.draft.atsScore, mode: 'keyword', gaps: data.draft.gaps || [] });
+            setShowRevisions(false);
+            loadDrafts();
+            flashChanged(['personalInfo', 'experience', 'skills', 'projects', 'education']);
+        } catch (err) {
+            setCanvasError(err?.response?.data?.message || 'Tailoring failed.');
+        }
+        setTailoring(false);
+    };
+
+    const openRevisions = async () => {
+        if (!current) { setCanvasError('Generate or save a draft first to see its history.'); return; }
+        setShowRevisions(true);
+        try { const { data } = await getResumeRevisions(current); setRevisions(data.revisions || []); }
+        catch { setRevisions([]); }
+    };
+
+    const doRestore = async (revId) => {
+        if (!current) return;
+        setRestoringId(revId); setCanvasError('');
+        try {
+            const { data } = await restoreResumeRevision(current, revId);
+            if (data?.draft) { setForm(hydrateForm(data.draft)); flashChanged(['personalInfo', 'experience', 'skills', 'projects', 'education']); }
+            const { data: rev } = await getResumeRevisions(current);
+            setRevisions(rev.revisions || []);
+        } catch (err) { setCanvasError(err?.response?.data?.message || 'Restore failed.'); }
+        setRestoringId(null);
     };
 
     // Refresh the form from server in case mid-canvas state drifted (used after
@@ -411,6 +527,43 @@ const ResumeBuilder = () => {
                             {canvasError && <p className="rb-canvas-error" role="alert">{canvasError}</p>}
                         </div>
 
+                        {/* P7: tailor to a JD (forks a variant) + on-demand ATS score */}
+                        <div className="glass-card" style={{ marginBottom: 16 }}>
+                            <h3 className="card-title" style={{ marginBottom: 8 }}><FiTarget /> Tailor to a job</h3>
+                            <p className="rb-canvas-help">Forks a new variant re-emphasized for the job description above. Skills the JD wants but you don't have are listed as suggestions — never added to your resume.</p>
+                            <div className="rb-cmd-row" style={{ marginTop: 12, gap: 8 }}>
+                                <input className="form-input" style={{ flex: 1 }} placeholder="Company (optional)" value={tailorCompany} onChange={e => setTailorCompany(e.target.value)} />
+                                <input className="form-input" style={{ flex: 1 }} placeholder="Role (optional)" value={tailorRole} onChange={e => setTailorRole(e.target.value)} />
+                            </div>
+                            <div className="rb-canvas-actions" style={{ marginTop: 12 }}>
+                                <button className="btn btn-action" onClick={runTailor} disabled={tailoring || !canvasJD.trim()}>
+                                    <FiTarget /> {tailoring ? 'Tailoring…' : 'Tailor to this JD'}
+                                </button>
+                                <button className="btn btn-secondary" onClick={runAts} disabled={atsChecking}>
+                                    <FiCheckCircle /> {atsChecking ? 'Scoring…' : 'Check ATS score'}
+                                </button>
+                            </div>
+                            {ats && (
+                                <div className="rb-ats-result" style={{ marginTop: 14 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                                        <span style={{ fontWeight: 700, fontSize: 22 }}>{ats.score}%</span>
+                                        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                                            ATS match{ats.mode === 'keyword' ? ' (keyword)' : ats.mode === 'ai' ? ' (AI)' : ''}
+                                        </span>
+                                    </div>
+                                    {(() => {
+                                        const gaps = tailorGaps ?? ats.gaps ?? [];
+                                        return gaps.length > 0 ? (
+                                            <div className="rb-canvas-changed" style={{ flexWrap: 'wrap' }}>
+                                                <span>Missing JD skills (suggestions, not added):</span>
+                                                {gaps.slice(0, 12).map(g => <span key={g} className="chip">{g}</span>)}
+                                            </div>
+                                        ) : <p className="rb-canvas-help" style={{ margin: 0 }}>No missing keywords — strong match.</p>;
+                                    })()}
+                                </div>
+                            )}
+                        </div>
+
                         <div className="glass-card">
                             <h3 className="card-title" style={{ marginBottom: 8 }}><FiDownload /> Export</h3>
                             <p className="rb-canvas-help">Server-rendered .pdf / .docx — the live preview on the right is the source of truth.</p>
@@ -435,13 +588,45 @@ const ResumeBuilder = () => {
 
                     <aside className="rb-preview">
                         <div className="rb-preview-bar">
-                            <span className="rb-preview-label">Live preview</span>
+                            <span className="rb-preview-label">Live preview · click any text to edit</span>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
+                                {ats && <span className="chip" title="ATS match against the job description"><FiCheckCircle /> ATS {ats.score}%</span>}
+                                <button className="btn btn-secondary btn-sm" onClick={openRevisions} disabled={!current}><FiClock /> History</button>
+                            </div>
                         </div>
                         <div className="rb-paper">
-                            <ResumePreview form={form} highlighted={canvasChanged} />
+                            <ResumePreview form={form} highlighted={canvasChanged} editable onEdit={handleSectionEdit} />
                         </div>
                     </aside>
                 </div>
+
+                {showRevisions && (
+                    <div className="rb-rev-overlay" onClick={() => setShowRevisions(false)}>
+                        <div className="rb-rev-panel glass-card" onClick={e => e.stopPropagation()}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                <h3 className="card-title" style={{ margin: 0 }}><FiClock /> Version history</h3>
+                                <button className="btn btn-sm btn-secondary" onClick={() => setShowRevisions(false)}>Close</button>
+                            </div>
+                            {revisions.length === 0 ? (
+                                <p className="rb-canvas-help">No saved revisions yet. AI edits (refine / tailor) and restores create snapshots you can roll back to.</p>
+                            ) : (
+                                <ul className="rb-rev-list">
+                                    {revisions.map(r => (
+                                        <li key={r._id} className="rb-rev-item">
+                                            <div>
+                                                <div style={{ fontSize: 13, fontWeight: 600 }}>{r.label || 'Edit'}</div>
+                                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{new Date(r.at).toLocaleString()}</div>
+                                            </div>
+                                            <button className="btn btn-sm btn-secondary" onClick={() => doRestore(r._id)} disabled={restoringId === r._id}>
+                                                <FiRotateCcw /> {restoringId === r._id ? 'Restoring…' : 'Restore'}
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
