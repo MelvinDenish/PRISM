@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { getResumeDrafts, saveResumeDraft, updateResumeDraft, deleteResumeDraft, generateResumeContent, generateCoverLetter, generateResumeDraft, refineResumeDraft, exportResumeDraft, downloadArtifact, getResumeDraft, editResumeSection, tailorResumeDraft, atsCheckResumeDraft, getResumeRevisions, restoreResumeRevision } from '../services/api';
-import { FiPlus, FiTrash2, FiDownload, FiZap, FiFileText, FiEdit, FiSave, FiArrowLeft, FiFile, FiSliders, FiSend, FiTarget, FiClock, FiRotateCcw, FiCheckCircle } from 'react-icons/fi';
+import { getResumeDrafts, saveResumeDraft, updateResumeDraft, deleteResumeDraft, generateResumeContent, generateCoverLetter, generateResumeDraft, refineResumeDraft, exportResumeDraft, downloadArtifact, getResumeDraft, editResumeSection, tailorResumeDraft, atsCheckResumeDraft, getResumeRevisions, restoreResumeRevision, resumeIntake } from '../services/api';
+import { FiPlus, FiTrash2, FiDownload, FiZap, FiFileText, FiEdit, FiSave, FiArrowLeft, FiFile, FiSliders, FiSend, FiTarget, FiClock, FiRotateCcw, FiCheckCircle, FiMessageSquare } from 'react-icons/fi';
 import { saveAs } from 'file-saver';
 import Reveal from '../components/motion/Reveal';
 import PageHero from '../components/ui/PageHero';
@@ -49,14 +49,28 @@ const ResumeBuilder = () => {
     const [showRevisions, setShowRevisions] = useState(false);
     const [restoringId, setRestoringId] = useState(null);
     const highlightTimer = useRef(null);
+    // ── Phase 2: conversational intake (chat) state ──
+    const [chatMessages, setChatMessages] = useState([]); // { role: 'user'|'assistant', content }
+    const [chatInput, setChatInput] = useState('');
+    const [chatSending, setChatSending] = useState(false);
+    const [chatError, setChatError] = useState('');
+    const [chatDone, setChatDone] = useState(false);
+    const chatScrollRef = useRef(null);
 
     useEffect(() => { loadDrafts(); }, []);
     useEffect(() => () => { if (highlightTimer.current) clearTimeout(highlightTimer.current); }, []);
+    // Keep the transcript pinned to the latest message.
+    useEffect(() => {
+        if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }, [chatMessages, chatSending]);
 
     // Hydrate the form (the editor + preview share this shape) from a saved draft.
     const hydrateForm = (draft) => ({
         name: draft.name || 'My Resume',
         template: draft.template || 'modern',
+        // Carry the AI-chosen design only when it's complete (has a real palette);
+        // partial/legacy drafts leave it undefined so ResumePreview maps `template`.
+        design: (draft.design && draft.design.palette && draft.design.palette.primary) ? draft.design : undefined,
         personalInfo: draft.personalInfo || { fullName: '', email: '', phone: '', location: '', linkedin: '', github: '', summary: '' },
         education: draft.education?.length ? draft.education : [{ institution: '', degree: '', field: '', startDate: '', endDate: '', gpa: '' }],
         experience: draft.experience?.length ? draft.experience : [{ company: '', position: '', startDate: '', endDate: '', current: false, description: '' }],
@@ -90,6 +104,52 @@ const ResumeBuilder = () => {
         setCanvasError('');
         resetP7();
         setStep('canvas');
+    };
+
+    // ── Phase 2: conversational intake ──
+    const CHAT_GREETING = "Hi! I'm your resume copilot. Tell me the role you're targeting and a bit about your most recent experience — I'll ask a few quick questions, then generate your resume, design and all.";
+
+    // Start a fresh chat-driven build. Transcript lives in the client; only the
+    // finished draft is persisted (by the /intake endpoint).
+    const startChat = () => {
+        setCurrent(null);
+        setForm(blankForm());
+        resetP7();
+        setCanvasJD(''); setCanvasInstruction(''); setCanvasChanged([]); setCanvasError('');
+        setChatMessages([{ role: 'assistant', content: CHAT_GREETING }]);
+        setChatInput('');
+        setChatError('');
+        setChatDone(false);
+        setStep('chat');
+    };
+
+    // Send the running transcript to the intake agent. It either asks the next
+    // question ({ reply }) or finalizes ({ draft }) — on a draft we hydrate the
+    // form so the live preview shows the AI-generated resume + design.
+    const sendChat = async () => {
+        const text = chatInput.trim();
+        if (!text || chatSending) return;
+        const next = [...chatMessages, { role: 'user', content: text }];
+        setChatMessages(next);
+        setChatInput('');
+        setChatSending(true);
+        setChatError('');
+        try {
+            const { data } = await resumeIntake(next);
+            if (data?.draft) {
+                setCurrent(data.draft._id);
+                setForm(hydrateForm(data.draft));
+                loadDrafts();
+                flashChanged(['personalInfo', 'experience', 'skills', 'projects', 'education']);
+                setChatDone(true);
+                setChatMessages(prev => [...prev, { role: 'assistant', content: '✨ Your resume is ready — see the live preview on the right. Open it in the editor to refine, tailor, or export.' }]);
+            } else {
+                setChatMessages(prev => [...prev, { role: 'assistant', content: data?.reply || 'Tell me a bit more about your experience.' }]);
+            }
+        } catch (err) {
+            setChatError(err?.response?.data?.message || err.message || 'Something went wrong. Please try again.');
+        }
+        setChatSending(false);
     };
 
     // Clear the P7 canvas extras (ATS/tailor/revisions) when switching drafts.
@@ -425,10 +485,19 @@ const ResumeBuilder = () => {
                     title="Resume Builder"
                     subtitle="Build a recruiter-ready resume with AI-assisted content."
                     icon={<FiFileText />}
-                    actions={<button className="btn btn-action" onClick={newDraft}><FiPlus /> New Resume</button>}
+                    actions={(
+                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                            <button className="btn btn-action" onClick={startChat}><FiMessageSquare /> Start with chat</button>
+                            <button className="btn btn-secondary" onClick={newDraft}><FiPlus /> New Resume</button>
+                        </div>
+                    )}
                 />
                 {drafts.length === 0 ? (
-                    <div className="empty-state"><div className="icon"><FiFileText /></div><p>No resumes yet. Create your first one!</p></div>
+                    <div className="empty-state">
+                        <div className="icon"><FiFileText /></div>
+                        <p>No resumes yet. Chat with the copilot and it'll build your first one.</p>
+                        <button className="btn btn-action" style={{ marginTop: 16 }} onClick={startChat}><FiMessageSquare /> Start with chat</button>
+                    </div>
                 ) : (
                     <div className="grid grid-3">
                         {drafts.map((d, i) => (
@@ -443,6 +512,89 @@ const ResumeBuilder = () => {
                         ))}
                     </div>
                 )}
+            </div>
+        );
+    }
+
+    // CHAT INTAKE VIEW (Phase 2) — conversational build: the copilot asks for the
+    // gaps one question at a time, then generates content + an AI-chosen design and
+    // drops the finished draft into the live preview.
+    if (step === 'chat') {
+        const canSend = chatInput.trim() && !chatSending;
+        const hasResume = chatDone || !!current;
+        return (
+            <div className="page">
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 24 }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => setStep(0)}><FiArrowLeft /> Back</button>
+                    <h2 style={{ fontSize: 20, fontWeight: 700 }}><FiMessageSquare style={{ verticalAlign: '-2px', marginRight: 6 }} />Build with chat</h2>
+                    {hasResume && (
+                        <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setStep('canvas')}>
+                            <FiSliders /> Open in editor
+                        </button>
+                    )}
+                </div>
+
+                <div className="rb-layout">
+                    <div className="rb-editor">
+                        <div className="glass-card rb-chat">
+                            <div className="rb-chat-log" ref={chatScrollRef}>
+                                {chatMessages.map((m, i) => (
+                                    <div key={i} className={`rb-chat-msg rb-chat-${m.role}`}>
+                                        <span className="rb-chat-bubble">{m.content}</span>
+                                    </div>
+                                ))}
+                                {chatSending && (
+                                    <div className="rb-chat-msg rb-chat-assistant">
+                                        <span className="rb-chat-bubble rb-chat-typing">Thinking…</span>
+                                    </div>
+                                )}
+                            </div>
+                            {chatError && <p className="rb-canvas-error" role="alert">{chatError}</p>}
+                            {chatDone ? (
+                                /* Once finalized, route further edits through the editor's Refine —
+                                   re-sending would generate a duplicate draft. */
+                                <div className="rb-chat-done">
+                                    <p className="rb-canvas-help" style={{ margin: 0 }}>Your resume is generated. Open it in the editor to refine wording, tailor it to a job, or export.</p>
+                                    <button className="btn btn-action" onClick={() => setStep('canvas')}><FiSliders /> Open in editor</button>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="rb-chat-input">
+                                        <textarea
+                                            className="form-textarea"
+                                            rows={2}
+                                            placeholder="Type your answer…"
+                                            value={chatInput}
+                                            onChange={e => setChatInput(e.target.value)}
+                                            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (canSend) sendChat(); } }}
+                                            disabled={chatSending}
+                                        />
+                                        <button className="btn btn-action" onClick={sendChat} disabled={!canSend}>
+                                            <FiSend /> {chatSending ? 'Sending…' : 'Send'}
+                                        </button>
+                                    </div>
+                                    <p className="rb-canvas-help">Press Enter to send · Shift+Enter for a new line. We never invent employers, degrees, or metrics you don't provide.</p>
+                                </>
+                            )}
+                        </div>
+                    </div>
+
+                    <aside className="rb-preview">
+                        <div className="rb-preview-bar">
+                            <span className="rb-preview-label">Live preview</span>
+                        </div>
+                        {hasResume ? (
+                            <div className="rb-paper">
+                                <ResumePreview form={form} highlighted={canvasChanged} />
+                            </div>
+                        ) : (
+                            <div className="rb-paper rb-chat-empty">
+                                <FiFileText style={{ fontSize: 28, opacity: 0.5 }} />
+                                <p>Your resume preview appears here once we've gathered enough. Answer a few questions to get started.</p>
+                            </div>
+                        )}
+                    </aside>
+                </div>
             </div>
         );
     }

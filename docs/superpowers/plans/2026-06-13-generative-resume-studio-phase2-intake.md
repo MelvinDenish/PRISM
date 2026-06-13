@@ -215,9 +215,11 @@ router.post('/intake', protect, aiLimiter, async (req, res) => {
 
 **Files:** Modify `client/src/pages/ResumeBuilder.jsx`.
 
-- [ ] A chat panel on the canvas: message list + input; posts the running transcript to `resumeIntake`; renders the assistant's questions; on a `{ draft }` response, hydrates the form (`setCurrent`, `setForm(hydrateForm(draft))`) and shows the live preview. Reuses existing `hydrateForm`. Add a "Start with chat" entry from the list view.
-- [ ] Manual visual gate: run an end-to-end intake → generated resume renders in the new engine; export PDF.
-- [ ] Build: `cd client && npm run build`. Commit.
+- [x] A chat panel (`step === 'chat'` view): message list + input; posts the running transcript to `resumeIntake`; renders the assistant's questions; on a `{ draft }` response, hydrates the form (`setCurrent`, `setForm(hydrateForm(draft))`) and shows the live preview, with an "Open in editor" handoff to the canvas. Reuses existing `hydrateForm` (extended to carry a complete AI `design`). "Start with chat" entry added to the list view + empty state.
+- [ ] Manual visual gate: run an end-to-end intake → generated resume renders in the new engine; export PDF. **Requires `GROQ_API_KEY` + running client/server/MongoDB — not exercised in this environment; verify live before release.**
+- [x] Build: `cd client && npm run build` (passes; lint adds no new errors vs. HEAD). Commit.
+
+**Plan-gap fixes made during Task 4 (design round-trip):** `hydrateForm` dropped `design`, so the AI-chosen design never reached the preview — now carried, guarded by `palette.primary` so legacy/partial drafts still map via `template`. `tailorDraft` forked variants without `design`, silently reverting an AI-designed resume to legacy on tailor — now carries `parent.design`.
 
 ---
 

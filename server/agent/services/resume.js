@@ -436,6 +436,9 @@ async function tailorDraft({ userId, draftId, jobDescription, company, role }) {
     user: userId,
     name: variantName.slice(0, 100),
     template: parent.template,
+    // Carry the parent's visual design so a tailored variant keeps the same look
+    // (without this the fork falls back to the schema-default/legacy design).
+    design: parent.design,
     parentDraft: parent._id,
     targetCompany: String(company || '').slice(0, 100),
     targetRole: String(role || '').slice(0, 100),
