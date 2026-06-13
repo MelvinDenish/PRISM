@@ -128,4 +128,27 @@ async function renderResumePdf(draft) {
   }
 }
 
-module.exports = { resumeHtml, renderResumePdf, getBrowser, closeBrowser };
+const Artifact = require('../../models/Artifact');
+const storage = require('../../utils/storage');
+
+/** Render a draft to PDF, save it, persist an Artifact, return { id,title,format,url }. */
+async function exportResumePdfArtifact({ userId, draft, title }) {
+  const buffer = await renderResumePdf(draft);
+  const { key } = await storage.saveFile({
+    buffer, mimeType: 'application/pdf', originalName: `${title}.pdf`, folder: 'artifacts',
+  });
+  let artifact;
+  try {
+    artifact = await Artifact.create({
+      user: userId, kind: 'resume', title, format: 'pdf',
+      artifactKey: key, artifactDriver: storage.driver, sizeBytes: buffer.byteLength,
+    });
+  } catch (e) {
+    try { await storage.deleteFile(key); } catch { /* best-effort */ }
+    throw e;
+  }
+  const id = String(artifact._id);
+  return { id, title, format: 'pdf', url: `/api/artifacts/${id}/download` };
+}
+
+module.exports = { resumeHtml, renderResumePdf, getBrowser, closeBrowser, exportResumePdfArtifact };

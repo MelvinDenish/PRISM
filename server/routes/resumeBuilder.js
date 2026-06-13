@@ -10,6 +10,7 @@ const {
 } = require('../agent/services/resume');
 const { generateDocument } = require('../agent/services/document');
 const { LAYOUTS, FONT_PAIRS, DENSITIES, HEADING_STYLES, SECTION_KEYS, SEED_KEYS } = require('../agent/services/resumeDesign');
+const { exportResumePdfArtifact } = require('../agent/services/resumePdf');
 const router = express.Router();
 
 // Public design-system catalog for the client's design panel (display lists only;
@@ -345,14 +346,15 @@ router.post('/drafts/:id/export', protect, async (req, res) => {
       || 'Resume';
     const title = `${titleBase} — Resume`.slice(0, 120);
 
-    const content = _buildResumeSections(draft);
-    const artifact = await generateDocument({
-      userId: req.user._id,
-      kind: 'resume',
-      title,
-      format,
-      content,
-    });
+    let artifact;
+    if (format === 'pdf') {
+      // PDF = designed + selectable, via Puppeteer.
+      artifact = await exportResumePdfArtifact({ userId: req.user._id, draft, title });
+    } else {
+      // DOCX = ATS-plain flat extraction (unchanged).
+      const content = _buildResumeSections(draft);
+      artifact = await generateDocument({ userId: req.user._id, kind: 'resume', title, format, content });
+    }
     return res.json({ success: true, artifact });
   } catch (err) {
     return res.status(500).json({
