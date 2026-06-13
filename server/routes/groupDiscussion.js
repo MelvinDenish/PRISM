@@ -2,8 +2,13 @@ const express = require('express');
 const { protect } = require('../middleware/auth');
 const { aiLimiter } = require('../middleware/rateLimit');
 const { getGroq, GEN_MODEL, evalCompletion } = require('../utils/aiModels');
-const { rubricBlock } = require('../utils/interviewRubric');
+const { rubricBlock, RUBRIC_VERSION } = require('../utils/interviewRubric');
+const mongoose = require('mongoose');
+const GDSession = require('../models/GDSession');
 const router = express.Router();
+
+const clampScore = (v) => Math.max(0, Math.min(Math.round(Number(v) || 0), 100));
+const strList = (v) => (Array.isArray(v) ? v.filter((s) => typeof s === 'string').slice(0, 6).map((s) => s.slice(0, 300)) : []);
 
 // Cap client-supplied AI context to bound Groq token cost and the
 // prompt-injection surface (the client echoes the running transcript).
@@ -14,6 +19,19 @@ const sanitizeContext = (context) =>
     .slice(-MAX_CONTEXT_MESSAGES)
     .filter((m) => m && typeof m.content === 'string' && typeof m.role === 'string')
     .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_MESSAGE_CHARS) }));
+
+// Rebuild a {speaker,message}[] transcript from the sanitized context. Lines are
+// stored as "Name: text"; split on the first short colon, else label by role.
+const transcriptFromContext = (ctx) => ctx
+  .filter((m) => m.role === 'user' || m.role === 'assistant')
+  .map((m) => {
+    const txt = String(m.content || '');
+    const i = txt.indexOf(':');
+    return (i > 0 && i <= 24)
+      ? { speaker: txt.slice(0, i).trim(), message: txt.slice(i + 1).trim() }
+      : { speaker: m.role === 'user' ? 'You' : 'Participant', message: txt };
+  })
+  .slice(-MAX_CONTEXT_MESSAGES);
 
 // AI participant profiles for GD
 const PARTICIPANTS = [
@@ -137,7 +155,7 @@ router.post('/evaluate', protect, aiLimiter, async (req, res) => {
     const context = sanitizeContext(req.body.context);
     const groq = getGroq();
 
-    const { completion: evalRes } = await evalCompletion(groq, {
+    const { completion: evalRes, modelUsed } = await evalCompletion(groq, {
       messages: [
         ...context,
         { role: 'user', content: `Evaluate the candidate's performance in this group discussion on "${topic}".
@@ -170,7 +188,50 @@ Return ONLY valid JSON:
       evaluation = { overallScore: 60, detailedFeedback: evalRes.choices[0]?.message?.content, verdict: 'Review needed' };
     }
 
-    res.json({ success: true, evaluation });
+    // Persist the SERVER-computed scores so the game round (and history) read an
+    // authoritative number, not the client's. Best-effort: history is non-critical.
+    let gdSessionId = null;
+    try {
+      const doc = await GDSession.create({
+        user: req.user._id,
+        game: mongoose.isValidObjectId(req.body.gameId) ? req.body.gameId : null,
+        topic: String(topic || '').slice(0, 500),
+        transcript: transcriptFromContext(context),
+        scores: {
+          overall: clampScore(evaluation.overallScore),
+          communication: clampScore(evaluation.communication),
+          contentQuality: clampScore(evaluation.contentQuality),
+          leadership: clampScore(evaluation.leadership),
+          teamwork: clampScore(evaluation.teamwork),
+          reasoning: clampScore(evaluation.reasoning),
+        },
+        feedback: {
+          strengths: strList(evaluation.strengths),
+          improvements: strList(evaluation.improvements),
+          detailedFeedback: String(evaluation.detailedFeedback || '').slice(0, 4000),
+          verdict: String(evaluation.verdict || ''),
+        },
+        rubricVersion: RUBRIC_VERSION || '',
+        gradedBy: modelUsed || '',
+      });
+      gdSessionId = doc._id;
+    } catch (e) { console.warn('GDSession persist failed:', e.message); }
+
+    res.json({ success: true, evaluation, gdSessionId });
+  } catch (err) {
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
+  }
+});
+
+// GET /api/group-discussion/history — recent solo-GD scorecards for trends.
+router.get('/history', protect, async (req, res) => {
+  try {
+    const sessions = await GDSession.find({ user: req.user._id })
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .select('topic scores feedback.verdict createdAt')
+      .lean();
+    res.json({ success: true, sessions });
   } catch (err) {
     res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }

@@ -1,7 +1,9 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const { protect } = require('../middleware/auth');
 const { aiLimiter } = require('../middleware/rateLimit');
 const InterviewGame = require('../models/InterviewGame');
+const GDSession = require('../models/GDSession');
 const { gradeMcqRound, sanitizeGame } = require('../utils/interviewGameScoring');
 const { executeCode } = require('./codeExecution');
 const Groq = require('groq-sdk');
@@ -584,9 +586,27 @@ router.post('/submit-round', protect, async (req, res) => {
       }
       score = Math.round((passed / tests.length) * 100);
       round.feedback = `Passed ${passed}/${tests.length} hidden test cases.`;
+    } else if (roundType === 'gd') {
+      // Server-authoritative GD score: read it from the persisted, server-graded
+      // GDSession (created by /api/group-discussion/evaluate) — NEVER req.body.aiScore.
+      // Single-use + game-bound so one high session can't be replayed across games.
+      const sess = mongoose.isValidObjectId(req.body.gdSessionId)
+        ? await GDSession.findOne({ _id: req.body.gdSessionId, user: req.user._id }).catch(() => null)
+        : null;
+      if (sess && !sess.consumed && (!sess.game || sess.game.equals(game._id))) {
+        score = Math.max(0, Math.min(Number(sess.scores?.overall) || 0, 100));
+        sess.game = game._id;
+        sess.consumed = true;
+        await sess.save().catch(() => {});
+        round.feedback = sess.feedback?.verdict ? `GD: ${sess.feedback.verdict}` : '';
+      } else {
+        // No valid server-graded session → no credit (was: trust client aiScore).
+        score = 0;
+      }
+      if (Array.isArray(answers)) round.answers = answers;
     } else {
-      // GD / HR / live AI interview (and coding when no code/tests are available):
-      // still scored from a client/AI-supplied value — clamp defensively to 0..100.
+      // HR / live AI interview (and coding when no code/tests): still scored from a
+      // client/AI-supplied value — clamp defensively to 0..100. (GD handled above.)
       const claimed = Number(req.body.aiScore);
       score = Number.isFinite(claimed) ? claimed : 0;
       if (Array.isArray(answers)) round.answers = answers;
