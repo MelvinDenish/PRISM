@@ -592,4 +592,6 @@ module.exports = {
   analyzeResume, rewriteResume, refineDraft, generateDraftFromProfile,
   // P7 resume canvas
   applySectionEdit, tailorDraft, atsCheckDraft, restoreRevision,
+  // Generative Resume Studio — shaping reused by the intake copilot
+  shapeDraft,
 };
