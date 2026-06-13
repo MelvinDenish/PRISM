@@ -112,6 +112,7 @@ export const getGameQuestions = (round, gameId, difficulty) => api.get(`/intervi
 export const submitGameRound = (data) => api.post('/interview-game/submit-round', data);
 export const getGameHistory = () => api.get('/interview-game/history');
 export const getGame = (id) => api.get(`/interview-game/${id}`);
+export const getGameReport = (id) => api.get(`/interview-game/${id}/report`);
 export const getLeaderboard = () => api.get('/interview-game/leaderboard/top');
 
 

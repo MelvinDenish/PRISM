@@ -161,3 +161,20 @@ Candidate order: due ReviewItems → weakest-pillar activity (game round / codin
 - **P9:** Finish a solo GD → scorecard renders + GDSession saved + trend visible after 2 sessions. Live room → talk-time stats and post-session summary appear for participants.
 - **P10:** Mentor list reorders given a target company; booked session shows brief to mentor only; post-session rating moves the mentee's pillar; action item lands in learning path.
 - **P11:** Dashboard shows readiness + daily plan; checking off items persists; Copilot `get_readiness` matches dashboard numbers exactly.
+
+---
+
+## Implementation status
+
+- **P6 — DONE** (commits `69d56fb`…`c87b02c`, `feat(spine)`): models, signals + dailyPlan services, prep-profile API, emit() wiring across 5 routes.
+- **P7 — DONE** (commits `3724ffb` server, `486a044` client, `feat(prepare)`): resume canvas extras.
+  - Schema: `ResumeDraft` gained `parentDraft`, `targetCompany/Role`, `gaps[]`, `atsScore/atsCheckedAt`, `revisions[]` (cap 20).
+  - Service (`agent/services/resume.js`): `applySectionEdit` (whitelisted field paths), `tailorDraft` (forks a JD-targeted variant; gaps come from the deterministic keyword/Gemini analysis — never the LLM; assertNoInvention guard), `atsCheckDraft` (on-demand score + gaps cache, emits `resume` signal), `restoreRevision`; `refineDraft` now snapshots before editing.
+  - Routes: `PATCH /drafts/:id/section`, `POST /drafts/:id/tailor`, `POST /drafts/:id/ats`, `GET /drafts/:id/revisions`, `POST /drafts/:id/revisions/:revId/restore`.
+  - Client: live preview is a click-to-edit editor; Tailor card (company/role + gaps chips); ATS chip; History drawer with restore.
+  - Verified e2e against local Mongo + LLM via `server/seeds/verifyResumeCanvas.js` (all checks pass; tailor produced gaps `[kubernetes, cloud]` with no invention; ATS keyword fallback scored 78).
+- **P8 — DONE** (server commit `5e46fb5` `feat(prepare)`; client commit this session): targeted Interview Game.
+  - Server: `utils/gameTemplates.js` (`resolveTemplate` + `difficultyFromReadiness`); `/start` accepts `{ companyFocus?, company?, role?, difficulty? }`, defaulting targeting from PrepProfile and seeding difficulty from readiness when omitted; bank-first weighted sampling (`sampleWeighted`); `/submit-round` queues wrong answers into `ReviewItem`s (returns `reviewItemsAdded`) and emits per-round pillar signals; `GET /:id/report` returns per-round-vs-pillar breakdown, weakest rounds, company/role context, and `dueReviewCount`.
+  - Client (`InterviewGame.jsx`): start screen gains a company picker (from `getCompanies`) + role input + an Auto/Easy/Medium/Hard difficulty selector (Auto omits difficulty so the server seeds it from readiness); the final scorecard renders the Performance Report (target context, weakest skills, review tally) with a deep-link to `/review`; the elimination screen surfaces queued-review items. `api.js` gains `getGameReport`.
+  - Verified: client `npm run build` passes and lint adds no new findings on changed lines. **Runtime P8 checks deferred** (Atlas dead; needs local Docker mongo): round mix matching a tracked company's template, bank-before-generated sourcing, wrong answers landing in the Review Queue, and report deep-links — run against `mongodb://127.0.0.1:27017/prism` with `seeds/verifyTargetedGame.js`.
+- **P9–P11 — TODO** (each needs its own writing-plans pass first; P9 = GD upgrade).

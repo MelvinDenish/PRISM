@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { startInterviewGame, getGameQuestions, submitGameRound, startAIInterview, chatAIInterview, evaluateAIInterview, runTestCases, runCustomCode, startGroupDiscussion, respondGroupDiscussion, evaluateGroupDiscussion, getLeaderboard, getGameHistory } from '../services/api';
-import { FiPlay, FiClock, FiAward, FiCheck, FiArrowRight, FiRotateCcw, FiSend, FiCpu, FiUser, FiAlertTriangle, FiMapPin, FiCode, FiTerminal } from 'react-icons/fi';
+import { startInterviewGame, getGameQuestions, submitGameRound, startAIInterview, chatAIInterview, evaluateAIInterview, runTestCases, runCustomCode, startGroupDiscussion, respondGroupDiscussion, evaluateGroupDiscussion, getLeaderboard, getGameHistory, getCompanies, getGameReport } from '../services/api';
+import { FiPlay, FiClock, FiAward, FiCheck, FiArrowRight, FiRotateCcw, FiSend, FiCpu, FiUser, FiAlertTriangle, FiMapPin, FiCode, FiTerminal, FiTarget, FiRefreshCw } from 'react-icons/fi';
 import Editor from '@monaco-editor/react';
 
 const ROUNDS = [
@@ -32,7 +32,13 @@ const InterviewGame = () => {
     const [roundScore, setRoundScore] = useState(null);
     const [mode, setMode] = useState('full');
     const [singleRound, setSingleRound] = useState(null);
-    const [difficulty, setDifficulty] = useState('medium');
+    const [difficulty, setDifficulty] = useState('auto'); // 'auto' lets the server seed difficulty from readiness
+    // P8 targeting: pick a company + role so the game composes a tailored round mix.
+    const [companies, setCompanies] = useState([]);
+    const [companyFocus, setCompanyFocus] = useState('');
+    const [roleInput, setRoleInput] = useState('');
+    const [report, setReport] = useState(null);       // post-game report (/:id/report)
+    const [reviewAddedTotal, setReviewAddedTotal] = useState(0);
     const [failSuggestions, setFailSuggestions] = useState(null);
     const [loadingQuestions, setLoadingQuestions] = useState(false);
     const [menuTab, setMenuTab] = useState('play'); // play | leaderboard | history
@@ -99,13 +105,22 @@ const InterviewGame = () => {
         }
     }, [questions, selectedLang]);
 
+    // Load companies once for the targeting picker (async fetch — best-effort).
+    useEffect(() => { getCompanies().then(({ data }) => setCompanies(data.companies || [])).catch(() => {}); }, []);
+
     const startGame = async (gameMode, selectedRoundIdx = null) => {
         setMode(gameMode);
         setSingleRound(selectedRoundIdx);
         setFailSuggestions(null);
         setAiEval(null);
+        setReport(null);
+        setReviewAddedTotal(0);
         try {
-            const { data } = await startInterviewGame({ difficulty });
+            const { data } = await startInterviewGame({
+                difficulty: difficulty === 'auto' ? undefined : difficulty,
+                companyFocus: companyFocus || undefined,
+                role: roleInput.trim() || undefined,
+            });
             setGame(data.game);
             setCurrentRound(gameMode === 'single' && selectedRoundIdx !== null ? selectedRoundIdx : 0);
             setPhase('round-intro');
@@ -334,6 +349,8 @@ const InterviewGame = () => {
             const { data } = await submitGameRound({ gameId: game._id, roundIndex: currentRound, answers: submitAnswers, aiScore, ...codingExtra });
             setGame(data.game);
             setRoundScore(data.roundScore);
+            // P8: tally review items the server queued from this round's wrong answers.
+            if (data.reviewItemsAdded) setReviewAddedTotal(prev => prev + data.reviewItemsAdded);
 
             // Honest pass/fail in BOTH modes — practice no longer always says "Passed!"
             // (bug R2). In full mode a fail also eliminates; in practice it just shows
@@ -371,8 +388,16 @@ const InterviewGame = () => {
         });
     };
 
-    const nextRound = () => {
-        if (mode === 'single' || currentRound >= ROUNDS.length - 1) { setPhase('final'); return; }
+    const nextRound = async () => {
+        if (mode === 'single' || currentRound >= ROUNDS.length - 1) {
+            // P8: pull the post-game report (per-round vs pillar, weakest, company).
+            if (game?._id) {
+                try { const { data } = await getGameReport(game._id); setReport(data.report); }
+                catch { setReport(null); }
+            }
+            setPhase('final');
+            return;
+        }
         setCurrentRound(prev => prev + 1);
         setPhase('round-intro');
     };
@@ -421,10 +446,24 @@ const InterviewGame = () => {
                                 <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 20 }}>
                                     {ROUNDS.map((r, i) => (<span key={r.type} className="badge badge-info" style={{ fontSize: 12 }}>{i + 1}. {r.name}</span>))}
                                 </div>
+                                {/* P8: target a company + role so the game composes a tailored round mix (template + bank-first sourcing). */}
+                                <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 16, textAlign: 'left' }}>
+                                    <div>
+                                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}><FiTarget size={12} /> Target company</div>
+                                        <select className="form-select" style={{ minWidth: 200 }} value={companyFocus} onChange={(e) => setCompanyFocus(e.target.value)}>
+                                            <option value="">Auto (from your targets)</option>
+                                            {companies.map((c) => (<option key={c._id} value={c._id}>{c.name}</option>))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Target role</div>
+                                        <input className="form-input" style={{ minWidth: 220 }} placeholder="e.g. SDE, Frontend, Data Analyst" value={roleInput} onChange={(e) => setRoleInput(e.target.value)} maxLength={100} />
+                                    </div>
+                                </div>
                                 <div style={{ marginBottom: 20 }}>
                                     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Difficulty</div>
                                     <div style={{ display: 'inline-flex', gap: 8 }}>
-                                        {['easy', 'medium', 'hard'].map((d) => (
+                                        {['auto', 'easy', 'medium', 'hard'].map((d) => (
                                             <button
                                                 key={d}
                                                 className={`btn btn-sm ${difficulty === d ? 'btn-primary' : 'btn-secondary'}`}
@@ -433,6 +472,7 @@ const InterviewGame = () => {
                                             >{d}</button>
                                         ))}
                                     </div>
+                                    {difficulty === 'auto' && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>Auto matches difficulty to your current readiness.</div>}
                                 </div>
                                 <button className="btn btn-primary btn-lg" onClick={() => startGame('full')}><FiPlay /> Start Full Interview</button>
                             </div>
@@ -966,8 +1006,11 @@ const InterviewGame = () => {
                             </div>
                         </div>
                     )}
-                    <div style={{ marginTop: 32, display: 'flex', gap: 12, justifyContent: 'center' }}>
+                    <div style={{ marginTop: 32, display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
                         <button className="btn btn-primary btn-lg" onClick={() => setPhase('menu')}><FiRotateCcw /> Try Again</button>
+                        {reviewAddedTotal > 0 && (
+                            <button className="btn btn-secondary btn-lg" onClick={() => navigate('/review')}><FiRefreshCw /> Review {reviewAddedTotal} Flagged</button>
+                        )}
                         <button className="btn btn-secondary btn-lg" onClick={() => navigate('/topics')}>📚 Study Topics</button>
                     </div>
                 </div>
@@ -1041,6 +1084,37 @@ const InterviewGame = () => {
                                     </div>
                                 );
                             })}
+                        </div>
+                    )}
+                    {/* P8: post-game report — only for completed full games (single rounds have no meaningful 6-round summary). */}
+                    {mode === 'full' && report && (
+                        <div className="glass-card" style={{ padding: 24, marginBottom: 32, textAlign: 'left' }}>
+                            <h3 style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}><FiTarget /> Performance Report</h3>
+                            {(report.company?.name || report.targetRole) && (
+                                <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>
+                                    Tuned for {report.targetRole || 'your role'}{report.company?.name ? ` · ${report.company.name}` : ''}
+                                    {report.company?.interviewPattern ? ` — ${report.company.interviewPattern}` : ''}
+                                </p>
+                            )}
+                            {report.weakest?.length > 0 && (
+                                <div style={{ marginBottom: 16 }}>
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Focus next on</div>
+                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                        {report.weakest.map((w) => (
+                                            <span key={w.type} className="badge badge-danger" style={{ fontSize: 12 }}>{w.label} · {w.score}%</span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {(reviewAddedTotal > 0 || report.dueReviewCount > 0) && (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '12px 16px', borderRadius: 'var(--radius-sm)', background: 'rgba(20,20,24,0.03)' }}>
+                                    <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                                        {reviewAddedTotal > 0 && <span>{reviewAddedTotal} wrong answer{reviewAddedTotal === 1 ? '' : 's'} from this game added to your review queue. </span>}
+                                        {report.dueReviewCount > 0 && <span>{report.dueReviewCount} item{report.dueReviewCount === 1 ? '' : 's'} due now.</span>}
+                                    </div>
+                                    <button className="btn btn-secondary btn-sm" onClick={() => navigate('/review')}><FiRefreshCw /> Review Queue</button>
+                                </div>
+                            )}
                         </div>
                     )}
                     <button className="btn btn-primary btn-lg" onClick={() => setPhase('menu')}><FiRotateCcw /> Play Again</button>
