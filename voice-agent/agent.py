@@ -32,6 +32,14 @@ from livekit import agents, rtc
 from livekit.agents import Agent, AgentSession, JobContext, RoomInputOptions, WorkerOptions, cli
 from livekit.plugins import openai, silero
 
+# Native Groq plugin (optional) — used for Groq-hosted TTS, which speaks Groq's exact
+# API shape. The generic openai.TTS plugin sends a `stream_format` field that Groq's
+# /audio/speech rejects, so on the Groq on-ramp we use groq.TTS instead.
+try:
+    from livekit.plugins import groq as groq_plugin
+except Exception:  # pragma: no cover - optional dependency
+    groq_plugin = None
+
 # The semantic turn-detector is optional; degrade to plain VAD if unavailable.
 try:
     from livekit.plugins.turn_detector.english import EnglishModel  # type: ignore
@@ -61,8 +69,23 @@ STT_MODEL = os.getenv("STT_MODEL", "whisper-large-v3-turbo")
 # OpenAI `/v1/audio/speech` shape, so only the base URL + model + voice change.
 TTS_BASE_URL = os.getenv("TTS_BASE_URL") or os.getenv("TTS_ENDPOINT_URL", "https://api.groq.com/openai/v1")
 TTS_API_KEY = os.getenv("TTS_API_KEY") or os.getenv("GROQ_API_KEY", "")
-TTS_MODEL = os.getenv("TTS_MODEL", "playai-tts")
-TTS_VOICE = os.getenv("TTS_VOICE", "Fritz-PlayAI")
+# Groq's TTS is Orpheus (playai-tts was decommissioned). NOTE: the Orpheus model is
+# gated — your Groq org admin must accept its terms once at
+# https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english
+# (or set TTS_PROVIDER=openai + TTS_BASE_URL to a self-hosted Orpheus endpoint).
+TTS_MODEL = os.getenv("TTS_MODEL", "canopylabs/orpheus-v1-english")
+TTS_VOICE = os.getenv("TTS_VOICE", "troy")
+# "groq" (native Groq TTS — the zero-GPU on-ramp) or "openai" (any OpenAI-compatible
+# /v1/audio/speech endpoint, e.g. a self-hosted streaming Orpheus on serverless GPU).
+TTS_PROVIDER = os.getenv("TTS_PROVIDER", "groq").lower()
+
+
+def build_tts():
+    """Pick the TTS backend. Groq needs its native plugin (its /audio/speech rejects
+    the openai plugin's `stream_format`); self-hosted Orpheus uses the openai plugin."""
+    if TTS_PROVIDER == "groq" and groq_plugin is not None:
+        return groq_plugin.TTS(model=TTS_MODEL, voice=TTS_VOICE)
+    return openai.TTS(model=TTS_MODEL, voice=TTS_VOICE, base_url=TTS_BASE_URL, api_key=TTS_API_KEY)
 
 
 PANELIST_INSTRUCTIONS = """\
@@ -119,7 +142,7 @@ async def entrypoint(ctx: JobContext):
     session = AgentSession(
         stt=openai.STT(model=STT_MODEL, base_url=STT_BASE_URL, api_key=STT_API_KEY),
         llm=openai.LLM(model=LLM_MODEL, base_url=LLM_BASE_URL, api_key=LLM_API_KEY),
-        tts=openai.TTS(model=TTS_MODEL, voice=TTS_VOICE, base_url=TTS_BASE_URL, api_key=TTS_API_KEY),
+        tts=build_tts(),
         vad=silero.VAD.load(),
         turn_detection=_TURN_DETECTION,
     )

@@ -75,7 +75,26 @@ Fly.io / Render / Railway / DigitalOcean / Hetzner / k8s / a VM. For the self-ho
 TTS, deploy a separate serverless-GPU function (Modal / RunPod) that scales to zero
 and exposes `/v1/audio/speech`; set `TTS_BASE_URL` to it.
 
+## Gotchas (found while deploy-testing in Docker)
+
+1. **Groq Orpheus is terms-gated.** `playai-tts` is decommissioned; the current Groq
+   TTS is `canopylabs/orpheus-v1-english`, which returns `400 model_terms_required`
+   until your **Groq org admin accepts the terms once** at
+   <https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english>.
+   No-terms alternative: `TTS_PROVIDER=openai` + a self-hosted Orpheus endpoint.
+2. **Local LiveKit + Docker = use host networking.** A dev LiveKit with
+   `rtc.node_ip: 127.0.0.1` advertises a loopback ICE candidate the agent *container*
+   can't reach, so WebRTC media times out (`wait_pc_connection timed out`). Run the
+   container with `--network host -e LIVEKIT_URL=ws://localhost:7880`. In production
+   (LiveKit with a routable IP / `use_external_ip: true`) this isn't needed.
+
+Verified in Docker against a local LiveKit: image build, plugin load, worker
+registration, dispatch into `gd:` rooms, WebRTC media (with host networking), and the
+LLM greeting all work; the only remaining step to hear audio is accepting the Orpheus
+terms above (or pointing at a self-hosted Orpheus).
+
 ## Env
 
 See `.env.example`. Required: `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`,
-and a brain key (`GROQ_API_KEY` or `LLM_API_KEY`). STT/TTS default to Groq-hosted.
+and a brain key (`GROQ_API_KEY` or `LLM_API_KEY`). STT/TTS default to Groq-hosted
+(`TTS_PROVIDER=groq`); set `TTS_PROVIDER=openai` + `TTS_BASE_URL` for self-hosted Orpheus.

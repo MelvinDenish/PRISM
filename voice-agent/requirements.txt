@@ -2,5 +2,5 @@
 # Bump deliberately; the agent API and plugin import paths can change between
 # minor versions. Verify against https://docs.livekit.io/agents/ for your version.
 # (livekit-agents pulls the matching `livekit` core itself — don't pin it separately.)
-livekit-agents[openai,silero,turn-detector]==1.6.0
+livekit-agents[openai,groq,silero,turn-detector]==1.6.0
 python-dotenv==1.0.1
