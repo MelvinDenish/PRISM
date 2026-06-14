@@ -33,6 +33,17 @@ const userSchema = new mongoose.Schema({
     experience: { type: Number, default: 0 },
     college: String,
     graduationYear: Number,
+    // ── Identity & academics (Phase 1: Profile + CUIC eligibility) ──
+    // Self-editable via PUT /api/users/me. Used by the resume export filename
+    // (RegisterNumber_Name.pdf) and the company eligibility checker.
+    registerNumber: String,
+    department: String,            // branch, e.g. 'CSE', 'IT', 'ECE'
+    batch: String,                 // e.g. '2026' (free-form; graduationYear also exists)
+    cgpa: Number,
+    activeArrears: { type: Number, default: 0 },
+    historyArrears: { type: Number, default: 0 },
+    tenthPercent: Number,
+    twelfthPercent: Number,
     linkedin: String,
     github: String,
     isOnline: { type: Boolean, default: false },

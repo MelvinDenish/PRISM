@@ -18,6 +18,10 @@ const ORCHESTRATOR_MODEL = () => config.llmOrchestratorModel();
 const GEN_MODEL = () => config.llmGenModel();
 const FAST_MODEL = () => config.llmFastModel();
 
+// Per-request deadline (ms). Overridable via LLM_TIMEOUT_MS; defaults to 30s, long
+// enough for a slow generation but short enough that a stalled provider fails fast.
+const TIMEOUT_MS = () => Number(process.env.LLM_TIMEOUT_MS) || 30000;
+
 function endpoint() {
   const base = (config.llmBaseUrl() || GROQ_DEFAULT_BASE).replace(/\/+$/, '');
   return `${base}/chat/completions`;
@@ -55,16 +59,34 @@ async function chat({ messages, tools, model, temperature = 0.3, max_tokens = 15
     body.tool_choice = tool_choice || 'auto';
   }
 
-  let res;
+  // Hard timeout so a hung/queued provider request can never freeze the whole chat
+  // turn (the old code awaited fetch with no deadline). Covers both the request and
+  // the response-body read.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS());
+
+  let res, text;
   try {
-    res = await fetch(endpoint(), { method: 'POST', headers: headers(), body: JSON.stringify(body) });
+    res = await fetch(endpoint(), {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    text = await res.text();
   } catch (netErr) {
+    if (netErr.name === 'AbortError') {
+      const e = new Error(`LLM request timed out after ${TIMEOUT_MS()}ms`);
+      e.timeout = true;
+      throw e;
+    }
     const e = new Error(`LLM request failed: ${netErr.message}`);
     e.cause = netErr;
     throw e;
+  } finally {
+    clearTimeout(timer);
   }
 
-  const text = await res.text();
   let json = null;
   try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON (e.g. HTML error page) */ }
 
@@ -84,4 +106,109 @@ async function chat({ messages, tools, model, temperature = 0.3, max_tokens = 15
   return message;
 }
 
-module.exports = { chat, ORCHESTRATOR_MODEL, GEN_MODEL, FAST_MODEL };
+/**
+ * Streaming chat-completion turn (OpenAI-compatible `stream: true`). Forwards each
+ * assistant content delta to `onToken(text)` as it arrives, while accumulating any
+ * `tool_calls` (which stream as index-keyed fragments of name + arguments). Resolves
+ * to the same `message` shape as chat(): `{ role, content, tool_calls? }`.
+ *
+ * Errors mirror chat(): `.timeout` on the deadline, `.status`/`.error` on a non-2xx.
+ * @param {object} params
+ * @param {Array}  params.messages
+ * @param {Array}  [params.tools]
+ * @param {string} [params.model]
+ * @param {number} [params.temperature]
+ * @param {number} [params.max_tokens]
+ * @param {string|object} [params.tool_choice]
+ * @param {(text:string)=>void} [params.onToken]
+ */
+async function chatStream({ messages, tools, model, temperature = 0.3, max_tokens = 1500, tool_choice, onToken }) {
+  const body = { model: model || ORCHESTRATOR_MODEL(), messages, temperature, max_tokens, stream: true };
+  if (tools && tools.length) {
+    body.tools = tools;
+    body.tool_choice = tool_choice || 'auto';
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS());
+
+  try {
+    const res = await fetch(endpoint(), {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!res.ok || !res.body) {
+      const errText = await res.text().catch(() => '');
+      let json = null;
+      try { json = errText ? JSON.parse(errText) : null; } catch { /* non-JSON */ }
+      const e = new Error(json?.error?.message || `LLM HTTP ${res.status}`);
+      e.status = res.status;
+      e.error = json?.error || { message: errText.slice(0, 300) };
+      throw e;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let content = '';
+    const toolAcc = []; // index → { id, type, function: { name, arguments } }
+
+    // Parse the SSE byte stream line-by-line. Each event is a `data: {json}` line;
+    // a partial line at a chunk boundary stays buffered until the next read completes it.
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let nl;
+      while ((nl = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+
+        let chunk;
+        try { chunk = JSON.parse(data); } catch { continue; }
+        const delta = chunk.choices?.[0]?.delta;
+        if (!delta) continue;
+
+        if (typeof delta.content === 'string' && delta.content) {
+          content += delta.content;
+          if (onToken) onToken(delta.content);
+        }
+        if (Array.isArray(delta.tool_calls)) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0;
+            if (!toolAcc[idx]) toolAcc[idx] = { id: tc.id || `call_${idx}`, type: 'function', function: { name: '', arguments: '' } };
+            if (tc.id) toolAcc[idx].id = tc.id;
+            if (tc.function?.name) toolAcc[idx].function.name += tc.function.name;
+            if (tc.function?.arguments) toolAcc[idx].function.arguments += tc.function.arguments;
+          }
+        }
+      }
+    }
+
+    const tool_calls = toolAcc.filter(Boolean);
+    return tool_calls.length
+      ? { role: 'assistant', content, tool_calls }
+      : { role: 'assistant', content };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      const e = new Error(`LLM request timed out after ${TIMEOUT_MS()}ms`);
+      e.timeout = true;
+      throw e;
+    }
+    if (err.status) throw err; // already a structured HTTP error
+    const e = new Error(`LLM request failed: ${err.message}`);
+    e.cause = err;
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = { chat, chatStream, ORCHESTRATOR_MODEL, GEN_MODEL, FAST_MODEL };

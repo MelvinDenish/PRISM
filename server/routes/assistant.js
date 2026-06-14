@@ -22,7 +22,7 @@ const mongoose = require('mongoose');
 const { protect } = require('../middleware/auth');
 const { aiLimiter } = require('../middleware/rateLimit');
 const { config } = require('../config/env');
-const { runAgent } = require('../agent/runAgent');
+const { runAgent, runAgentStream } = require('../agent/runAgent');
 const { createLearningPath } = require('../agent/services/learningPath');
 const { bookSession } = require('../agent/services/mentorship');
 const { rewriteResume } = require('../agent/services/resume');
@@ -278,6 +278,109 @@ router.post('/chat', protect, aiLimiter, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /chat/stream  — Server-Sent Events variant of /chat.
+//
+// Streams the agent's progress so the UI shows live tool-running chips and a
+// token-by-token reply instead of a frozen typing indicator. Frames are
+// `data: {json}\n\n` with a `type`: conversation | tool | token | reset | done | error.
+// Auth is a Bearer header, so the client streams with fetch()+ReadableStream
+// (native EventSource can't send headers). Persistence happens on loop completion,
+// independent of whether the client is still connected.
+// ---------------------------------------------------------------------------
+router.post('/chat/stream', protect, aiLimiter, async (req, res) => {
+  if (!config.hasLLM()) {
+    return res.status(503).json({ success: false, message: 'The assistant is not configured on this server.' });
+  }
+
+  // SSE headers. X-Accel-Buffering:no defeats nginx response buffering; the app
+  // itself has no compression middleware, so chunks flush immediately.
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+
+  const send = (obj) => { try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch { /* client gone */ } };
+  const userId = req.user._id.toString();
+
+  let doc = null;
+  let createdNew = false;
+  try {
+    const { conversationId, message } = req.body;
+    if (typeof message !== 'string' || !message.trim()) {
+      send({ type: 'error', message: 'message must be a non-empty string' });
+      return res.end();
+    }
+
+    // Load or create the conversation (same rules as POST /chat).
+    if (conversationId) {
+      if (!isValidId(conversationId)) { send({ type: 'error', message: 'Conversation not found' }); return res.end(); }
+      doc = await Conversation.findOne({ _id: conversationId, user: userId });
+      if (!doc) { send({ type: 'error', message: 'Conversation not found' }); return res.end(); }
+      if (doc.messages.length >= 200) {
+        send({ type: 'error', message: 'This conversation is full — start a new chat.' });
+        return res.end();
+      }
+    } else {
+      doc = await Conversation.create({ user: userId, title: autoTitle(message), messages: [] });
+      createdNew = true;
+    }
+
+    // Tell the client the conversation id up front (needed for a brand-new chat).
+    send({ type: 'conversation', conversationId: String(doc._id) });
+
+    const userTurn = { role: 'user', content: message.trim() };
+    const agentMessages = [
+      ...doc.messages.map((m) => ({ role: m.role, content: m.content })),
+      { role: 'user', content: userTurn.content },
+    ];
+
+    let result;
+    try {
+      result = await runAgentStream({
+        messages: agentMessages,
+        userId,
+        role: req.user.role,
+        onEvent: send,
+      });
+    } catch (agentErr) {
+      // A failed first turn shouldn't orphan a blank chat in the rail.
+      if (createdNew) await Conversation.deleteOne({ _id: doc._id, user: userId }).catch(() => {});
+      send({ type: 'error', message: process.env.NODE_ENV === 'production' ? 'Assistant error' : agentErr.message });
+      return res.end();
+    }
+
+    // Persist BOTH turns on completion — runs even if the client navigated away
+    // mid-stream, so the reply is never lost.
+    const assistantTurn = {
+      role: 'assistant',
+      content: result.reply || '',
+      proposedActions: result.proposedActions || [],
+      toolsUsed: result.toolsUsed || [],
+      artifacts: [],
+    };
+    await Conversation.findOneAndUpdate(
+      { _id: doc._id, user: userId },
+      { $push: { messages: { $each: [userTurn, assistantTurn] } } }
+    ).catch((e) => console.error('Persist streamed turns error:', e.message));
+
+    send({
+      type: 'done',
+      conversationId: String(doc._id),
+      reply: result.reply || '',
+      proposedActions: result.proposedActions || [],
+      toolsUsed: result.toolsUsed || [],
+    });
+    return res.end();
+  } catch (error) {
+    console.error('Assistant stream error:', error);
+    // Headers are already sent, so surface the failure as an SSE frame, not a 500.
+    send({ type: 'error', message: process.env.NODE_ENV === 'production' ? 'Assistant error' : error.message });
+    return res.end();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /confirm
 // ---------------------------------------------------------------------------
 router.post('/confirm', protect, aiLimiter, async (req, res) => {
@@ -298,27 +401,52 @@ router.post('/confirm', protect, aiLimiter, async (req, res) => {
       name: req.user.name,
     });
 
-    // Persist executor result onto the last assistant message's artifacts array
-    // when a conversationId is provided (minimal / defensive).
+    // Persist the outcome onto the conversation (when a conversationId is provided):
+    //  1. Mark the matching PROPOSAL executed so a reload renders it as "Done"
+    //     instead of a live Confirm button (prevents re-confirm → duplicate roadmap
+    //     / confusing re-book 409). Matched by the stable proposal id stamped in
+    //     runAgent; falls back to the last assistant message for legacy proposals.
+    //  2. Keep appending downloadable artifacts to that message's artifacts array
+    //     (so ArtifactCard still renders generated files after reload).
     if (conversationId && isValidId(conversationId)) {
       try {
         const doc = await Conversation.findOne({ _id: conversationId, user: userId });
         if (doc && doc.messages.length > 0) {
-          // Find the last assistant message.
-          let lastIdx = -1;
-          for (let i = doc.messages.length - 1; i >= 0; i--) {
-            if (doc.messages[i].role === 'assistant') { lastIdx = i; break; }
+          const proposalId = proposedAction.id;
+
+          // Locate the message holding this proposal (by id), else the last assistant turn.
+          let targetIdx = -1;
+          if (proposalId) {
+            for (let i = doc.messages.length - 1; i >= 0; i--) {
+              const acts = doc.messages[i].proposedActions || [];
+              if (acts.some((a) => a && a.id === proposalId)) { targetIdx = i; break; }
+            }
           }
-          if (lastIdx >= 0) {
-            const existing = doc.messages[lastIdx].artifacts || [];
-            doc.messages[lastIdx].artifacts = [...existing, result];
+          if (targetIdx === -1) {
+            for (let i = doc.messages.length - 1; i >= 0; i--) {
+              if (doc.messages[i].role === 'assistant') { targetIdx = i; break; }
+            }
+          }
+
+          if (targetIdx >= 0) {
+            const msg = doc.messages[targetIdx];
+            if (proposalId) {
+              msg.proposedActions = (msg.proposedActions || []).map((a) =>
+                a && a.id === proposalId
+                  ? { ...a, executed: true, executedResult: result, executedAt: new Date() }
+                  : a
+              );
+            }
+            if (result && result.kind === 'artifact') {
+              msg.artifacts = [...(msg.artifacts || []), result];
+            }
             doc.markModified('messages');
             await doc.save();
           }
         }
       } catch (persistErr) {
         // Non-fatal — the action already succeeded; just log.
-        console.warn('Could not persist artifact onto conversation:', persistErr.message);
+        console.warn('Could not persist confirm outcome onto conversation:', persistErr.message);
       }
     }
 

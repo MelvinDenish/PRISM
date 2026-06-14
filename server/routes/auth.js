@@ -13,7 +13,6 @@ const { sendPasswordResetEmail } = require('../utils/emailService');
 const logger = require('../utils/logger');
 const { emit: emitSignals, ensureProfile } = require('../agent/services/signals');
 const SkillSignal = require('../models/SkillSignal');
-const { randomTheme } = require('../utils/themeGenerator');
 
 const router = express.Router();
 
@@ -72,7 +71,8 @@ router.post('/register', authLimiter, validate(registerSchema), asyncHandler(asy
         name: name.trim(), email: normalizedEmail, password: hashedPassword, role,
         bio, skills, aimingCompany, currentCompany, experienceLevel,
         passwordChangedAt: new Date(),
-        theme: randomTheme(), // P5: every new user gets a distinct palette
+        // No auto-assigned theme — the app uses the brand gold/orange/charcoal palette
+        // by default. Users can still opt into a recolor via the Copilot apply_theme tool.
     });
 
     // Create progress tracker for mentees
@@ -122,12 +122,6 @@ router.post('/login', authLimiter, validate(loginSchema), asyncHandler(async (re
             await user.save();
         }
 
-        // P5: backfill a theme for users created before per-user theming.
-        if (!user.theme || !user.theme.accentPrimary) {
-            user.theme = randomTheme();
-            await user.save();
-        }
-
         const token = generateToken(user._id);
 
         res.json({
@@ -149,11 +143,6 @@ router.post('/login', authLimiter, validate(loginSchema), asyncHandler(async (re
 // GET /api/auth/me — returns current user WITHOUT password hash
 router.get('/me', protect, asyncHandler(async (req, res) => {
     const user = await User.findById(req.user._id).select('-password');
-    // P5: lazy theme backfill for users created before per-user theming.
-    if (user && (!user.theme || !user.theme.accentPrimary)) {
-        user.theme = randomTheme();
-        await user.save();
-    }
     res.json({ success: true, user });
 }));
 

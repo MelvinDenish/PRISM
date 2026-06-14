@@ -15,24 +15,9 @@
           var saved = localStorage.getItem('prism_theme');
           document.documentElement.dataset.theme = saved || 'dark';
         } catch (e) { document.documentElement.dataset.theme = 'dark'; }
-        // P5: apply the cached per-user accent palette before paint (mirrors
-        // src/utils/theme.js). Keeps colours from flashing the default brand.
-        try {
-          var t = JSON.parse(localStorage.getItem('prism_user_theme') || 'null');
-          if (t && t.accentPrimary) {
-            var root = document.documentElement;
-            var m = {
-              accentPrimary: '--accent-primary', accentPrimaryStrong: '--accent-primary-strong',
-              accentSecondary: '--accent-secondary', accentAction: '--accent-action',
-              accentActionStrong: '--accent-action-strong', gradientPrimary: '--gradient-primary'
-            };
-            for (var k in m) { if (t[k]) root.style.setProperty(m[k], t[k]); }
-            root.style.setProperty('--accent-success', t.accentPrimary);
-            root.style.setProperty('--accent-info', t.accentSecondary);
-            root.style.setProperty('--gradient-success', t.gradientPrimary);
-            root.style.setProperty('--gradient-secondary', t.gradientPrimary);
-          }
-        } catch (e) {}
+        // Per-user accent theming was removed — PRISM is brand-led (gold/orange).
+        // Clear any stale cached palette so an old saved theme can't tint the brand.
+        try { localStorage.removeItem('prism_user_theme'); } catch (e) {}
       })();
     </script>
   </head>

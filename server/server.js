@@ -22,6 +22,9 @@ const allowedOrigins = config.clientOrigins();
 const io = new Server(server, {
     cors: { origin: allowedOrigins, methods: ['GET', 'POST'] }
 });
+// Expose io to HTTP routes so server-authoritative actions (e.g. a host starting a
+// GD) can broadcast to a socket room via req.app.get('io').
+app.set('io', io);
 
 // Middleware
 app.use(cors({ origin: allowedOrigins, credentials: true }));
@@ -56,14 +59,17 @@ app.use('/api/resume-analysis', require('./routes/resumeAnalysis'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/interview-game', require('./routes/interviewGame'));
+app.use('/api/question-bank', require('./routes/questionBank'));
 app.use('/api/ai-interview', require('./routes/aiInterview'));
 app.use('/api/resume-builder', require('./routes/resumeBuilder'));
 app.use('/api/learning-paths', require('./routes/learningPaths'));
 app.use('/api/behavioral', require('./routes/behavioralAnswers'));
+app.use('/api/behavioral-practice', require('./routes/behavioralPractice'));
 app.use('/api/review', require('./routes/review'));
 app.use('/api/code-execution', require('./routes/codeExecution'));
 app.use('/api/group-discussion', require('./routes/groupDiscussion'));
 app.use('/api/gd-rooms', require('./routes/gdRooms'));
+app.use('/api/webinars', require('./routes/webinars'));
 app.use('/api/summarize', require('./routes/summarize'));
 app.use('/api/rtc', require('./routes/rtc'));
 app.use('/api/assistant', require('./routes/assistant'));

@@ -35,6 +35,8 @@ export const resetPassword = (token, password) => api.post('/auth/reset-password
 // Users
 export const getProfile = () => api.get('/users/profile');
 export const updateProfile = (data) => api.put('/users/profile', data);
+// Self-edit identity + academics (Phase 1 Profile page). Whitelisted server-side.
+export const updateMe = (data) => api.put('/users/me', data);
 export const getMentors = (params) => api.get('/users/mentors', { params });
 export const getUserById = (id) => api.get(`/users/${id}`);
 export const getAllUsers = () => api.get('/users');
@@ -42,6 +44,8 @@ export const deleteUser = (id) => api.delete(`/users/${id}`);
 
 // Companies
 export const getCompanies = () => api.get('/companies');
+// Caller's eligibility per company (Phase 1) — { [companyId]: { eligible, unknown, reasons } }.
+export const getMyEligibility = () => api.get('/companies/eligibility');
 export const getCompanyTrack = (id) => api.get(`/companies/${id}/track`);
 export const createCompany = (data) => api.post('/companies', data);
 export const updateCompany = (id, data) => api.put(`/companies/${id}`, data);
@@ -115,6 +119,12 @@ export const getGame = (id) => api.get(`/interview-game/${id}`);
 export const getGameReport = (id) => api.get(`/interview-game/${id}/report`);
 export const getLeaderboard = () => api.get('/interview-game/leaderboard/top');
 
+// Mentor/admin company-tagged Question Bank (Phase 3 hybrid game)
+export const getBankQuestions = (params) => api.get('/question-bank', { params });
+export const addBankQuestion = (data) => api.post('/question-bank', data);
+export const updateBankQuestion = (id, data) => api.put(`/question-bank/${id}`, data);
+export const deleteBankQuestion = (id) => api.delete(`/question-bank/${id}`);
+
 
 // AI Interview (used by InterviewGame & TechnicalInterview)
 export const startAIInterview = (data) => api.post('/ai-interview/start', data);
@@ -154,6 +164,10 @@ export const createBehavioralAnswer = (data) => api.post('/behavioral', data);
 export const updateBehavioralAnswer = (id, data) => api.put(`/behavioral/${id}`, data);
 export const deleteBehavioralAnswer = (id) => api.delete(`/behavioral/${id}`);
 
+// Behavioral Practice (answer → AI score + feedback; parallel to the STAR Bank)
+export const getBehavioralQuestions = (count) => api.get('/behavioral-practice/questions', { params: count ? { count } : {} });
+export const evaluateBehavioralAnswer = (data) => api.post('/behavioral-practice/evaluate', data);
+
 // Review Queue (C3 — spaced repetition)
 export const getReviewQueue = () => api.get('/review/queue');
 export const getReviewStats = () => api.get('/review/stats');
@@ -164,6 +178,11 @@ export const getLearningPath = (id) => api.get(`/learning-paths/${id}`);
 export const generateLearningPath = (data) => api.post('/learning-paths/generate', data);
 export const updatePathProgress = (id, data) => api.patch(`/learning-paths/${id}/progress`, data);
 export const deleteLearningPath = (id) => api.delete(`/learning-paths/${id}`);
+// Phase 2 — learning-path final test + certificate
+export const generatePathTest = (id) => api.post(`/learning-paths/${id}/test/generate`);
+export const getPathTest = (id) => api.get(`/learning-paths/${id}/test`);
+export const submitPathTest = (id, answers) => api.post(`/learning-paths/${id}/test/submit`, { answers });
+export const verifyCertificate = (certId) => api.get(`/learning-paths/certificate/${certId}`);
 
 // Code Execution (Piston)
 export const submitCodeExecution = (data) => api.post('/code-execution/submit', data);

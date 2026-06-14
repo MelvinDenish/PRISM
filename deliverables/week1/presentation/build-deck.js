@@ -80,6 +80,42 @@ const bullets = (items, opts = {}) => items.map((t) => ({
   },
 }));
 
+// ── Flow-diagram helpers (rounded nodes + arrowed connectors) ───────────────
+// A flow node: rounded rectangle with a bold title and optional descriptor.
+function fnode(s, x, y, w, h, title, sub, opt = {}) {
+  const filled = !!opt.fill;
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, {
+    x, y, w, h, rectRadius: 0.09,
+    fill: { color: opt.fill || CARD },
+    line: { color: opt.line || opt.accent || ACCENT, width: opt.lw || 1.25 },
+    shadow: opt.flat ? undefined : softShadow(),
+  });
+  const tc = opt.titleColor || (filled ? 'FFFFFF' : INK);
+  const sc = opt.subColor || (filled ? ON_DARK_MUT : MUTED);
+  if (sub) {
+    s.addText(title, { x: x + 0.1, y: y + 0.13, w: w - 0.2, h: 0.42, fontFace: BF, fontSize: opt.tfs || 12.5, color: tc, bold: true, align: 'center', valign: 'middle', margin: 0 });
+    s.addText(sub, { x: x + 0.12, y: y + 0.52, w: w - 0.24, h: Math.max(0.12, h - 0.6), fontFace: BF, fontSize: opt.sfs || 9.5, color: sc, align: 'center', valign: 'top', margin: 0, lineSpacingMultiple: 0.96 });
+  } else {
+    s.addText(title, { x: x + 0.08, y, w: w - 0.16, h, fontFace: BF, fontSize: opt.tfs || 12.5, color: tc, bold: true, align: 'center', valign: 'middle', margin: 0 });
+  }
+}
+// Horizontal connector arrow (left → right), optional small caption above it.
+function hArrow(s, x, y, w, label, color) {
+  s.addShape(pres.shapes.LINE, { x, y, w, h: 0, line: { color: color || SLATE, width: 1.6, endArrowType: 'triangle' } });
+  if (label) s.addText(label, { x: x - 0.18, y: y - 0.32, w: w + 0.36, h: 0.26, fontFace: MF, fontSize: 8, color: MUTED, align: 'center', valign: 'bottom', margin: 0 });
+}
+// Vertical connector arrow (top → bottom), optional caption to the right.
+function vArrow(s, x, y, h, label, color) {
+  s.addShape(pres.shapes.LINE, { x, y, w: 0, h, line: { color: color || SLATE, width: 1.6, endArrowType: 'triangle' } });
+  if (label) s.addText(label, { x: x + 0.08, y: y + h / 2 - 0.16, w: 1.6, h: 0.32, fontFace: MF, fontSize: 8, color: MUTED, align: 'left', valign: 'middle', margin: 0 });
+}
+// Small rounded chip (compact label tile).
+function chip(s, x, y, w, h, title, sub, opt = {}) {
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h, rectRadius: 0.07, fill: { color: opt.fill || ACCENT_SOFT }, line: { color: opt.line || ACCENT, width: 1 } });
+  s.addText(title, { x: x + 0.12, y: y + 0.1, w: w - 0.24, h: 0.34, fontFace: BF, fontSize: opt.tfs || 12, color: opt.titleColor || ACCENT, bold: true, align: 'center', valign: 'middle', margin: 0 });
+  if (sub) s.addText(sub, { x: x + 0.12, y: y + 0.44, w: w - 0.24, h: h - 0.52, fontFace: BF, fontSize: opt.sfs || 9.5, color: opt.subColor || INK_SOFT, align: 'center', valign: 'top', margin: 0, lineSpacingMultiple: 0.95 });
+}
+
 // ════════════════════════════════════════════════════════════════════════
 // 1 · TITLE
 // ════════════════════════════════════════════════════════════════════════
@@ -103,14 +139,14 @@ const bullets = (items, opts = {}) => items.map((t) => ({
   const s = baseSlide();
   header(s, 'Overview', 'Agenda');
   const items = [
-    ['01', 'Understanding the project'],
+    ['01', 'What PRISM is — the big picture'],
     ['02', 'The problem & objectives'],
-    ['03', 'Users & proposed workflow'],
-    ['04', 'System requirements'],
-    ['05', 'Database design + full schema reference'],
-    ['06', 'System architecture'],
-    ['07', 'Implementation approach'],
-    ['08', 'Work completed (with proof)'],
+    ['03', 'Users & roles'],
+    ['04', 'How it works — workflows & flowcharts'],
+    ['05', 'Requirements & technology'],
+    ['06', 'Database design + 18-schema reference'],
+    ['07', 'Architecture & implementation'],
+    ['08', 'Work done + what’s next (new features)'],
   ];
   const cols = 2, cw = 5.7, ch = 0.92, gx = 0.4, gy = 0.32, x0 = MX, y0 = 2.1;
   items.forEach(([num, label], i) => {
@@ -150,6 +186,45 @@ const bullets = (items, opts = {}) => items.map((t) => ({
     s.addText(t, { x: cx + 0.24, y: cy + 0.22, w: cw - 0.4, h: 0.5, fontFace: HF, fontSize: 15, color: INK, bold: true, margin: 0 });
     s.addText(d, { x: cx + 0.24, y: cy + 0.74, w: cw - 0.4, h: 0.6, fontFace: BF, fontSize: 12, color: MUTED, margin: 0 });
   });
+  footer(s);
+})();
+
+// ════════════════════════════════════════════════════════════════════════
+// 3b · THE BIG PICTURE — what PRISM really is (value loop diagram)
+// ════════════════════════════════════════════════════════════════════════
+(() => {
+  const s = baseSlide();
+  header(s, 'Understanding', 'The Big Picture — One Measurable Loop');
+  s.addText('PRISM turns scattered, unverified placement prep into a single loop where every attempt is scored — so a student can finally see whether they are improving.', {
+    x: MX, y: 1.82, w: W - 2 * MX, h: 0.5, fontFace: BF, fontSize: 14, color: ACCENT, italic: true, margin: 0, lineSpacingMultiple: 1.0,
+  });
+  const stages = [
+    ['Learn', 'Curated, mentor-verified resources'],
+    ['Practise', 'Mock · AI interview · 6-round game · coding'],
+    ['Get feedback', 'Mentor scorecards + AI evaluation'],
+    ['Measure', 'Readiness across 5 skill pillars'],
+    ['Improve', 'A focused daily plan — then repeat'],
+  ];
+  const nw = 2.05, nh = 1.55, gap = 0.42, y0 = 2.62, x0 = MX;
+  stages.forEach(([t, d], i) => {
+    const cx = x0 + i * (nw + gap);
+    fnode(s, cx, y0, nw, nh, t, d, { accent: ACCENT, tfs: 15, sfs: 10.5 });
+    if (i < stages.length - 1) hArrow(s, cx + nw + 0.02, y0 + nh / 2, gap - 0.04, null, ACCENT);
+  });
+  // loop-back arrow: from under the last stage to the first, pointing left
+  const lx0 = x0 + nw / 2, lx1 = x0 + (stages.length - 1) * (nw + gap) + nw / 2;
+  const lbY = y0 + nh + 0.5;
+  s.addShape(pres.shapes.LINE, { x: lx0, y: y0 + nh, w: 0, h: 0.5, line: { color: SLATE, width: 1.4 } });
+  s.addShape(pres.shapes.LINE, { x: lx1, y: y0 + nh, w: 0, h: 0.5, line: { color: SLATE, width: 1.4 } });
+  s.addShape(pres.shapes.LINE, { x: lx0, y: lbY, w: lx1 - lx0, h: 0, line: { color: SLATE, width: 1.4, beginArrowType: 'triangle' } });
+  s.addText('continuous loop — each pass raises readiness and reshapes the next daily plan', {
+    x: lx0, y: lbY + 0.05, w: lx1 - lx0, h: 0.3, fontFace: MF, fontSize: 9.5, color: MUTED, align: 'center', margin: 0,
+  });
+  card(s, MX, 5.6, W - 2 * MX, 0.85);
+  s.addText([
+    { text: 'Two engines drive the loop:  ', options: { bold: true, color: ACCENT, fontSize: 14 } },
+    { text: 'mentors (human depth, trust, real feedback) and always-on AI (practice + evaluation any time) — with analytics turning effort into a number.', options: { color: INK_SOFT, fontSize: 14 } },
+  ], { x: MX + 0.3, y: 5.6, w: W - 2 * MX - 0.6, h: 0.85, fontFace: BF, valign: 'middle', margin: 0 });
   footer(s);
 })();
 
@@ -229,11 +304,58 @@ const bullets = (items, opts = {}) => items.map((t) => ({
 })();
 
 // ════════════════════════════════════════════════════════════════════════
+// 7a · WORKFLOW — END-TO-END JOURNEY (overview diagram)
+// ════════════════════════════════════════════════════════════════════════
+(() => {
+  const s = baseSlide();
+  header(s, 'Proposed Workflow', 'How PRISM Works — End to End');
+  s.addText('The same backbone for everyone: join, prepare one of three ways, get scored, and watch your readiness move.', {
+    x: MX, y: 1.82, w: W - 2 * MX, h: 0.4, fontFace: BF, fontSize: 14, color: ACCENT, italic: true, margin: 0,
+  });
+  // top stage spine
+  const stages = [
+    ['1 · Join', 'Sign up · pick role · profile'],
+    ['2 · Prepare', 'Choose a track  (below)'],
+    ['3 · Get feedback', 'Scorecards · AI eval · server scoring'],
+    ['4 · Measure & plan', 'Readiness (5 pillars) → daily plan'],
+  ];
+  const nw = 2.5, nh = 1.1, step = 3.1, y0 = 2.4, x0 = MX;
+  stages.forEach(([t, d], i) => {
+    const cx = x0 + i * step;
+    fnode(s, cx, y0, nw, nh, t, d, { accent: i === 1 ? SLATE : ACCENT, tfs: 13.5, sfs: 10 });
+    if (i < stages.length - 1) hArrow(s, cx + nw + 0.02, y0 + nh / 2, step - nw - 0.04, null, ACCENT);
+  });
+  // fan from "Prepare" to three track chips
+  const prepCx = x0 + 1 * step + nw / 2;
+  const chips = [
+    ['Mentor 1:1', 'book → meet → rate'],
+    ['Practice', 'mentor mocks · AI · game · coding'],
+    ['Resources & paths', 'library → AI learning path'],
+  ];
+  const cw = 3.85, cgap = 0.19, cy = 4.2, ch = 1.15;
+  const cxs = chips.map((_, i) => x0 + i * (cw + cgap));
+  const centers = cxs.map((cx) => cx + cw / 2);
+  const railY = 3.9;
+  s.addShape(pres.shapes.LINE, { x: prepCx, y: y0 + nh, w: 0, h: railY - (y0 + nh), line: { color: SLATE, width: 1.4 } });
+  s.addShape(pres.shapes.LINE, { x: centers[0], y: railY, w: centers[2] - centers[0], h: 0, line: { color: SLATE, width: 1.4 } });
+  centers.forEach((c) => s.addShape(pres.shapes.LINE, { x: c, y: railY, w: 0, h: cy - railY, line: { color: SLATE, width: 1.4, endArrowType: 'triangle' } }));
+  chips.forEach(([t, d], i) => chip(s, cxs[i], cy, cw, ch, t, d, { tfs: 13, sfs: 10 }));
+  // caption band
+  card(s, MX, 5.62, W - 2 * MX, 0.92);
+  s.addText([
+    { text: 'Step 2 runs three ways  ', options: { bold: true, color: ACCENT, fontSize: 13.5 } },
+    { text: '— 1:1 mentorship, practice (mentor-led & solo), or resource learning paths (detailed next). Every track feeds Step 3, and Step 4’s daily plan sends you back to Step 2 ', options: { color: INK_SOFT, fontSize: 13.5 } },
+    { text: 'a little stronger.', options: { bold: true, color: ACCENT, fontSize: 13.5 } },
+  ], { x: MX + 0.3, y: 5.62, w: W - 2 * MX - 0.6, h: 0.92, fontFace: BF, valign: 'middle', margin: 0 });
+  footer(s);
+})();
+
+// ════════════════════════════════════════════════════════════════════════
 // 7 · WORKFLOW
 // ════════════════════════════════════════════════════════════════════════
 (() => {
   const s = baseSlide();
-  header(s, 'Proposed Workflow', 'The Core Mentorship Loop');
+  header(s, 'Workflow · Track 1 of 3', 'The 1:1 Mentorship Loop');
   const steps = [
     ['Set availability', 'Mentor'], ['Browse & book', 'Mentee'], ['Approve / reject', 'Mentor'],
     ['Join video call', 'Both'], ['Complete', 'System'], ['Rate each other', 'Both'],
@@ -254,6 +376,124 @@ const bullets = (items, opts = {}) => items.map((t) => ({
     { text: 'Atomic booking ', options: { bold: true, color: ACCENT, fontSize: 13 } },
     { text: '— no two mentees can grab the same slot. Plus solo AI practice anytime, with no mentor required.', options: { color: INK_SOFT, fontSize: 13 } },
   ], { x: MX + 0.3, y: 4.75, w: W - 2 * MX - 0.6, h: 0.85, fontFace: BF, valign: 'middle', margin: 0 });
+  footer(s);
+})();
+
+// ════════════════════════════════════════════════════════════════════════
+// 7c · WORKFLOW — TRACK 2: PRACTICE (mentor-led & solo)
+// ════════════════════════════════════════════════════════════════════════
+(() => {
+  const s = baseSlide();
+  header(s, 'Workflow · Track 2 of 3', 'Practice — Mentor-led & Solo');
+  s.addText('Two ways to rehearse: with a mentor watching, or alone against the AI, any time.', {
+    x: MX, y: 1.82, w: W - 2 * MX, h: 0.4, fontFace: BF, fontSize: 14, color: ACCENT, italic: true, margin: 0,
+  });
+  const flowRow = (y, lab, labSub, accent, nodes) => {
+    chip(s, MX, y, 1.7, 1.0, lab, labSub, {
+      fill: accent === ACCENT ? ACCENT_SOFT : 'EBEDEE', line: accent,
+      titleColor: accent === ACCENT ? ACCENT : SLATE, subColor: MUTED, tfs: 12, sfs: 9,
+    });
+    const nx0 = MX + 1.7 + 0.35, nw = 2.05, ngap = 0.42, step = nw + ngap;
+    hArrow(s, MX + 1.7 + 0.02, y + 0.5, 0.31, null, accent);
+    nodes.forEach(([t, d], i) => {
+      const cx = nx0 + i * step;
+      fnode(s, cx, y, nw, 1.0, t, d, { accent, tfs: 12, sfs: 9 });
+      if (i < nodes.length - 1) hArrow(s, cx + nw + 0.02, y + 0.5, ngap - 0.04, null, accent);
+    });
+  };
+  flowRow(2.5, 'Mentor-led', '1 : many', ACCENT, [
+    ['Create', 'mentor opens a mock / GD'],
+    ['Join', 'mentees enter the room'],
+    ['Run live', 'video + coding room'],
+    ['Scorecard', 'per-mentee rubric'],
+  ]);
+  flowRow(4.25, 'Solo', 'no mentor', SLATE, [
+    ['Pick mode', 'AI interview · game · coding'],
+    ['Play', '6 rounds / Q&A / run code'],
+    ['Auto-score', 'server grades · AI evals'],
+    ['Feedback', 'result + skill signals'],
+  ]);
+  card(s, MX, 5.95, W - 2 * MX, 0.85);
+  s.addText([
+    { text: 'Server-authoritative scoring:  ', options: { bold: true, color: ACCENT, fontSize: 13.5 } },
+    { text: 'solo rounds are graded by the server — the browser never receives the answer key, so a score can’t be forged.', options: { color: INK_SOFT, fontSize: 13.5 } },
+  ], { x: MX + 0.3, y: 5.95, w: W - 2 * MX - 0.6, h: 0.85, fontFace: BF, valign: 'middle', margin: 0 });
+  footer(s);
+})();
+
+// ════════════════════════════════════════════════════════════════════════
+// 7d · WORKFLOW — TRACK 3: LEARN BY A PATH
+// ════════════════════════════════════════════════════════════════════════
+(() => {
+  const s = baseSlide();
+  header(s, 'Workflow · Track 3 of 3', 'Learn by a Path');
+  s.addText('From a trusted library to an AI-ordered study plan — with progress that actually counts.', {
+    x: MX, y: 1.82, w: W - 2 * MX, h: 0.4, fontFace: BF, fontSize: 14, color: ACCENT, italic: true, margin: 0,
+  });
+  const nodes = [
+    ['Upload', 'mentor adds a resource\n(topic · company · level)'],
+    ['Library', 'trusted, filterable catalog'],
+    ['AI path', 'LLM orders it into steps'],
+    ['Study & tick', 'work through, mark done'],
+    ['Progress', 'updates readiness'],
+  ];
+  const nw = 2.05, ngap = 0.42, step = nw + ngap, y0 = 2.65, nh = 1.5;
+  nodes.forEach(([t, d], i) => {
+    const cx = MX + i * step;
+    fnode(s, cx, y0, nw, nh, t, d, { accent: i === 2 ? SLATE : ACCENT, tfs: 14, sfs: 9.5 });
+    if (i < nodes.length - 1) hArrow(s, cx + nw + 0.02, y0 + nh / 2, ngap - 0.04, null, ACCENT);
+  });
+  const iw = 5.8, iy = 4.7, ih = 1.55;
+  card(s, MX, iy, iw, ih, SLATE);
+  s.addText('AI LEARNING PATH', { x: MX + 0.3, y: iy + 0.2, w: iw - 0.5, h: 0.3, fontFace: MF, fontSize: 11.5, color: SLATE, bold: true, charSpacing: 1, margin: 0 });
+  s.addText('The system feeds a topic’s resources to the LLM, which returns an ordered, step-by-step plan. Steps are embedded in one document, so the whole path loads and saves in a single read/write.', { x: MX + 0.3, y: iy + 0.58, w: iw - 0.55, h: ih - 0.7, fontFace: BF, fontSize: 12.5, color: INK_SOFT, valign: 'top', margin: 0, lineSpacingMultiple: 1.0 });
+  const rx = MX + iw + 0.3;
+  card(s, rx, iy, iw, ih, ACCENT);
+  s.addText('WHY IT STAYS TRUSTED', { x: rx + 0.3, y: iy + 0.2, w: iw - 0.5, h: 0.3, fontFace: MF, fontSize: 11.5, color: ACCENT, bold: true, charSpacing: 1, margin: 0 });
+  s.addText('Only mentors and admins can publish resources. An ownership check gates edit and delete — so only the uploader (or an admin) can change a resource, and the library stays curated.', { x: rx + 0.3, y: iy + 0.58, w: iw - 0.55, h: ih - 0.7, fontFace: BF, fontSize: 12.5, color: INK_SOFT, valign: 'top', margin: 0, lineSpacingMultiple: 1.0 });
+  footer(s);
+})();
+
+// ════════════════════════════════════════════════════════════════════════
+// 7e · WORKFLOW — LIFECYCLE FLOWCHARTS (state machines)
+// ════════════════════════════════════════════════════════════════════════
+(() => {
+  const s = baseSlide();
+  header(s, 'Workflow · Lifecycles', 'Lifecycle Flowcharts');
+  s.addText('The two most important objects are small state machines — every transition is enforced on the server.', {
+    x: MX, y: 1.82, w: W - 2 * MX, h: 0.4, fontFace: BF, fontSize: 14, color: ACCENT, italic: true, margin: 0,
+  });
+  s.addShape(pres.shapes.LINE, { x: 6.6, y: 2.35, w: 0, h: 3.95, line: { color: LINE, width: 1 } });
+  const bw = 2.0, bh = 0.5, step = 0.78;
+  // ---- LEFT: Mentorship Session ----
+  s.addText('MENTORSHIP SESSION', { x: MX, y: 2.3, w: 5.6, h: 0.3, fontFace: MF, fontSize: 12, color: ACCENT, bold: true, charSpacing: 1, margin: 0 });
+  const Lx = 1.35, Lc = Lx + bw / 2, ly0 = 2.6;
+  const chain = ['pending', 'approved', 'in-progress', 'completed', 'rated'];
+  chain.forEach((t, i) => fnode(s, Lx, ly0 + i * step, bw, bh, t, null, {
+    accent: ACCENT, fill: i === 4 ? ACCENT : CARD, titleColor: i === 4 ? 'FFFFFF' : INK, tfs: 11.5,
+  }));
+  const vlabels = ['approve', 'start', 'end', 'rate'];
+  for (let i = 0; i < 4; i++) vArrow(s, Lc, ly0 + i * step + bh, step - bh, vlabels[i], ACCENT);
+  const Tx = 4.0;
+  fnode(s, Tx, ly0, 1.9, bh, 'rejected', null, { accent: SLATE, fill: SLATE, titleColor: 'FFFFFF', tfs: 11 });
+  hArrow(s, Lx + bw + 0.02, ly0 + bh / 2, Tx - (Lx + bw) - 0.04, 'reject', SLATE);
+  fnode(s, Tx, ly0 + step, 1.9, bh, 'cancelled', null, { accent: SLATE, fill: SLATE, titleColor: 'FFFFFF', tfs: 11 });
+  hArrow(s, Lx + bw + 0.02, ly0 + step + bh / 2, Tx - (Lx + bw) - 0.04, 'cancel', SLATE);
+  // ---- RIGHT: Interview Game ----
+  s.addText('INTERVIEW GAME', { x: 6.9, y: 2.3, w: 5.6, h: 0.3, fontFace: MF, fontSize: 12, color: ACCENT, bold: true, charSpacing: 1, margin: 0 });
+  const Gx = 7.6, gc = Gx + bw / 2;
+  const gchain = ['in-progress', 'play a round', 'server scores it', 'completed'];
+  gchain.forEach((t, i) => fnode(s, Gx, ly0 + i * step, bw, bh, t, null, {
+    accent: ACCENT, fill: i === 3 ? ACCENT : CARD, titleColor: i === 3 ? 'FFFFFF' : INK, tfs: 11.5,
+  }));
+  const glabels = ['start', 'serve → submit', 'next (x6)'];
+  for (let i = 0; i < 3; i++) vArrow(s, gc, ly0 + i * step + bh, step - bh, glabels[i], ACCENT);
+  const failY = ly0 + 2 * step;
+  fnode(s, 10.3, failY, 1.9, bh, 'failed', null, { accent: SLATE, fill: SLATE, titleColor: 'FFFFFF', tfs: 11 });
+  hArrow(s, Gx + bw + 0.02, failY + bh / 2, 10.3 - (Gx + bw) - 0.04, 'fail', SLATE);
+  s.addText('Only a mentor can approve a session  ·  only the server assigns a game score — the browser never gets the answer key.', {
+    x: MX, y: 6.5, w: W - 2 * MX, h: 0.3, fontFace: BF, fontSize: 11.5, italic: true, color: MUTED, align: 'center', margin: 0,
+  });
   footer(s);
 })();
 
@@ -369,6 +609,55 @@ const bullets = (items, opts = {}) => items.map((t) => ({
     const [nx, ny] = positions[i];
     s.addShape(pres.shapes.RECTANGLE, { x: nx, y: ny, w: 1.55, h: 0.5, fill: { color: CARD }, line: { color: LINE, width: 1 } });
     s.addText(n, { x: nx, y: ny, w: 1.55, h: 0.5, fontFace: MF, fontSize: 10, color: INK, align: 'center', valign: 'middle', margin: 0 });
+  });
+  footer(s);
+})();
+
+// ════════════════════════════════════════════════════════════════════════
+// 11b · DATA MODEL — entity-relationship diagram (hub & spoke)
+// ════════════════════════════════════════════════════════════════════════
+(() => {
+  const s = baseSlide();
+  header(s, 'Design', 'Data Model — How Collections Relate');
+  s.addText('User is the hub — almost every collection references it (the lines). A few objects instead embed their children in one document: InterviewGame (rounds), ResumeDraft (sections), LearningPath (steps) — shown with a heavier outline.', {
+    x: MX, y: 1.82, w: W - 2 * MX, h: 0.5, fontFace: BF, fontSize: 13.5, color: ACCENT, italic: true, margin: 0, lineSpacingMultiple: 1.0,
+  });
+  // undirected diagonal/orthogonal connector (positive dims + flipV for the "/" diagonal)
+  const connect = (x1, y1, x2, y2, color) => {
+    const x = Math.min(x1, x2), y = Math.min(y1, y2);
+    const w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
+    const sameSign = (x1 <= x2) === (y1 <= y2);
+    s.addShape(pres.shapes.LINE, { x, y, w, h, line: { color: color || 'C2BFB6', width: 1 }, flipV: !sameSign });
+  };
+  const uX = 5.45, uY = 3.95, uW = 2.45, uH = 0.95;
+  const uLeft = uX, uRight = uX + uW, uMidY = uY + uH / 2;
+  const sw = 2.25, sh = 0.62;
+  const left = [
+    ['Availability', '→ User', 2.6, ACCENT],
+    ['MentorshipSession', '→ User ×2', 3.42, ACCENT],
+    ['MockInterview', '→ User', 4.24, ACCENT],
+    ['MockFeedback', '→ User', 5.06, ACCENT],
+  ];
+  const right = [
+    ['InterviewGame', 'embeds rounds', 2.6, SLATE],
+    ['ResumeDraft', 'embeds sections', 3.42, SLATE],
+    ['Progress', '→ User', 4.24, ACCENT],
+    ['Notification', '→ User', 5.06, ACCENT],
+  ];
+  const lX = 0.9, rX = W - MX - sw;
+  left.forEach(([t, d, y, c]) => connect(lX + sw, y + sh / 2, uLeft, uMidY));
+  right.forEach(([t, d, y, c]) => connect(rX, y + sh / 2, uRight, uMidY));
+  // central hub
+  s.addShape(pres.shapes.OVAL, { x: uX, y: uY, w: uW, h: uH, fill: { color: ACCENT }, shadow: softShadow() });
+  s.addText('User', { x: uX, y: uY, w: uW, h: uH, fontFace: HF, fontSize: 20, color: 'FFFFFF', bold: true, align: 'center', valign: 'middle', margin: 0 });
+  // satellites (drawn after lines so they sit on top)
+  left.forEach(([t, d, y, c]) => fnode(s, lX, y, sw, sh, t, null, { accent: c, line: c, lw: c === SLATE ? 2 : 1.25, tfs: 12.5 }));
+  right.forEach(([t, d, y, c]) => fnode(s, rX, y, sw, sh, t, null, { accent: c, line: c, lw: c === SLATE ? 2 : 1.25, tfs: 12.5 }));
+  // shared tags + caption
+  chip(s, MX, 6.25, 1.55, 0.46, 'Topic', null, { tfs: 12 });
+  chip(s, MX + 1.7, 6.25, 1.55, 0.46, 'Company', null, { tfs: 12 });
+  s.addText('— two shared tags, Topic and Company: resources, sessions and the Interview Game can be focused by both; learning paths and progress are organised by Topic.', {
+    x: MX + 3.45, y: 6.25, w: W - MX - (MX + 3.45), h: 0.46, fontFace: BF, fontSize: 12, color: INK_SOFT, valign: 'middle', margin: 0,
   });
   footer(s);
 })();
@@ -832,12 +1121,77 @@ SCHEMAS.forEach(schemaSlide);
 })();
 
 // ════════════════════════════════════════════════════════════════════════
+// NEW CAPABILITIES — the Copilot stack (features to be added)
+// ════════════════════════════════════════════════════════════════════════
+(() => {
+  const s = baseSlide();
+  header(s, 'Features To Be Added', 'Beyond Week 1 — New Capabilities');
+  s.addText('Layered on top of the secured foundations — turning PRISM from a toolbox into a guided, agentic prep coach.', {
+    x: MX, y: 1.82, w: W - 2 * MX, h: 0.4, fontFace: BF, fontSize: 14, color: ACCENT, italic: true, margin: 0,
+  });
+  const feats = [
+    ['PRISM Copilot', 'An agentic chat front-door that books mentors, builds roadmaps, helps with résumés and answers questions across the platform.'],
+    ['Prep-Readiness Spine', 'A live readiness score across five skill pillars — aptitude, DSA, CS core, communication, résumé — from every attempt.'],
+    ['Daily Plan', 'A short, rule-based plan (max 4 items) that tells a student exactly what to do next — no guesswork.'],
+    ['Mentor Review Queue', 'Mentors grade submitted work in one place; each result feeds back into the student’s skill signals.'],
+    ['Résumé Canvas', 'Draft, AI-refine and export a résumé inside a live editing canvas, side by side with the chat.'],
+    ['In-chat Code Sandbox', 'Run code and generate artifacts directly inside the assistant conversation, results kept with the thread.'],
+  ];
+  const cols = 3, cw = 3.78, ch = 1.95, gx = 0.27, gy = 0.32, x0 = MX, y0 = 2.4;
+  feats.forEach(([t, d], i) => {
+    const cx = x0 + (i % cols) * (cw + gx);
+    const cy = y0 + Math.floor(i / cols) * (ch + gy);
+    card(s, cx, cy, cw, ch);
+    s.addText(t, { x: cx + 0.26, y: cy + 0.24, w: cw - 0.45, h: 0.5, fontFace: HF, fontSize: 16, color: INK, bold: true, margin: 0 });
+    s.addText(d, { x: cx + 0.26, y: cy + 0.78, w: cw - 0.48, h: ch - 0.92, fontFace: BF, fontSize: 12, color: INK_SOFT, valign: 'top', margin: 0, lineSpacingMultiple: 1.02 });
+  });
+  footer(s);
+})();
+
+// ════════════════════════════════════════════════════════════════════════
+// PRISM COPILOT — how the agent works (flow + guardrails)
+// ════════════════════════════════════════════════════════════════════════
+(() => {
+  const s = baseSlide();
+  header(s, 'Features To Be Added', 'PRISM Copilot — How It Works');
+  s.addText('One chat surface over ~65 endpoints: the assistant plans a step, fetches grounded data, and proposes actions you approve.', {
+    x: MX, y: 1.82, w: W - 2 * MX, h: 0.4, fontFace: BF, fontSize: 14, color: ACCENT, italic: true, margin: 0,
+  });
+  // top strip
+  fnode(s, MX, 2.4, 3.0, 0.85, 'You ask in chat', null, { accent: ACCENT, tfs: 13 });
+  hArrow(s, MX + 3.02, 2.825, 0.38, null, ACCENT);
+  fnode(s, MX + 3.4, 2.4, 3.0, 0.85, 'LLM plans a step', null, { accent: SLATE, tfs: 13 });
+  vArrow(s, MX + 3.4 + 1.5, 3.25, 0.3, 'calls a tool', ACCENT);
+  // READ row
+  chip(s, MX, 3.62, 1.55, 0.85, 'Read', 'just ask', { tfs: 12, sfs: 9 });
+  hArrow(s, MX + 1.57, 4.045, 0.33, null, ACCENT);
+  fnode(s, 2.6, 3.62, 3.55, 0.85, 'Fetch grounded data', null, { accent: ACCENT, tfs: 12.5 });
+  hArrow(s, 6.17, 4.045, 0.4, null, ACCENT);
+  fnode(s, 6.6, 3.62, 3.7, 0.85, 'Answer + deep links in chat', null, { accent: ACCENT, tfs: 12.5 });
+  // WRITE row
+  chip(s, MX, 4.72, 1.55, 0.85, 'Write', 'do something', { fill: 'EBEDEE', line: SLATE, titleColor: SLATE, subColor: MUTED, tfs: 12, sfs: 9 });
+  hArrow(s, MX + 1.57, 5.145, 0.33, null, SLATE);
+  fnode(s, 2.6, 4.72, 2.55, 0.85, 'Propose an action', null, { accent: SLATE, tfs: 12 });
+  hArrow(s, 5.17, 5.145, 0.33, null, SLATE);
+  fnode(s, 5.5, 4.72, 2.55, 0.85, 'You confirm', null, { accent: ACCENT, fill: ACCENT, titleColor: 'FFFFFF', tfs: 12.5 });
+  hArrow(s, 8.07, 5.145, 0.33, null, SLATE);
+  fnode(s, 8.4, 4.72, 3.5, 0.85, 'Execute · server re-checks', null, { accent: SLATE, tfs: 12 });
+  // guardrails
+  card(s, MX, 5.85, W - 2 * MX, 1.05, ACCENT);
+  s.addText('GUARDRAILS', { x: MX + 0.3, y: 5.96, w: 3, h: 0.3, fontFace: MF, fontSize: 11, color: ACCENT, bold: true, charSpacing: 1, margin: 0 });
+  s.addText('Write tools propose, never mutate  ·  every write needs your confirmation  ·  the server re-checks role & ownership on execute  ·  pasted documents are treated as data, not instructions (prompt-injection guard).', {
+    x: MX + 0.3, y: 6.28, w: W - 2 * MX - 0.6, h: 0.55, fontFace: BF, fontSize: 12.5, color: INK_SOFT, valign: 'top', margin: 0, lineSpacingMultiple: 1.0,
+  });
+  footer(s);
+})();
+
+// ════════════════════════════════════════════════════════════════════════
 // PLANNED IMPROVEMENTS & FEATURES  (added before the closing slide)
 // ════════════════════════════════════════════════════════════════════════
 (() => {
   const s = baseSlide();
-  header(s, 'Planned Work', 'Planned Improvements & Features');
-  s.addText('Additional features and improvements planned on top of the secured Week-1 foundations.', {
+  header(s, 'Planned Work', 'Platform Hardening Roadmap');
+  s.addText('Engineering work to carry both the foundations and the new capabilities to college-wide, production-grade reliability.', {
     x: MX, y: 1.82, w: W - 2 * MX, h: 0.4, fontFace: BF, fontSize: 13, italic: true, color: ACCENT, margin: 0,
   });
   const groups = [
@@ -864,11 +1218,12 @@ SCHEMAS.forEach(schemaSlide);
   s.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 0.16, h: H, fill: { color: ACCENT } });
   s.addShape(pres.shapes.RECTANGLE, { x: 1.1, y: 2.55, w: 0.6, h: 0.14, fill: { color: ACCENT_DK } });
   s.addText('Thank you', { x: 1.1, y: 2.85, w: 11, h: 1.2, fontFace: HF, fontSize: 60, color: ON_DARK, bold: true, margin: 0 });
-  s.addText('Understanding · Workflow · Requirements · Database (18 schemas) · Architecture · Approach   +   secured & tested foundations', {
+  s.addText('What PRISM is · Workflows & flowcharts · Requirements · Database (18 schemas + relationships) · Architecture · Secured foundations · New agentic capabilities', {
     x: 1.13, y: 4.25, w: 11.2, h: 0.6, fontFace: BF, fontSize: 14, color: ON_DARK_MUT, margin: 0,
   });
   s.addShape(pres.shapes.LINE, { x: 1.15, y: 5.15, w: 11, h: 0, line: { color: '3A464C', width: 1 } });
   s.addText('L. Melvin Denish  ·  CSE  ·  Week 1 Review  ·  Questions welcome', { x: 1.13, y: 5.4, w: 11, h: 0.4, fontFace: BF, fontSize: 13, color: ON_DARK_MUT, margin: 0 });
 })();
 
-pres.writeFile({ fileName: 'PRISM_Week1_Review.pptx' }).then((f) => console.log('WROTE', f, '·', pageNo, 'slides'));
+const OUT = process.env.DECK_OUT || 'PRISM_Week1_Review.pptx';
+pres.writeFile({ fileName: OUT }).then((f) => console.log('WROTE', f, '·', pageNo, 'slides'));

@@ -7,6 +7,7 @@ const PILLARS = ['aptitude', 'dsa', 'cs_core', 'communication', 'resume'];
 const SOURCES = [
     'interview_game', 'coding', 'ai_interview', 'gd_solo', 'gd_live',
     'review', 'resume_analysis', 'diagnostic', 'mentor_feedback',
+    'behavioral_practice',
 ];
 
 // Append-only event log: one row = one piece of scored evidence about a skill.

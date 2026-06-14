@@ -16,6 +16,9 @@ const resourceSchema = new mongoose.Schema({
     storageDriver: String,           // 'local' | 's3' (which backend holds it)
     uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     companyTag: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' },
+    // Phase 2: cached extracted text for learning-path final-test generation.
+    extractedText: String,
+    extractedAt: Date,
     createdAt: { type: Date, default: Date.now }
 });
 

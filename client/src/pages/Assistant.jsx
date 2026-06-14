@@ -1,8 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { FiSend, FiCpu, FiPlus, FiTrash2, FiMessageSquare } from 'react-icons/fi';
+import {
+  FiSend, FiCpu, FiPlus, FiTrash2, FiMessageSquare,
+  FiCompass, FiUsers, FiTrendingUp, FiCode,
+} from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import {
   sendAssistantMessage,
+  streamAssistantMessage,
   listConversations,
   getConversation,
   deleteConversation,
@@ -30,6 +34,21 @@ const SUGGESTIONS = {
   ],
 };
 
+// Rotating brand icons for the welcome suggestion cards (cycled by index).
+const SUGGESTION_ICONS = [FiCompass, FiUsers, FiTrendingUp, FiCode];
+
+/** Map an API/network error to a clear, non-alarming sentence for the chat. */
+function friendlyError(err) {
+  // Axios errors carry err.response; the fetch/SSE path throws plain Errors with .status.
+  const status = err?.response?.status ?? err?.status;
+  const serverMsg = err?.response?.data?.message || err?.message;
+  if (status === 429) return 'PRISM Copilot is busy right now (rate limit). Give it a few seconds and try again.';
+  if (status === 503) return serverMsg || 'The assistant isn’t configured on this server yet.';
+  if (status === 504 || err?.code === 'ECONNABORTED') return 'That took too long to answer — please try again.';
+  if (!status && !err?.response) return 'Network hiccup reaching the assistant — check your connection and try again.';
+  return serverMsg || 'The assistant is unavailable right now.';
+}
+
 /** Format a date relative to now (today / yesterday / N days ago / date). */
 function relativeDate(dateStr) {
   const d = new Date(dateStr);
@@ -45,7 +64,6 @@ function relativeDate(dateStr) {
 const Assistant = () => {
   const { user, refreshUser } = useAuth();
   const firstName = user?.name?.split(' ')[0] || 'there';
-  const greeting = user?.greeting || `Hi ${firstName}, I'm PRISM Copilot`;
 
   // Conversation list (sidebar rail).
   const [convList, setConvList] = useState([]);
@@ -68,6 +86,8 @@ const Assistant = () => {
   // conversation switch without stale closure values.
   const activeConvIdRef = useRef(activeConvId);
   useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
+  // Tracks the in-flight stream so switching/starting a new chat can cancel it.
+  const abortRef = useRef(null);
 
   const suggestions = SUGGESTIONS[user?.role] || SUGGESTIONS.mentee;
 
@@ -94,6 +114,8 @@ const Assistant = () => {
   // Select a past conversation — hydrate its messages from the server.
   const selectConversation = useCallback(async (id) => {
     if (id === activeConvId) { setSidebarOpen(false); return; }
+    abortRef.current?.abort(); // cancel any in-flight stream for the previous chat
+    setLoading(false);
     setError('');
     try {
       const { data } = await getConversation(id);
@@ -117,6 +139,8 @@ const Assistant = () => {
 
   // Start a fresh conversation (clear active state).
   const newChat = useCallback(() => {
+    abortRef.current?.abort(); // cancel any in-flight stream
+    setLoading(false);
     setActiveConvId(null);
     setMessages([]);
     setInput('');
@@ -139,77 +163,117 @@ const Assistant = () => {
     }
   }, [activeConvId]);
 
-  // Send a message (persistent path).
+  // Bump a conversation to the top of the sidebar list (newest-first).
+  const bumpConv = useCallback((id) => {
+    setConvList((prev) => {
+      const exists = prev.find((c) => c._id === id);
+      if (exists) {
+        return [{ ...exists, updatedAt: new Date().toISOString() }, ...prev.filter((c) => c._id !== id)];
+      }
+      return prev;
+    });
+  }, []);
+
+  // Send a message — streams the reply token-by-token over SSE, with a non-streaming
+  // fallback if the stream can't start. A placeholder assistant message is appended
+  // immediately and patched live as tool/token/done events arrive.
   const send = useCallback(async (text) => {
     const content = (text ?? input).trim();
     if (!content || loading) return;
 
-    // Capture the conversation id at call time so we can detect a mid-flight switch.
     const capturedId = activeConvId;
+    let streamConvId = capturedId;
+    // True once the user has navigated away from the chat this send belongs to.
+    const stale = () => {
+      const cur = activeConvIdRef.current;
+      return capturedId === null ? !(cur === null || cur === streamConvId) : cur !== capturedId;
+    };
 
-    setMessages((prev) => [...prev, { role: 'user', content }]);
+    const tmpId = `tmp-${Date.now()}`;
+    const patch = (p) => setMessages((prev) => prev.map((m) =>
+      m._tmp === tmpId ? { ...m, ...(typeof p === 'function' ? p(m) : p) } : m
+    ));
+    const dropPlaceholder = () => setMessages((prev) => prev.filter((m) => m._tmp !== tmpId));
+
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', content },
+      { role: 'assistant', content: '', proposedActions: [], tools: [], streaming: true, _tmp: tmpId },
+    ]);
     setInput('');
     setError('');
     setLoading(true);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let sawDone = false;
+    let sawError = false;
+
+    const onEvent = (ev) => {
+      if (stale()) return;
+      switch (ev.type) {
+        case 'conversation':
+          streamConvId = ev.conversationId;
+          if (capturedId === null && activeConvIdRef.current === null) setActiveConvId(ev.conversationId);
+          break;
+        case 'tool':
+          patch({ tools: ev.names || [] });
+          break;
+        case 'token':
+          patch((m) => ({ content: m.content + (ev.delta || ''), tools: [] }));
+          break;
+        case 'reset':
+          patch({ content: '', tools: [] });
+          break;
+        case 'done':
+          sawDone = true;
+          patch({ content: ev.reply || '', proposedActions: ev.proposedActions || [], tools: [], streaming: false });
+          if (ev.conversationId) {
+            setActiveConvId((curr) => curr ?? ev.conversationId);
+            bumpConv(ev.conversationId);
+            if (!capturedId) loadConvList();
+          }
+          break;
+        case 'error':
+          sawError = true;
+          setError(ev.message || 'The assistant is unavailable right now.');
+          dropPlaceholder();
+          break;
+        default:
+          break;
+      }
+    };
+
     try {
-      const { data } = await sendAssistantMessage({ conversationId: capturedId, message: content });
-
-      const returnedId = data.conversationId;
-      // Determine whether the user switched conversations while the request was in flight.
-      // New-chat case: capturedId is null; user "stays" if the ref is still null (no selection).
-      // Existing-chat case: user stays if the ref still points to the same id.
-      const userStayed =
-        capturedId === null
-          ? activeConvIdRef.current === null
-          : activeConvIdRef.current === capturedId;
-
-      if (userStayed) {
-        // Safe to apply the reply to the currently visible conversation.
-        setActiveConvId(returnedId);
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: 'assistant',
-            content: data.reply || '',
-            proposedActions: data.proposedActions || [],
-          },
-        ]);
-      }
-      // If the user switched away we silently discard the reply (it's already persisted
-      // server-side and will reappear when they reload that conversation).
-
-      // Always refresh sidebar list so the new/bumped conversation appears.
-      setConvList((prev) => {
-        const exists = prev.find((c) => c._id === returnedId);
-        if (exists) {
-          // Bump updatedAt to top.
-          return [
-            { ...exists, updatedAt: new Date().toISOString() },
-            ...prev.filter((c) => c._id !== returnedId),
-          ];
-        }
-        // New conversation — full list refresh will add it with its real title.
-        return prev;
-      });
-
-      // Reload list fully on first message of a brand-new conversation so the title appears.
-      if (!capturedId && returnedId) {
-        loadConvList();
-      }
+      await streamAssistantMessage(
+        { conversationId: capturedId, message: content },
+        { onEvent, signal: controller.signal }
+      );
+      // Stream closed without a terminal frame — clear the spinner defensively.
+      if (!sawDone && !sawError && !stale()) patch({ streaming: false });
     } catch (err) {
-      // Only surface the error if the user is still looking at the same conversation.
-      const userStillHere =
-        capturedId === null
-          ? activeConvIdRef.current === null
-          : activeConvIdRef.current === capturedId;
-      if (userStillHere) {
-        setError(err.response?.data?.message || 'The assistant is unavailable right now.');
+      if (err.name === 'AbortError' || controller.signal.aborted) {
+        return; // user switched/started a new chat — the reply persists server-side
+      }
+      // The stream never started (network / non-2xx) — fall back to non-streaming.
+      try {
+        const { data } = await sendAssistantMessage({ conversationId: capturedId, message: content });
+        if (!stale()) {
+          if (data.conversationId) {
+            setActiveConvId((curr) => curr ?? data.conversationId);
+            bumpConv(data.conversationId);
+            if (!capturedId) loadConvList();
+          }
+          patch({ content: data.reply || '', proposedActions: data.proposedActions || [], tools: [], streaming: false });
+        }
+      } catch (err2) {
+        if (!stale()) { setError(friendlyError(err2)); dropPlaceholder(); }
       }
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
       setLoading(false);
     }
-  }, [input, loading, activeConvId, loadConvList]);
+  }, [input, loading, activeConvId, loadConvList, bumpConv]);
 
   const onSubmit = (e) => { e.preventDefault(); send(); };
 
@@ -222,12 +286,12 @@ const Assistant = () => {
       {/* ── Sidebar rail ── */}
       <aside className={`assistant-sidebar${sidebarOpen ? ' assistant-sidebar--open' : ''}`}>
         <div className="assistant-sidebar__header">
-          <span className="assistant-sidebar__title">Chats</span>
           <button className="assistant-sidebar__new" onClick={newChat} title="New chat">
-            <FiPlus />
+            <FiPlus /> <span>New chat</span>
           </button>
         </div>
 
+        <div className="assistant-sidebar__section">Recent</div>
         <div className="assistant-sidebar__list">
           {convListLoading && (
             <div className="assistant-sidebar__empty">Loading…</div>
@@ -288,19 +352,47 @@ const Assistant = () => {
         <div className="assistant-chat" ref={scrollRef}>
           {messages.length === 0 ? (
             <div className="assistant-welcome">
-              <div className="assistant-welcome__icon"><FiCpu /></div>
-              <h1>{greeting}</h1>
-              <p>Ask for anything — a prep roadmap, the right mentor, a resume check, recolor the app, or where to go next.</p>
+              <div className="assistant-welcome__mark"><FiCpu /></div>
+              <div className="assistant-welcome__eyebrow">PRISM Copilot</div>
+              <h1 className="assistant-welcome__title">
+                Hi {firstName},<br />
+                <span className="assistant-welcome__title-grad">what should we tackle today?</span>
+              </h1>
+              <p className="assistant-welcome__sub">A prep roadmap, the right mentor, a resume check, or where to go next — just ask.</p>
               <div className="assistant-suggestions">
-                {suggestions.map((s) => (
-                  <button key={s} className="assistant-suggestion" onClick={() => send(s)}>{s}</button>
-                ))}
+                {suggestions.map((s, i) => {
+                  const Icon = SUGGESTION_ICONS[i % SUGGESTION_ICONS.length];
+                  return (
+                    <button key={s} className="assistant-suggestion" onClick={() => send(s)}>
+                      <span className="assistant-suggestion__icon"><Icon /></span>
+                      <span className="assistant-suggestion__text">{s}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ) : (
             messages.map((m, i) => (
               <div key={i}>
-                <ChatMessage role={m.role} content={m.content} />
+                {m.streaming && !m.content ? (
+                  // Streaming placeholder before the first token: show which tools are
+                  // running (progress chip) or a typing indicator.
+                  <div className="chat-msg chat-msg--assistant">
+                    <div className="chat-msg__avatar" aria-hidden="true"><FiCpu /></div>
+                    {m.tools?.length ? (
+                      <div className="chat-msg__bubble chat-msg__tools">
+                        <FiCpu className="chat-msg__tools-icon" />
+                        <span>Running {m.tools.join(', ')}…</span>
+                      </div>
+                    ) : (
+                      <div className="chat-msg__bubble chat-msg__bubble--typing">
+                        <span /><span /><span />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <ChatMessage role={m.role} content={m.content} />
+                )}
                 {m.proposedActions?.map((action, j) => (
                   <ProposalCard
                     key={`${i}-${j}`}
@@ -329,13 +421,6 @@ const Assistant = () => {
             ))
           )}
 
-          {loading && (
-            <div className="chat-msg chat-msg--assistant">
-              <div className="chat-msg__bubble chat-msg__bubble--typing">
-                <span /><span /><span />
-              </div>
-            </div>
-          )}
           {error && <div className="assistant-error">{error}</div>}
         </div>
 

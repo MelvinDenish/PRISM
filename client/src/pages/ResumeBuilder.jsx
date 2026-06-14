@@ -12,6 +12,22 @@ const TEMPLATES = [
     { id: 'creative', name: 'Creative', desc: 'Bold design for startups', color: '#E2682A' },
 ];
 
+// CUIC (Anna University placement cell) section requirements — mirrors the server
+// util utils/cuicResume.js so the checklist matches what the export validates.
+const computeCuicChecklist = (form) => {
+    const p = form.personalInfo || {};
+    const skills = form.skills || [];
+    const skillsText = skills.join(' ').toLowerCase();
+    const eduHasMarks = (form.education || []).some((e) => e && (e.gpa || /10th|12th|%|percent/i.test([e.field, e.degree, e.institution].filter(Boolean).join(' '))));
+    return [
+        { key: 'header', label: 'Header with LinkedIn & GitHub', done: Boolean(p.linkedin) && Boolean(p.github) },
+        { key: 'education', label: 'Education with CGPA + 10th/12th %', done: (form.education || []).some((e) => e && e.institution) && eduHasMarks },
+        { key: 'skills', label: 'Skills (Languages / Frameworks / Tools)', done: skills.length >= 3 && (/lang|framework|tool|java|python|react|node|sql|c\+\+/.test(skillsText) || skills.length >= 5) },
+        { key: 'projects', label: 'Projects (Problem & Solution)', done: (form.projects || []).some((pr) => pr && pr.name && pr.description) },
+        { key: 'internships', label: 'Internships / Experience', done: (form.experience || []).some((e) => e && e.company) },
+    ];
+};
+
 const ResumeBuilder = () => {
     const [drafts, setDrafts] = useState([]);
     const [current, setCurrent] = useState(null);
@@ -309,7 +325,9 @@ const ResumeBuilder = () => {
         try {
             const { data } = await exportResumeDraft(id, fmt);
             if (!data?.artifact?.id) throw new Error('No artifact returned');
-            const filename = `${form.personalInfo?.fullName || form.name || 'resume'}.${fmt}`;
+            // CUIC requires `RegisterNumber_Name.pdf`; the server computes that name
+            // from the student's Profile. Fall back to the local name if absent.
+            const filename = data.fileName || `${form.personalInfo?.fullName || form.name || 'resume'}.${fmt}`;
             await downloadArtifact(data.artifact.id, filename);
         } catch (err) {
             setCanvasError(err?.response?.data?.message || err.message || `${fmt.toUpperCase()} export failed.`);
@@ -714,6 +732,30 @@ const ResumeBuilder = () => {
                                     })()}
                                 </div>
                             )}
+                        </div>
+
+                        <div className="glass-card">
+                            {(() => {
+                                const items = computeCuicChecklist(form);
+                                const done = items.filter((i) => i.done).length;
+                                return (
+                                    <>
+                                        <h3 className="card-title" style={{ marginBottom: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <FiCheckCircle /> CUIC checklist
+                                            <span className="chip" style={{ marginLeft: 'auto', fontSize: 11 }}>{done}/{items.length}</span>
+                                        </h3>
+                                        <p className="rb-canvas-help" style={{ marginBottom: 10 }}>Anna University placement-cell resume rules. The PDF exports as <code>RegisterNumber_Name.pdf</code> (set your register number in Profile).</p>
+                                        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                            {items.map((i) => (
+                                                <li key={i.key} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: i.done ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                                                    <FiCheckCircle style={{ flexShrink: 0, color: i.done ? 'var(--accent-success, #16a34a)' : 'var(--text-muted, #94a3b8)', opacity: i.done ? 1 : 0.4 }} />
+                                                    <span style={{ textDecoration: i.done ? 'none' : 'none' }}>{i.label}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </>
+                                );
+                            })()}
                         </div>
 
                         <div className="glass-card">

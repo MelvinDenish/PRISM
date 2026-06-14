@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
     FiHome, FiBook, FiUsers, FiCalendar,
     FiFileText, FiBarChart2, FiBell, FiLogOut, FiSettings, FiCode, FiBriefcase,
-    FiMap, FiPlay, FiEdit, FiX, FiVideo, FiMessageSquare, FiRepeat, FiCpu, FiFolder
+    FiMap, FiPlay, FiEdit, FiX, FiVideo, FiMessageSquare, FiRepeat, FiCpu, FiFolder, FiMic, FiDatabase
 } from 'react-icons/fi';
 import Brand from './Brand';
 import ThemeToggle from './ThemeToggle';
@@ -28,12 +28,17 @@ const Sidebar = ({ isOpen, collapsed, onClose }) => {
     const menteeNav = [
         copilotGroup,
         { items: [{ to: '/dashboard', icon: <FiHome />, label: 'Dashboard' }] },
+        // Resources is intentionally NOT linked for mentees — Topics is the
+        // framework above resources, and mentees consume resource content through
+        // Topics / Learning Paths. The /resources route stays reachable (mentors
+        // & admins link it under Content); it's just unlinked here, same pattern
+        // as resume-analysis (P4).
         { label: 'Prepare', items: [
             { to: '/topics', icon: <FiBook />, label: 'Topics' },
-            { to: '/resources', icon: <FiFileText />, label: 'Resources' },
             { to: '/learning-paths', icon: <FiMap />, label: 'Learning Paths' },
             { to: '/coding-questions', icon: <FiCode />, label: 'Coding Questions' },
             { to: '/interview-game', icon: <FiPlay />, label: 'Interview Game' },
+            { to: '/behavioral-practice', icon: <FiMic />, label: 'Behavioral Practice' },
             { to: '/behavioral', icon: <FiMessageSquare />, label: 'STAR Bank' },
             { to: '/review', icon: <FiRepeat />, label: 'Review Queue' },
         ]},
@@ -68,6 +73,7 @@ const Sidebar = ({ isOpen, collapsed, onClose }) => {
             { to: '/topics', icon: <FiBook />, label: 'Topics' },
             { to: '/resources', icon: <FiFileText />, label: 'Resources' },
             { to: '/coding-questions', icon: <FiCode />, label: 'Questions' },
+            { to: '/question-bank', icon: <FiDatabase />, label: 'Question Bank' },
         ]},
         { label: 'Activity', items: [{ to: '/notifications', icon: <FiBell />, label: 'Notifications' }] },
     ];
@@ -82,6 +88,7 @@ const Sidebar = ({ isOpen, collapsed, onClose }) => {
             { to: '/topics', icon: <FiBook />, label: 'Topics' },
             { to: '/resources', icon: <FiFileText />, label: 'Resources' },
             { to: '/companies', icon: <FiBriefcase />, label: 'Companies' },
+            { to: '/question-bank', icon: <FiDatabase />, label: 'Question Bank' },
         ]},
         { label: 'Activity', items: [{ to: '/notifications', icon: <FiBell />, label: 'Notifications' }] },
     ];
@@ -123,13 +130,13 @@ const Sidebar = ({ isOpen, collapsed, onClose }) => {
             </nav>
 
             <div className="sidebar-footer">
-                <div className="user-info">
+                <NavLink to="/profile" className="user-info" onClick={handleNavClick} style={{ textDecoration: 'none', color: 'inherit' }} title="View & edit your profile">
                     <div className="user-avatar">{user?.name?.[0] || 'U'}</div>
                     <div>
                         <div className="user-name">{user?.name}</div>
                         <div className="user-role">{user?.role}</div>
                     </div>
-                </div>
+                </NavLink>
                 <div className="sidebar-footer-actions">
                     <ThemeToggle />
                     <button className="logout-btn" onClick={handleLogout} aria-label="Log out"><FiLogOut /></button>

@@ -40,8 +40,13 @@ function VideoStage() {
  * Props:
  *   roomName  "session:<id>" (1:1) or "gd:<id>" (group/webinar)
  *   onLeave   called when the local participant disconnects / leaves
+ *   children  optional — rendered INSIDE <LiveKitRoom>, so it can use LiveKit
+ *             hooks (e.g. the GD moderator's participation tracking + auto cam/mic).
+ *   startMediaOnConnect  default true (1:1 / webinar go live immediately). Pass
+ *             false for group GD so cam/mic stay OFF until the host presses Start —
+ *             the moderator then turns them on for everyone.
  */
-const LiveRoom = ({ roomName, onLeave }) => {
+const LiveRoom = ({ roomName, onLeave, children, startMediaOnConnect = true }) => {
     const [conn, setConn] = useState({ status: 'loading', token: '', wsUrl: '', canPublish: false, error: '' });
 
     useEffect(() => {
@@ -82,8 +87,8 @@ const LiveRoom = ({ roomName, onLeave }) => {
             token={conn.token}
             serverUrl={conn.wsUrl}
             connect
-            video={conn.canPublish}
-            audio={conn.canPublish}
+            video={startMediaOnConnect && conn.canPublish}
+            audio={startMediaOnConnect && conn.canPublish}
             data-lk-theme="default"
             style={{ height: '100%' }}
             onDisconnected={onLeave}
@@ -92,6 +97,8 @@ const LiveRoom = ({ roomName, onLeave }) => {
             <RoomAudioRenderer />
             {/* ControlBar self-hides camera/mic/screen for subscribe-only (webinar) viewers. */}
             <ControlBar />
+            {/* Optional in-room logic (LiveKit hooks work here): GD moderator, etc. */}
+            {children}
         </LiveKitRoom>
     );
 };

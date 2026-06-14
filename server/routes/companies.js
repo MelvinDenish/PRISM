@@ -2,7 +2,9 @@ const express = require('express');
 const Company = require('../models/Company');
 const CodingQuestion = require('../models/CodingQuestion');
 const CodeSubmission = require('../models/CodeSubmission');
+const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
+const { checkEligibility } = require('../utils/eligibility');
 const router = express.Router();
 
 // GET /api/companies
@@ -10,6 +12,21 @@ router.get('/', async (req, res) => {
     try {
         const companies = await Company.find().sort({ name: 1 });
         res.json({ success: true, companies });
+    } catch (error) {
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+    }
+});
+
+// GET /api/companies/eligibility — the caller's eligibility for every company.
+// MUST be declared before GET /:id so 'eligibility' isn't captured as an id.
+// Returns a map keyed by company id → { eligible, unknown, reasons, missing }.
+router.get('/eligibility', protect, async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id).select('cgpa activeArrears historyArrears tenthPercent twelfthPercent department batch graduationYear').lean();
+        const companies = await Company.find().select('name eligibility').lean();
+        const result = {};
+        for (const c of companies) result[String(c._id)] = checkEligibility(user || {}, c);
+        res.json({ success: true, eligibility: result });
     } catch (error) {
         res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
@@ -75,8 +92,8 @@ router.post('/', protect, authorize('admin', 'mentor'), async (req, res) => {
     }
 });
 
-// PUT /api/companies/:id
-router.put('/:id', protect, authorize('admin'), async (req, res) => {
+// PUT /api/companies/:id — mentor/admin may edit company details + eligibility.
+router.put('/:id', protect, authorize('admin', 'mentor'), async (req, res) => {
     try {
         const company = await Company.findByIdAndUpdate(req.params.id, req.body, { new: true });
         res.json({ success: true, company });

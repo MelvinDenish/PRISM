@@ -34,12 +34,17 @@ async function authorizeRoom(roomName, user) {
     }
 
     if (kind === 'gd') {
-        const room = await GDRoom.findById(id).select('participants host mode');
+        const room = await GDRoom.findById(id).select('participants host mode invitedUsers');
         if (!room) return { error: { status: 404, message: 'Room not found' } };
 
         if (room.mode === 'webinar') {
-            // 1-to-many: the host publishes; any authenticated user may watch.
-            return { canPublish: sameId(room.host, user._id) || user.role === 'admin', canSubscribe: true };
+            // 1-to-many: the host publishes; ONLY invited students (or admin) may
+            // watch. (Previously any authenticated user could subscribe — that
+            // violated "only the requested students could join".)
+            const isHost = sameId(room.host, user._id) || user.role === 'admin';
+            const isInvited = room.invitedUsers.some((u) => sameId(u, user._id));
+            if (!isHost && !isInvited) return { error: { status: 403, message: 'This webinar is invite-only' } };
+            return { canPublish: isHost, canSubscribe: true };
         }
         // Group discussion (n-n): must be a joined participant to publish.
         const isMember = room.participants.some((p) => sameId(p, user._id)) || user.role === 'admin';

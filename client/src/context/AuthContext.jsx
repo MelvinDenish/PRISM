@@ -13,9 +13,10 @@ export const AuthProvider = ({ children }) => {
     const [error, setError] = useState('');
     const socketRef = useRef(null);
 
-    // P5: apply the user's palette whenever the user object changes (mount,
-    // login, register, refreshUser). Clears back to brand colors on logout.
-    useEffect(() => { applyUserTheme(user?.theme); }, [user]);
+    // PRISM is brand-led (gold/orange) — per-user accent theming was removed.
+    // Always strip any inline override (and clear the cached palette) so a theme
+    // still stored on an old account can never tint the brand on refresh.
+    useEffect(() => { applyUserTheme(null); }, [user]);
 
     // Register user with socket for online tracking
     const registerSocket = (userData) => {

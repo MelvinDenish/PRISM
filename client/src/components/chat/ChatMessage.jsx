@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { FiCpu } from 'react-icons/fi';
 
 /**
  * Lightweight renderer for assistant text. The agent is instructed to use markdown
@@ -85,6 +86,9 @@ function renderBody(content) {
 
 const ChatMessage = ({ role, content }) => (
   <div className={`chat-msg chat-msg--${role}`}>
+    {role === 'assistant' && (
+      <div className="chat-msg__avatar" aria-hidden="true"><FiCpu /></div>
+    )}
     <div className="chat-msg__bubble">
       {role === 'assistant' ? renderBody(content) : <p>{content}</p>}
     </div>

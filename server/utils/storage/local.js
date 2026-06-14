@@ -37,4 +37,13 @@ async function deleteFile(key) {
   await fs.promises.rm(target, { force: true });
 }
 
-module.exports = { saveFile, deleteFile };
+// Read a stored file's bytes by key (used by the Phase-2 resource extractor).
+// Same path-traversal guard as deleteFile; returns a Buffer or null if missing.
+async function readFile(key) {
+  if (!key) return null;
+  const target = path.join(UPLOAD_ROOT, key);
+  if (!target.startsWith(UPLOAD_ROOT)) return null;
+  try { return await fs.promises.readFile(target); } catch { return null; }
+}
+
+module.exports = { saveFile, deleteFile, readFile };

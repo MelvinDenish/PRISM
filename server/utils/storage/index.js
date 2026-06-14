@@ -20,4 +20,7 @@ module.exports = {
   driver,
   saveFile: impl.saveFile,
   deleteFile: impl.deleteFile,
+  // Optional read seam (local driver only for now; undefined under s3 — callers
+  // that need bytes there fall back to fetching the file's public URL).
+  readFile: impl.readFile,
 };

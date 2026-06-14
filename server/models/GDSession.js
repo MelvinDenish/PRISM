@@ -10,6 +10,17 @@ const gdSessionSchema = new mongoose.Schema({
   // Set when the session is consumed by a game round; guards against replaying
   // one high-scoring session across many games.
   game: { type: mongoose.Schema.Types.ObjectId, ref: 'InterviewGame', default: null },
+  // Set for LIVE multi-user GD rooms (routes/gdRooms.js evaluate); null for the
+  // solo user-vs-AI GD. Lets each participant of one room get their own scorecard.
+  room: { type: mongoose.Schema.Types.ObjectId, ref: 'GDRoom', default: null, index: true },
+  // Speaking stats for live rooms. Self-reported by each client from LiveKit
+  // active-speaker data (same trust posture as the transcript). spokePct is this
+  // user's share of total speaking time, 0-100.
+  participation: {
+    spokenSeconds: { type: Number, default: 0 },
+    turns: { type: Number, default: 0 },
+    spokePct: { type: Number, default: 0 },
+  },
   consumed: { type: Boolean, default: false },
   topic: { type: String, default: '' },
   transcript: [{ speaker: String, message: String, _id: false }],

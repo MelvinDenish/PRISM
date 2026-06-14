@@ -46,6 +46,10 @@ const SCHEMA = {
   LLM_GEN_MODEL: { default: 'llama-3.3-70b-versatile' },
   LLM_FAST_MODEL: { default: 'llama-3.1-8b-instant' },
   GEMINI_API_KEY: { feature: 'Resume ATS analysis (falls back to keyword matching)', secret: true },
+  // Company-specific interview-question research (Interview Game, Phase 3). When
+  // unset, the research pipeline is disabled and the game uses mentor + curated
+  // questions only (graceful degradation, mirrors the GROQ-less fallbacks).
+  TAVILY_API_KEY: { feature: 'Company interview-question research (Interview Game); mentor + curated only when unset', secret: true },
   EMAIL_USER: { feature: 'Email notifications (Gmail SMTP)', secret: true },
   EMAIL_PASS: { feature: 'Email notifications (Gmail SMTP)', secret: true },
 
@@ -143,6 +147,8 @@ const config = Object.freeze({
   llmGenModel: () => process.env.LLM_GEN_MODEL || 'llama-3.3-70b-versatile',
   llmFastModel: () => process.env.LLM_FAST_MODEL || 'llama-3.1-8b-instant',
   hasGemini: () => Boolean(process.env.GEMINI_API_KEY),
+  hasTavily: () => Boolean(process.env.TAVILY_API_KEY),
+  tavilyKey: () => process.env.TAVILY_API_KEY || '',
   hasEmail: () => Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS),
 
   storageDriver: () => (process.env.STORAGE_DRIVER || 'local').toLowerCase(),

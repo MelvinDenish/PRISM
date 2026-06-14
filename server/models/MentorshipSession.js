@@ -13,6 +13,11 @@ const mentorshipSessionSchema = new mongoose.Schema({
         enum: ['pending', 'approved', 'in-progress', 'rejected', 'completed', 'cancelled'],
         default: 'pending'
     },
+    // Set when this request is consolidated into a live 1-to-many webinar
+    // (routes/webinars.js). Lets the UI label it and lets ending the webinar
+    // complete every linked request at once. History stays per-user via the
+    // existing mentor/mentee scoping on GET /api/mentorship.
+    webinar: { type: mongoose.Schema.Types.ObjectId, ref: 'GDRoom', default: null },
     mentorFeedback: String,
     menteeFeedback: String,
     ratingGiven: Number,        // numeric rating the mentee gave the mentor

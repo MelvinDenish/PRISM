@@ -257,9 +257,13 @@ const TOOLS = {
       },
     },
     handler: async (args) => {
-      const mentor = (await read.findMentors({})).find((m) => m.id === String(args.mentorId));
-      // findMentors with no filter returns up to 25; fall back to a direct check via name omitted.
-      const mentorName = mentor?.name || 'the selected mentor';
+      // Resolve the mentor directly by id (the old code scanned up to 25 mentors and
+      // silently fell back to "the selected mentor" if the id wasn't on the first page).
+      const mentor = await read.getMentorBasic({ mentorId: args.mentorId });
+      if (!mentor) {
+        throw new Error('That mentor could not be found. Use find_mentors to get a valid mentor id first.');
+      }
+      const mentorName = mentor.name;
       const when = new Date(args.scheduledDate);
       if (Number.isNaN(when.getTime()) || when <= new Date()) {
         throw new Error('Please provide a valid future date/time for the session.');

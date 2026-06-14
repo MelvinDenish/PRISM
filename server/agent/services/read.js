@@ -40,6 +40,21 @@ async function findMentors({ company, skill } = {}) {
   }));
 }
 
+// Single-mentor lookup by id — used by the book_mentorship_session proposal to
+// resolve the mentor's display name without scanning the whole mentor list.
+// Returns null for an unknown id or a non-mentor (and never throws on a bad id).
+async function getMentorBasic({ mentorId }) {
+  if (!mentorId) return null;
+  let m;
+  try {
+    m = await User.findOne({ _id: mentorId, role: 'mentor' }).select('name currentCompany').lean();
+  } catch {
+    return null; // malformed ObjectId etc.
+  }
+  if (!m) return null;
+  return { id: String(m._id), name: m.name, currentCompany: m.currentCompany || '' };
+}
+
 async function listTopics() {
   const topics = await Topic.find().select('name description').sort({ name: 1 }).lean();
   return topics.map((t) => ({ id: String(t._id), name: t.name, description: t.description || '' }));
@@ -167,6 +182,7 @@ async function getMentorAvailability({ mentorId }) {
 
 module.exports = {
   findMentors,
+  getMentorBasic,
   listTopics,
   listResources,
   listCompanies,

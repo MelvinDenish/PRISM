@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
-import { getTopics, getResources, getLearningPaths, generateLearningPath, updatePathProgress, deleteLearningPath } from '../services/api';
-import { FiMap, FiPlus, FiTrash2, FiCheckCircle, FiCircle, FiArrowLeft, FiZap, FiExternalLink, FiAlertCircle } from 'react-icons/fi';
+import { Link } from 'react-router-dom';
+import { getTopics, getResources, getLearningPaths, generateLearningPath, updatePathProgress, deleteLearningPath, generatePathTest, submitPathTest } from '../services/api';
+import { FiMap, FiPlus, FiTrash2, FiCheckCircle, FiCircle, FiArrowLeft, FiZap, FiExternalLink, FiAlertCircle, FiAward, FiLock, FiPlay } from 'react-icons/fi';
 import Reveal from '../components/motion/Reveal';
 import PageHero from '../components/ui/PageHero';
 import { SkeletonGrid } from '../components/ui/Skeleton';
 import Modal from '../components/ui/Modal';
+
+const LANGS = ['python', 'javascript', 'cpp', 'java', 'c'];
 
 const LearningPaths = () => {
     const [paths, setPaths] = useState([]);
@@ -16,6 +19,13 @@ const LearningPaths = () => {
     const [loading, setLoading] = useState(true);
     const [generating, setGenerating] = useState(false);
     const [generateError, setGenerateError] = useState('');
+    // Phase 2 — final test state
+    const [genTest, setGenTest] = useState(false);
+    const [testError, setTestError] = useState('');
+    const [showTest, setShowTest] = useState(false);
+    const [answers, setAnswers] = useState({});   // mcq: {qId: optionText} | coding: {probId: {language, code}}
+    const [submitting, setSubmitting] = useState(false);
+    const [result, setResult] = useState(null);
 
     useEffect(() => { loadData(); }, []);
 
@@ -68,6 +78,49 @@ const LearningPaths = () => {
         try { await deleteLearningPath(id); setPaths(prev => prev.filter(p => p._id !== id)); } catch {}
     };
 
+    const syncPath = (p) => { setSelectedPath(p); setPaths(prev => prev.map(x => x._id === p._id ? p : x)); };
+
+    const generateFinalTest = async () => {
+        setGenTest(true); setTestError('');
+        try {
+            const { data } = await generatePathTest(selectedPath._id);
+            syncPath(data.path);
+        } catch (err) {
+            setTestError(err.response?.data?.message || 'Could not generate the final test.');
+        }
+        setGenTest(false);
+    };
+
+    const openTest = () => {
+        const ft = selectedPath.finalTest;
+        if (!ft?.generated) return;
+        // Seed coding answers with each problem's boilerplate so the editor starts non-empty.
+        if (ft.format === 'coding') {
+            const seed = {};
+            (ft.questions || []).forEach(q => { seed[q.id] = { language: 'python', code: q.boilerplate?.python || '' }; });
+            setAnswers(seed);
+        } else {
+            setAnswers({});
+        }
+        setResult(null); setTestError(''); setShowTest(true);
+    };
+
+    const submitTest = async () => {
+        const ft = selectedPath.finalTest;
+        setSubmitting(true); setTestError('');
+        try {
+            const payload = ft.format === 'coding'
+                ? Object.entries(answers).map(([id, v]) => ({ id, language: v.language, code: v.code }))
+                : Object.entries(answers).map(([id, selectedAnswer]) => ({ id, selectedAnswer }));
+            const { data } = await submitPathTest(selectedPath._id, payload);
+            setResult(data);
+            if (data.path) syncPath(data.path);
+        } catch (err) {
+            setTestError(err.response?.data?.message || 'Could not submit the test.');
+        }
+        setSubmitting(false);
+    };
+
     if (selectedPath) {
         return (
             <div className="page">
@@ -110,7 +163,104 @@ const LearningPaths = () => {
                             </div>
                         </Reveal>
                     ))}
+
+                    {/* ── Final Test (locked last step) ── */}
+                    {(() => {
+                        const total = selectedPath.totalSteps || selectedPath.steps?.length || 0;
+                        const allDone = total > 0 && (selectedPath.completedSteps || 0) >= total;
+                        const ft = selectedPath.finalTest;
+                        const passed = selectedPath.passed;
+                        const cert = selectedPath.certificate;
+                        return (
+                            <Reveal as="div" className={`path-step ${passed ? 'completed' : allDone ? 'active' : ''}`}>
+                                <div className="glass-card" style={{ display: 'flex', gap: 16, alignItems: 'flex-start', padding: 20 }}>
+                                    <span style={{ fontSize: 22, marginTop: 2, flexShrink: 0, color: passed ? 'var(--accent-success)' : allDone ? 'var(--accent-primary)' : 'var(--text-muted)' }}>
+                                        {passed ? <FiAward /> : allDone ? <FiPlay /> : <FiLock />}
+                                    </span>
+                                    <div style={{ flex: 1 }}>
+                                        <p style={{ color: 'var(--text-muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>Final Test · ≥{selectedPath.passThreshold || 90}% to pass</p>
+                                        <h4 style={{ fontSize: 15 }}>Path Completion Test {passed && <span className="badge badge-success" style={{ marginLeft: 8 }}>Passed · {selectedPath.bestScore}%</span>}</h4>
+
+                                        {!allDone && <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 6 }}>Complete all {total} steps to unlock the final test.</p>}
+
+                                        {testError && <p style={{ color: 'var(--accent-danger)', fontSize: 13, marginTop: 8, display: 'flex', gap: 6, alignItems: 'center' }}><FiAlertCircle /> {testError}</p>}
+
+                                        {allDone && !passed && !ft?.generated && (
+                                            <button className="btn btn-action btn-sm" style={{ marginTop: 10 }} onClick={generateFinalTest} disabled={genTest}>
+                                                <FiZap /> {genTest ? 'Generating test…' : 'Generate Final Test'}
+                                            </button>
+                                        )}
+                                        {allDone && ft?.generated && !passed && (
+                                            <button className="btn btn-action btn-sm" style={{ marginTop: 10 }} onClick={openTest}><FiPlay /> Take Final Test ({ft.questions?.length} {ft.format === 'coding' ? 'problems' : 'questions'})</button>
+                                        )}
+                                        {ft?.generated && !passed && (
+                                            <button className="btn btn-secondary btn-sm" style={{ marginTop: 10, marginLeft: 8 }} onClick={openTest}>Retake</button>
+                                        )}
+                                        {passed && cert?.certId && (
+                                            <div style={{ marginTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                                                <Link className="btn btn-action btn-sm" to={`/certificate/${cert.certId}`} target="_blank"><FiAward /> View Certificate</Link>
+                                                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Verifiable PRISM achievement</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </Reveal>
+                        );
+                    })()}
                 </div>
+
+                {showTest && selectedPath.finalTest?.generated && (
+                    <Modal onClose={() => setShowTest(false)} size="lg">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                            <h2 style={{ fontSize: 20 }}>Final Test — {selectedPath.title}</h2>
+                            <span className="badge badge-primary">≥{selectedPath.passThreshold || 90}% to pass</span>
+                        </div>
+
+                        {result ? (
+                            <div style={{ textAlign: 'center', padding: '12px 0' }}>
+                                <div style={{ fontSize: 48, fontWeight: 800, color: result.passed ? 'var(--accent-success)' : 'var(--accent-danger)' }}>{result.score}%</div>
+                                <p style={{ fontSize: 16, fontWeight: 700, marginTop: 4 }}>{result.passed ? 'Passed! 🎉' : `Not yet — you need ${result.threshold}%`}</p>
+                                {result.passed && result.certificate?.certId && (
+                                    <Link className="btn btn-action" style={{ marginTop: 16 }} to={`/certificate/${result.certificate.certId}`} target="_blank"><FiAward /> View your certificate</Link>
+                                )}
+                                {!result.passed && <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => setResult(null)}>Try again</button>}
+                            </div>
+                        ) : (
+                            <>
+                                <div style={{ maxHeight: '55vh', overflowY: 'auto', paddingRight: 8 }}>
+                                    {selectedPath.finalTest.format === 'coding' ? (
+                                        (selectedPath.finalTest.questions || []).map((q, qi) => (
+                                            <div key={q.id} className="glass-card" style={{ padding: 16, marginBottom: 14 }}>
+                                                <h4 style={{ fontSize: 15, marginBottom: 6 }}>{qi + 1}. {q.title} <span className="badge badge-info" style={{ marginLeft: 6 }}>{q.difficulty}</span></h4>
+                                                <p style={{ fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', marginBottom: 10 }}>{q.description}</p>
+                                                <select className="form-select" style={{ marginBottom: 8 }} value={answers[q.id]?.language || 'python'} onChange={e => setAnswers(a => ({ ...a, [q.id]: { language: e.target.value, code: q.boilerplate?.[e.target.value] || a[q.id]?.code || '' } }))}>
+                                                    {LANGS.map(l => <option key={l} value={l}>{l}</option>)}
+                                                </select>
+                                                <textarea className="form-textarea" style={{ fontFamily: 'monospace', fontSize: 13 }} rows={8} value={answers[q.id]?.code || ''} onChange={e => setAnswers(a => ({ ...a, [q.id]: { ...a[q.id], language: a[q.id]?.language || 'python', code: e.target.value } }))} />
+                                            </div>
+                                        ))
+                                    ) : (
+                                        (selectedPath.finalTest.questions || []).map((q, qi) => (
+                                            <div key={q.id} style={{ marginBottom: 18 }}>
+                                                <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>{qi + 1}. {q.q}</p>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                    {(q.opts || []).map((opt, oi) => (
+                                                        <label key={oi} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer', padding: '6px 10px', borderRadius: 8, background: answers[q.id] === opt ? 'var(--surface-2, rgba(255,255,255,0.06))' : 'transparent' }}>
+                                                            <input type="radio" name={q.id} checked={answers[q.id] === opt} onChange={() => setAnswers(a => ({ ...a, [q.id]: opt }))} />
+                                                            {opt}
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                                {testError && <p style={{ color: 'var(--accent-danger)', fontSize: 13, margin: '10px 0' }}>{testError}</p>}
+                                <button className="btn btn-primary" style={{ width: '100%', marginTop: 12 }} onClick={submitTest} disabled={submitting}>{submitting ? 'Grading…' : 'Submit Test'}</button>
+                            </>
+                        )}
+                    </Modal>
+                )}
             </div>
         );
     }

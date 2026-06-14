@@ -11,9 +11,12 @@ import { confirmAssistantAction } from '../../services/api';
  * tools, so this renders only once later phases emit proposals.
  */
 const ProposalCard = ({ action, conversationId, onConfirmed }) => {
-  const [status, setStatus] = useState('idle'); // idle | working | done | error | dismissed
+  // A proposal persisted as already executed (server stamped action.executed on a
+  // prior confirm) reloads straight into the Done state — no live Confirm button,
+  // so it can't be re-confirmed into a duplicate roadmap / re-book error.
+  const [status, setStatus] = useState(action.executed ? 'done' : 'idle'); // idle | working | done | error | dismissed
   const [error, setError] = useState('');
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState(action.executedResult || null);
 
   const confirm = async () => {
     setStatus('working');

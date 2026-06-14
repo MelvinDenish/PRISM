@@ -27,6 +27,10 @@ import VideoCall from './pages/VideoCall';
 import GDRooms from './pages/GDRooms';
 import Onboarding from './pages/Onboarding';
 import BehavioralBank from './pages/BehavioralBank';
+import BehavioralPractice from './pages/BehavioralPractice';
+import Profile from './pages/Profile';
+import Certificate from './pages/Certificate';
+import QuestionBank from './pages/QuestionBank';
 import ReviewQueue from './pages/ReviewQueue';
 import Assistant from './pages/Assistant';
 import Artifacts from './pages/Artifacts';
@@ -64,6 +68,8 @@ const App = () => {
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          {/* Public certificate verification — outside the protected Layout (P2). */}
+          <Route path="/certificate/:certId" element={<Certificate />} />
           <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
           <Route path="/interview/:id" element={<ProtectedRoute><TechnicalInterview /></ProtectedRoute>} />
           <Route path="/video-call/:sessionId" element={<ProtectedRoute><VideoCall /></ProtectedRoute>} />
@@ -89,7 +95,10 @@ const App = () => {
             <Route path="companies" element={<Companies />} />
             <Route path="coding-questions" element={<CodingQuestions />} />
             <Route path="behavioral" element={<BehavioralBank />} />
+            <Route path="behavioral-practice" element={<BehavioralPractice />} />
+            <Route path="profile" element={<Profile />} />
             <Route path="review" element={<ReviewQueue />} />
+            <Route path="question-bank" element={<RoleRoute roles={['mentor', 'admin']}><QuestionBank /></RoleRoute>} />
             <Route path="admin" element={<RoleRoute roles={['admin']}><Admin /></RoleRoute>} />
           </Route>
           <Route path="*" element={<NotFound />} />

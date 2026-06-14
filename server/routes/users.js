@@ -72,6 +72,33 @@ router.put('/profile', protect, singleFile, async (req, res) => {
     }
 });
 
+// PUT /api/users/me — self-edit identity + academics (Phase 1 Profile page).
+// Strictly whitelisted: role, password, email and all auth/security fields can
+// NEVER be set here. Mentee target role/companies stay on PUT /api/prep-profile.
+const ME_STRING_FIELDS = ['name', 'bio', 'college', 'linkedin', 'github', 'registerNumber', 'department', 'batch', 'currentCompany', 'aimingCompany', 'experienceLevel'];
+const ME_NUMBER_FIELDS = ['cgpa', 'activeArrears', 'historyArrears', 'tenthPercent', 'twelfthPercent', 'graduationYear'];
+router.put('/me', protect, async (req, res) => {
+    try {
+        const update = {};
+        for (const f of ME_STRING_FIELDS) {
+            if (req.body[f] !== undefined) update[f] = typeof req.body[f] === 'string' ? req.body[f].slice(0, 200) : req.body[f];
+        }
+        for (const f of ME_NUMBER_FIELDS) {
+            if (req.body[f] !== undefined && req.body[f] !== '' && req.body[f] !== null) {
+                const n = Number(req.body[f]);
+                if (Number.isFinite(n)) update[f] = n;
+            } else if (req.body[f] === '' || req.body[f] === null) {
+                update[f] = undefined; // allow clearing a numeric field
+            }
+        }
+        if (Array.isArray(req.body.skills)) update.skills = req.body.skills.filter((s) => typeof s === 'string').slice(0, 50);
+        const user = await User.findByIdAndUpdate(req.user._id, update, { new: true, runValidators: true }).select(PRIVATE_SELECT);
+        res.json({ success: true, user });
+    } catch (error) {
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
+    }
+});
+
 // GET /api/users/mentors
 router.get('/mentors', protect, async (req, res) => {
     try {

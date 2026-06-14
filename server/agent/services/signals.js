@@ -13,6 +13,7 @@ const SOURCE_WEIGHTS = {
     mentor_feedback: 3,
     ai_interview: 2.5,
     gd_solo: 2,
+    behavioral_practice: 1.5,
     interview_game: 1.5,
     coding: 1.5,
     diagnostic: 1.5,

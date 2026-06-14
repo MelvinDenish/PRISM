@@ -12,7 +12,13 @@ const { generateDocument } = require('../agent/services/document');
 const { LAYOUTS, FONT_PAIRS, DENSITIES, HEADING_STYLES, SECTION_KEYS, SEED_KEYS } = require('../agent/services/resumeDesign');
 const { exportResumePdfArtifact } = require('../agent/services/resumePdf');
 const { intakeTurn } = require('../agent/services/resumeIntake');
+const { cuicFileName, cuicChecklist, CUIC_SECTIONS } = require('../utils/cuicResume');
 const router = express.Router();
+
+// CUIC compliance catalog — the required sections the client checklist renders.
+router.get('/cuic-checklist', protect, (req, res) => {
+  res.json({ success: true, sections: CUIC_SECTIONS });
+});
 
 // Public design-system catalog for the client's design panel (display lists only;
 // buildPalette/validateDesign logic stays server-side and is never shipped).
@@ -364,10 +370,14 @@ router.post('/drafts/:id/export', protect, async (req, res) => {
     const draft = await ResumeDraft.findOne({ _id: req.params.id, user: req.user._id });
     if (!draft) return res.status(404).json({ success: false, message: 'Draft not found' });
 
-    const titleBase = (draft.personalInfo && draft.personalInfo.fullName)
-      || draft.name
-      || 'Resume';
+    const candidateName = (draft.personalInfo && draft.personalInfo.fullName) || req.user.name || draft.name || 'Resume';
+    const titleBase = candidateName;
     const title = `${titleBase} — Resume`.slice(0, 120);
+
+    // CUIC requires the export named `RegisterNumber_Name.pdf`. The register number
+    // comes from the student's Profile (User.registerNumber); when it isn't on file
+    // yet we degrade to just the name so export never blocks.
+    const fileName = cuicFileName({ registerNumber: req.user.registerNumber, name: candidateName, format });
 
     let artifact;
     if (format === 'pdf') {
@@ -378,7 +388,8 @@ router.post('/drafts/:id/export', protect, async (req, res) => {
       const content = _buildResumeSections(draft);
       artifact = await generateDocument({ userId: req.user._id, kind: 'resume', title, format, content });
     }
-    return res.json({ success: true, artifact });
+    // `cuicCompliant` lets the client warn before download if sections are missing.
+    return res.json({ success: true, artifact, fileName, cuic: cuicChecklist(draft) });
   } catch (err) {
     return res.status(500).json({
       success: false,

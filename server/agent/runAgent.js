@@ -14,6 +14,7 @@
 // Imported as a namespace (not destructured) so `llm.chat` resolves at call time
 // — keeps the loop testable (stub llm.chat) and lets llm.js evolve freely.
 const llm = require('./llm');
+const { randomUUID } = require('crypto');
 const { TOOLS, toolDefinitionsForRole } = require('./tools');
 
 const MAX_ITERATIONS = 6;
@@ -117,6 +118,51 @@ function sanitizeMessages(messages) {
 }
 
 /**
+ * Execute one batch of tool calls from a single assistant turn.
+ *
+ * Calls are independent, so they run concurrently (the old loop awaited them one at
+ * a time — a turn that asked for find_mentors + get_company_track paid both latencies
+ * serially). Each call is wrapped in its own try/catch so a single failure resolves to
+ * an `{ error }` result fed back to the model rather than rejecting the whole batch.
+ * Promise.all preserves array order, so tool_call_id ↔ result correlation is intact.
+ *
+ * Mutates `proposedActions`/`toolsUsed` (shared with the caller) and returns the
+ * ordered array of `{ role:'tool', tool_call_id, content }` messages to append.
+ */
+async function executeToolCalls(calls, { role, ctx, proposedActions, toolsUsed }) {
+  return Promise.all(calls.map(async (call) => {
+    const name = call.function?.name;
+    const tool = TOOLS[name];
+    let result;
+
+    if (!tool || !tool.roles.includes(role)) {
+      result = { error: `Tool "${name}" is not available to you.` };
+    } else {
+      let args = {};
+      try { args = call.function.arguments ? JSON.parse(call.function.arguments) : {}; }
+      catch { args = {}; }
+      try {
+        toolsUsed.push(name);
+        if (tool.kind === 'write') {
+          // Confirm gate: produce a proposal, do NOT execute. Stamp a stable id so
+          // /confirm can mark this exact proposal executed (reload renders it Done).
+          const proposal = await tool.handler(args, ctx);
+          if (!proposal.id) proposal.id = randomUUID();
+          proposedActions.push(proposal);
+          result = { proposed: true, summary: proposal.summary, note: 'Awaiting the user\'s confirmation before this is executed.' };
+        } else {
+          result = await tool.handler(args, ctx);
+        }
+      } catch (err) {
+        result = { error: err.message || 'Tool execution failed' };
+      }
+    }
+
+    return { role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) };
+  }));
+}
+
+/**
  * Run the agent for one chat request.
  * @param {object} p
  * @param {Array}  p.messages  prior conversation ({role:'user'|'assistant', content})
@@ -150,38 +196,8 @@ async function runAgent({ messages, userId, role }) {
       return { reply: message.content || '', proposedActions, toolsUsed };
     }
 
-    for (const call of calls) {
-      const name = call.function?.name;
-      const tool = TOOLS[name];
-      let result;
-
-      if (!tool || !tool.roles.includes(role)) {
-        result = { error: `Tool "${name}" is not available to you.` };
-      } else {
-        let args = {};
-        try { args = call.function.arguments ? JSON.parse(call.function.arguments) : {}; }
-        catch { args = {}; }
-        try {
-          toolsUsed.push(name);
-          if (tool.kind === 'write') {
-            // Confirm gate: produce a proposal, do NOT execute.
-            const proposal = await tool.handler(args, ctx);
-            proposedActions.push(proposal);
-            result = { proposed: true, summary: proposal.summary, note: 'Awaiting the user\'s confirmation before this is executed.' };
-          } else {
-            result = await tool.handler(args, ctx);
-          }
-        } catch (err) {
-          result = { error: err.message || 'Tool execution failed' };
-        }
-      }
-
-      convo.push({
-        role: 'tool',
-        tool_call_id: call.id,
-        content: JSON.stringify(result),
-      });
-    }
+    const toolMessages = await executeToolCalls(calls, { role, ctx, proposedActions, toolsUsed });
+    convo.push(...toolMessages);
   }
 
   // Hit the iteration cap — ask the model for a final answer with no more tools.
@@ -189,4 +205,80 @@ async function runAgent({ messages, userId, role }) {
   return { reply: finalMsg.content || '', proposedActions, toolsUsed };
 }
 
-module.exports = { runAgent, PAGES };
+/**
+ * Streaming variant of runAgent. Identical tool-calling logic, but emits incremental
+ * events via `onEvent` so the UI can render progress instead of a dead typing dot:
+ *   { type:'tool',  names:[...] }  — tools the agent is about to run this turn
+ *   { type:'token', delta:'...' }  — a chunk of the final assistant reply
+ *   { type:'reset' }               — discard partial text: a token-emitting turn
+ *                                    actually resolved to tool calls (rare)
+ * Returns the same `{ reply, proposedActions, toolsUsed }` as runAgent so the caller
+ * persists exactly as the non-streaming path does.
+ *
+ * Note: the streamed path keeps only the `<function=…>`-in-content salvage arm; the
+ * `tool_use_failed`-error arm (path a) doesn't apply mid-stream. Fine on a native
+ * tool-calling model (gpt-oss); flagged because the provider is pluggable.
+ */
+async function runAgentStream({ messages, userId, role, onEvent }) {
+  const ctx = { userId, role };
+  const tools = toolDefinitionsForRole(role);
+  const convo = [
+    { role: 'system', content: systemPrompt(role) },
+    ...sanitizeMessages(messages),
+  ];
+
+  const proposedActions = [];
+  const toolsUsed = [];
+  const emit = (ev) => { try { onEvent?.(ev); } catch { /* never let a UI sink break the loop */ } };
+
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    let tokenEmitted = false;
+    let message;
+    try {
+      message = await llm.chatStream({
+        messages: convo,
+        tools,
+        onToken: (t) => { tokenEmitted = true; emit({ type: 'token', delta: t }); },
+      });
+    } catch (err) {
+      // Same malformed-tool-call salvage as the non-stream path (content arm).
+      const salvaged = salvageToolCalls(failedGenerationOf(err));
+      if (salvaged.length) message = { role: 'assistant', content: '', tool_calls: salvaged };
+      else throw err;
+    }
+
+    let calls = message.tool_calls || [];
+    if (calls.length === 0 && message.content) {
+      const fromText = salvageToolCalls(message.content);
+      if (fromText.length) { calls = fromText; message.tool_calls = fromText; message.content = ''; }
+    }
+
+    // Rare: a turn streamed text but resolved to tool calls — tell the UI to clear it.
+    if (calls.length > 0 && tokenEmitted) emit({ type: 'reset' });
+
+    convo.push(message);
+
+    if (calls.length === 0) {
+      const reply = message.content || '';
+      // Salvage path produces content without having streamed — emit it now.
+      if (!tokenEmitted && reply) emit({ type: 'token', delta: reply });
+      return { reply, proposedActions, toolsUsed };
+    }
+
+    emit({ type: 'tool', names: calls.map((c) => c.function?.name).filter(Boolean) });
+    const toolMessages = await executeToolCalls(calls, { role, ctx, proposedActions, toolsUsed });
+    convo.push(...toolMessages);
+  }
+
+  // Iteration cap — final answer with no tools, still streamed.
+  let finalEmitted = false;
+  const finalMsg = await llm.chatStream({
+    messages: convo,
+    onToken: (t) => { finalEmitted = true; emit({ type: 'token', delta: t }); },
+  });
+  const reply = finalMsg.content || '';
+  if (!finalEmitted && reply) emit({ type: 'token', delta: reply });
+  return { reply, proposedActions, toolsUsed };
+}
+
+module.exports = { runAgent, runAgentStream, PAGES };

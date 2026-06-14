@@ -6,17 +6,18 @@ const InterviewGame = require('../models/InterviewGame');
 const GDSession = require('../models/GDSession');
 const { gradeMcqRound, sanitizeGame } = require('../utils/interviewGameScoring');
 const { executeCode } = require('./codeExecution');
+// Coding-problem gen/verify helpers live in a shared util (Phase 2) so the
+// learning-path final test reuses the exact same verified grading path.
+const { normOut, FALLBACK_CODING_PROBLEM, generateCodingProblems, validateCodingProblems } = require('../utils/codingProblems');
 const Groq = require('groq-sdk');
 const { emit: emitSignals } = require('../agent/services/signals');
 const { upsertReviewItems } = require('../agent/services/reviewQueue');
 const { resolveTemplate, difficultyFromReadiness } = require('../utils/gameTemplates');
+const { maybeResearchCompany } = require('../agent/services/companyResearch');
 const Company = require('../models/Company');
 const PrepProfile = require('../models/PrepProfile');
 const BehavioralAnswer = require('../models/BehavioralAnswer');
 const router = express.Router();
-
-// Normalize program output for comparison (trailing whitespace/newlines vary).
-const normOut = (s) => String(s == null ? '' : s).replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').trim();
 
 // Round types graded server-side from the stored answer key (MCQ rounds).
 const MCQ_ROUNDS = ['aptitude', 'technical1', 'technical2'];
@@ -133,115 +134,6 @@ const generateGDTopic = async () => {
   return completion.choices[0]?.message?.content?.trim() || 'Is artificial intelligence a threat or an opportunity for the workforce?';
 };
 
-// Hand-verified safe coding problem used when AI generation fails or when AI test
-// cases can't be validated. Has no `referenceSolution`, so it passes straight
-// through validateCodingProblems and its known-correct test cases grade fairly.
-const FALLBACK_CODING_PROBLEM = {
-  id: 'find_max',
-  title: 'Find Maximum Element',
-  difficulty: 'Easy',
-  description: 'Given an array of n integers, find and print the maximum element.\n\nInput: First line n, second line n space-separated integers.\nOutput: The maximum element.',
-  examples: [{ input: '5\n3 1 4 1 5', output: '5', explanation: 'Maximum of [3,1,4,1,5] is 5' }],
-  testCases: [
-    { input: '5\n3 1 4 1 5', expectedOutput: '5' },
-    { input: '1\n42', expectedOutput: '42' },
-    { input: '3\n-1 -5 -2', expectedOutput: '-1' },
-    { input: '4\n10 20 30 40', expectedOutput: '40' },
-    { input: '6\n7 7 7 7 7 7', expectedOutput: '7' },
-  ],
-  boilerplate: {
-    javascript: `const lines = require('fs').readFileSync('/dev/stdin','utf8').trim().split('\\n');\nconst n = parseInt(lines[0]);\nconst arr = lines[1].split(' ').map(Number);\n// Your code here\nconsole.log(Math.max(...arr));`,
-    python: `n = int(input())\narr = list(map(int, input().split()))\n# Your code here\nprint(max(arr))`,
-    cpp: `#include <iostream>\n#include <algorithm>\nusing namespace std;\nint main() {\n    int n; cin >> n;\n    int arr[n];\n    for(int i=0;i<n;i++) cin >> arr[i];\n    // Your code here\n    cout << *max_element(arr, arr+n) << endl;\n    return 0;\n}`,
-    java: `import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        int n = sc.nextInt();\n        int max = Integer.MIN_VALUE;\n        for(int i=0;i<n;i++) max = Math.max(max, sc.nextInt());\n        System.out.println(max);\n    }\n}`,
-    c: `#include <stdio.h>\n#include <limits.h>\nint main() {\n    int n; scanf("%d", &n);\n    int max = INT_MIN;\n    for(int i=0;i<n;i++) { int x; scanf("%d", &x); if(x>max) max=x; }\n    printf("%d\\n", max);\n    return 0;\n}`
-  }
-};
-
-// Generate coding problems via Groq
-const generateCodingProblems = async (count, difficulty = 'medium') => {
-  const groq = getGroq();
-  const completion = await groq.chat.completions.create({
-    model: 'llama-3.1-8b-instant',
-    messages: [
-      { role: 'system', content: 'You are a competitive programming problem setter. Return ONLY valid JSON. No markdown, no extra text.' },
-      { role: 'user', content: `Generate ${count} coding problems for a placement interview coding round (${difficulty} difficulty). Each problem should have:
-- Clear problem statement with input/output format
-- 2 examples with explanations
-- 5 test cases with input and expected output
-- Boilerplate code for JavaScript, Python, C++, Java, C
-
-The problems should test: arrays, strings, searching, sorting, dynamic programming, or recursion.
-
-Input format: first line = n (size), second line = space-separated values, third line = target/parameter if needed.
-Output format: single line output.
-
-Also include a WORKING Python 3 reference solution (reads stdin, prints stdout)
-that actually solves the problem — it is used to verify the test cases.
-
-Return as JSON array:
-[{
-  "id": "snake_case_id",
-  "title": "Problem Title",
-  "difficulty": "Easy|Medium|Hard",
-  "description": "Full problem description with input/output format",
-  "examples": [{"input": "...", "output": "...", "explanation": "..."}],
-  "testCases": [{"input": "stdin input", "expectedOutput": "expected stdout"}],
-  "referenceSolution": "complete runnable Python 3 program that reads the input and prints the correct output",
-  "boilerplate": {
-    "javascript": "code with // Your code here placeholder",
-    "python": "code with # Your code here placeholder",
-    "cpp": "code with // Your code here placeholder",
-    "java": "code with // Your code here placeholder",
-    "c": "code with // Your code here placeholder"
-  }
-}]` }
-    ],
-    max_tokens: 6000,
-    temperature: 0.7
-  });
-
-  try {
-    const raw = completion.choices[0]?.message?.content || '[]';
-    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    return JSON.parse(cleaned);
-  } catch {
-    // Parse failure → one hand-verified problem so the round is never empty.
-    return [FALLBACK_CODING_PROBLEM];
-  }
-};
-
-// Verify AI-generated coding test cases before they're ever used to grade a user.
-// The model's claimed `expectedOutput` can be wrong, so we run its OWN Python
-// reference solution and trust the reference's actual output as the expected
-// output. Cases the reference can't produce cleanly are dropped; a problem left
-// with too few verified cases is discarded entirely — better to serve no AI
-// problem than to grade someone against a hallucinated answer key. Problems with
-// no referenceSolution (the hand-curated fallback / verified bank) pass through.
-const validateCodingProblems = async (problems) => {
-  const out = [];
-  for (const p of problems || []) {
-    const ref = p?.referenceSolution;
-    if (!ref || typeof ref !== 'string') { out.push(p); continue; }
-    const verified = [];
-    for (const tc of p.testCases || []) {
-      try {
-        const r = await executeCode('python', ref, tc.input || '');
-        if (r && r.exitCode === 0) {
-          const actual = normOut(r.stdout);
-          if (actual !== '') verified.push({ input: tc.input, expectedOutput: actual });
-        }
-      } catch (_) { /* unrunnable case is dropped */ }
-    }
-    if (verified.length >= 3) {
-      // eslint-disable-next-line no-unused-vars
-      const { referenceSolution, ...rest } = p;
-      out.push({ ...rest, testCases: verified });
-    }
-  }
-  return out;
-};
-
 const QuestionBank = require('../models/QuestionBank');
 
 // ─── ROUTES ───
@@ -252,35 +144,64 @@ const QuestionBank = require('../models/QuestionBank');
 // band may hold fewer). The chosen difficulty therefore DOMINATES the round as far
 // as the data allows, instead of difficulty being ignored entirely.
 const VALID_DIFF = ['easy', 'medium', 'hard'];
-const sampleByDifficulty = async (type, difficulty, size) => {
+
+// P3 (hybrid game): pull a company's tagged questions in TRUST order — mentor
+// uploads first, then internet-researched — capped to `size`. Returns [] when no
+// company is targeted, so generic sampling is unchanged for untargeted games.
+const sampleCompanyPreferred = async (type, companyTag, size, alreadyHave = []) => {
+  if (!companyTag || !mongoose.isValidObjectId(companyTag) || size <= 0) return [];
+  const cid = new mongoose.Types.ObjectId(companyTag);
+  const picked = [];
+  const ninIds = () => [...alreadyHave, ...picked.map((d) => d._id)];
+  for (const source of ['mentor', 'research']) {
+    if (picked.length >= size) break;
+    const docs = await QuestionBank.aggregate([
+      { $match: { type, verified: true, companyTag: cid, source, _id: { $nin: ninIds() } } },
+      { $sample: { size: size - picked.length } },
+    ]);
+    picked.push(...docs);
+  }
+  return picked;
+};
+
+const sampleByDifficulty = async (type, difficulty, size, companyTag = null) => {
   const diff = VALID_DIFF.includes(difficulty) ? difficulty : 'medium';
+  // Company-preferred questions first (mentor → research), then generic top-up.
+  const pref = await sampleCompanyPreferred(type, companyTag, size);
+  if (pref.length >= size) return pref.slice(0, size);
+  const have = pref.map((d) => d._id);
   const primary = await QuestionBank.aggregate([
-    { $match: { type, verified: true, difficulty: diff } },
-    { $sample: { size } },
+    { $match: { type, verified: true, difficulty: diff, _id: { $nin: have } } },
+    { $sample: { size: size - pref.length } },
   ]);
-  if (primary.length >= size) return primary;
-  const have = primary.map((d) => d._id);
+  let out = [...pref, ...primary];
+  if (out.length >= size) return out.slice(0, size);
+  const have2 = out.map((d) => d._id);
   const fill = await QuestionBank.aggregate([
-    { $match: { type, verified: true, _id: { $nin: have } } },
-    { $sample: { size: size - primary.length } },
+    { $match: { type, verified: true, _id: { $nin: have2 } } },
+    { $sample: { size: size - out.length } },
   ]);
-  return [...primary, ...fill];
+  return [...out, ...fill].slice(0, size);
 };
 
 // P8: category-weighted sampling for targeted games. Biases toward a template's
 // `categoryWeights` AND the chosen difficulty, topping up across categories /
 // difficulties so a round never starves (the bank is thin per category/difficulty
 // — see the B3 lesson). Falls back to plain sampleByDifficulty when no weights.
-const sampleWeighted = async (type, roundCfg, size) => {
+const sampleWeighted = async (type, roundCfg, size, companyTag = null) => {
   const difficulty = VALID_DIFF.includes(roundCfg?.difficulty) ? roundCfg.difficulty : 'medium';
   const wEntries = Object.entries(roundCfg?.categoryWeights || {}).filter(([, w]) => Number(w) > 0);
-  if (!wEntries.length) return sampleByDifficulty(type, difficulty, size);
+  if (!wEntries.length) return sampleByDifficulty(type, difficulty, size, companyTag);
 
   const totalW = wEntries.reduce((a, [, w]) => a + Number(w), 0);
   const picked = [];
   const seen = new Set();
   const nin = () => picked.map((d) => d._id);
   const take = (docs) => { for (const d of docs) { const k = String(d._id); if (!seen.has(k)) { seen.add(k); picked.push(d); } } };
+
+  // P3: a company-targeted game prefers that company's questions (mentor →
+  // research) before the category-weighted generic fill — keeping weighting intact.
+  take(await sampleCompanyPreferred(type, companyTag, size, nin()));
 
   for (const [category, w] of wEntries) {
     if (picked.length >= size) break;
@@ -320,13 +241,15 @@ router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
     const game = ctx?.game || null;
     const template = ctx?.template || resolveTemplate({ difficulty: req.query.difficulty });
     const rcfg = (key) => template.rounds[key] || {};
+    // P3: company-targeted games prefer this company's tagged questions.
+    const companyTag = game?.companyFocus || null;
 
     let questions = [];
     switch (round) {
       case 'aptitude': {
         const cfg = rcfg('aptitude');
         const size = cfg.count || 15;
-        const docs = await sampleWeighted('aptitude', cfg, size);
+        const docs = await sampleWeighted('aptitude', cfg, size, companyTag);
         questions = docs.map((q, i) => ({ id: `apt_${i}`, q: q.q, opts: q.opts, ans: q.ans, explanation: q.explanation, bankId: String(q._id), category: q.category, difficulty: q.difficulty }));
         // AI fallback if bank is empty
         if (questions.length < 5) {
@@ -339,7 +262,7 @@ router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
       case 'technical2': {
         const cfg = rcfg(round);
         const size = cfg.count || 10;
-        const docs = await sampleWeighted('technical', cfg, size);
+        const docs = await sampleWeighted('technical', cfg, size, companyTag);
         questions = docs.map((q, i) => ({ id: `tech_${i}`, q: q.q, opts: q.opts, ans: q.ans, explanation: q.explanation, bankId: String(q._id), category: q.category, difficulty: q.difficulty }));
         if (questions.length < 5) {
           const mcqs = await generateMCQs('technical', size);
@@ -360,7 +283,12 @@ router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
           } catch { /* fall through to bank */ }
         }
         if (!questions.length) {
-          const docs = await QuestionBank.aggregate([{ $match: { type: 'hr', verified: true } }, { $sample: { size } }]);
+          // Prefer this company's tagged HR questions, then generic curated HR.
+          let docs = await sampleCompanyPreferred('hr', companyTag, size);
+          if (docs.length < size) {
+            const have = docs.map((d) => d._id);
+            docs = [...docs, ...await QuestionBank.aggregate([{ $match: { type: 'hr', verified: true, _id: { $nin: have } } }, { $sample: { size: size - docs.length } }])];
+          }
           questions = docs.map((q, i) => ({ id: `hr_${i}`, q: q.q, type: 'open' }));
           if (questions.length < 5) {
             const hrQs = await generateHRQuestions(size);
@@ -378,7 +306,7 @@ router.get('/questions/:round', protect, aiLimiter, async (req, res) => {
       case 'coding': {
         const cfg = rcfg('coding');
         const size = cfg.count || 2;
-        const docs = await sampleByDifficulty('coding', cfg.difficulty, size);
+        const docs = await sampleByDifficulty('coding', cfg.difficulty, size, companyTag);
         questions = docs.map(p => ({
           id: p._id.toString(),
           title: p.title,
@@ -490,6 +418,10 @@ router.post('/start', protect, async (req, res) => {
         { type: 'hr', maxScore: 100 }
       ]
     });
+    // P3: targeting a company kicks off background research (fire-and-forget,
+    // feature-flagged on TAVILY_API_KEY) so its bank is richer next time. NEVER
+    // blocks game start; the round falls back to mentor/curated meanwhile.
+    if (companyFocus) maybeResearchCompany(companyFocus);
     res.status(201).json({ success: true, game: sanitizeGame(game) });
   } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
@@ -600,8 +532,13 @@ router.post('/submit-round', protect, async (req, res) => {
         await sess.save().catch(() => {});
         round.feedback = sess.feedback?.verdict ? `GD: ${sess.feedback.verdict}` : '';
       } else {
-        // No valid server-graded session → no credit (was: trust client aiScore).
-        score = 0;
+        // No server-graded session (eval failed / DB hiccup / not provided): fall back
+        // to a bounded, server-CLAMPED participation score so a transient backend
+        // failure can't zero-and-eliminate the user mid-game. Capped at 50 (below a
+        // good real GD score) so omitting gdSessionId is never worth more than grading,
+        // and it's derived server-side from contributions — never the client's number.
+        const contribs = Math.max(0, Math.min(Number(answers?.[0]?.contributions) || 0, 6));
+        score = 20 + contribs * 5; // 20..50
       }
       if (Array.isArray(answers)) round.answers = answers;
     } else {
@@ -668,8 +605,11 @@ router.get('/:id/report', protect, async (req, res) => {
     if (!game.user.equals(req.user._id)) return res.status(403).json({ success: false, message: 'Not authorized for this game' });
 
     const ROUND_LABEL = { aptitude: 'Aptitude', technical1: 'Technical I', technical2: 'Technical II', coding: 'Coding', gd: 'Group Discussion', hr: 'HR' };
+    // CUIC 5-stage mapping (Stage 1 = Pre-Placement Talk, non-graded briefing).
+    const CUIC_STAGE = { aptitude: { stage: 2, name: 'Online Assessment' }, technical1: { stage: 2, name: 'Online Assessment' }, coding: { stage: 2, name: 'Online Assessment' }, gd: { stage: 3, name: 'Group Discussion' }, technical2: { stage: 4, name: 'Technical Interview' }, hr: { stage: 5, name: 'HR Interview' } };
     const rounds = game.rounds.map((r) => ({
       type: r.type, label: ROUND_LABEL[r.type] || r.type,
+      stage: CUIC_STAGE[r.type]?.stage, stageName: CUIC_STAGE[r.type]?.name,
       pillar: PILLAR_BY_ROUND[r.type] || 'cs_core',
       score: r.score, status: r.status,
     }));
@@ -735,3 +675,4 @@ module.exports = router;
 // real sampling path without spinning up HTTP.
 module.exports.sampleWeighted = sampleWeighted;
 module.exports.sampleByDifficulty = sampleByDifficulty;
+module.exports.sampleCompanyPreferred = sampleCompanyPreferred;

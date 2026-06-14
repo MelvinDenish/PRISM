@@ -4,13 +4,26 @@ import { startInterviewGame, getGameQuestions, submitGameRound, startAIInterview
 import { FiPlay, FiClock, FiAward, FiCheck, FiArrowRight, FiRotateCcw, FiSend, FiCpu, FiUser, FiAlertTriangle, FiMapPin, FiCode, FiTerminal, FiTarget, FiRefreshCw } from 'react-icons/fi';
 import Editor from '@monaco-editor/react';
 
+// Rounds mapped onto the real CUIC (Anna University) 5-stage placement pipeline.
+// Stage 1 (Pre-Placement Talk) is a non-graded briefing shown before Round 1;
+// the graded rounds below are unchanged (types/scoring identical) so nothing
+// breaks — `stage`/`stageName` only drive the CUIC labelling.
 const ROUNDS = [
-    { type: 'aptitude', name: 'Aptitude Test', icon: '🧠', desc: '15 MCQ questions — quantitative, logical, verbal', time: 1200, passScore: 40 },
-    { type: 'technical1', name: 'Technical Round 1', icon: '💻', desc: '10 MCQ questions — CS fundamentals', time: 900, passScore: 50 },
-    { type: 'coding', name: 'Coding Round', icon: '⌨️', desc: '2 coding problems — solve within time', time: 2400, passScore: 30 },
-    { type: 'gd', name: 'Group Discussion', icon: '🗣️', desc: 'AI-moderated topic discussion', time: 600, passScore: 40 },
-    { type: 'technical2', name: 'Technical Round 2 (Live)', icon: '🔧', desc: 'Live interview with AI interviewer', time: 900, passScore: 50 },
-    { type: 'hr', name: 'HR Round', icon: '👔', desc: '10 behavioral questions', time: 900, passScore: 40 },
+    { type: 'aptitude', name: 'Aptitude Test', icon: '🧠', desc: '15 MCQ questions — quantitative, logical, verbal', time: 1200, passScore: 40, stage: 2, stageName: 'Online Assessment' },
+    { type: 'technical1', name: 'Technical Round 1', icon: '💻', desc: '10 MCQ questions — CS fundamentals', time: 900, passScore: 50, stage: 2, stageName: 'Online Assessment' },
+    { type: 'coding', name: 'Coding Round', icon: '⌨️', desc: '2 coding problems — solve within time', time: 2400, passScore: 30, stage: 2, stageName: 'Online Assessment' },
+    { type: 'gd', name: 'Group Discussion', icon: '🗣️', desc: 'AI-moderated topic discussion', time: 600, passScore: 40, stage: 3, stageName: 'Group Discussion' },
+    { type: 'technical2', name: 'Technical Interview', icon: '🔧', desc: 'Live interview with AI interviewer', time: 900, passScore: 50, stage: 4, stageName: 'Technical Interview' },
+    { type: 'hr', name: 'HR Interview', icon: '👔', desc: '10 behavioral questions', time: 900, passScore: 40, stage: 5, stageName: 'HR Interview' },
+];
+
+// The CUIC 5-stage process shown on the start screen (Stage 1 is the briefing).
+const CUIC_STAGES = [
+    { n: 1, name: 'Pre-Placement Talk', desc: 'Company, role & eligibility briefing' },
+    { n: 2, name: 'Online Assessment', desc: 'Aptitude + Technical MCQ + Coding' },
+    { n: 3, name: 'Group Discussion', desc: 'Topic discussion (optional)' },
+    { n: 4, name: 'Technical Interview', desc: 'Deep technical round' },
+    { n: 5, name: 'HR Interview', desc: 'Behavioral & cultural fit' },
 ];
 
 const LANGUAGES = [
@@ -455,10 +468,13 @@ const InterviewGame = () => {
                             <div className="glass-card" style={{ padding: 32, marginBottom: 32, textAlign: 'center' }}>
                                 <h2 style={{ marginBottom: 8 }}>🏆 Full Interview Game</h2>
                                 <p style={{ color: 'var(--text-muted)', marginBottom: 20, fontSize: 14 }}>
-                                    6 sequential rounds — just like a real placement drive. Score below the cutoff and you're eliminated!
+                                    The real <strong>CUIC 5-stage placement pipeline</strong>, end to end. Score below a round's cutoff and you're eliminated — just like the real drive.
                                 </p>
+                                {/* CUIC 5-stage overview (Stage 1 = Pre-Placement Talk briefing). */}
                                 <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 20 }}>
-                                    {ROUNDS.map((r, i) => (<span key={r.type} className="badge badge-info" style={{ fontSize: 12 }}>{i + 1}. {r.name}</span>))}
+                                    {CUIC_STAGES.map((s) => (
+                                        <span key={s.n} className="badge badge-info" style={{ fontSize: 12 }} title={s.desc}>{s.n}. {s.name}</span>
+                                    ))}
                                 </div>
                                 {/* P8: target a company + role so the game composes a tailored round mix (template + bank-first sourcing). */}
                                 <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 16, textAlign: 'left' }}>
@@ -620,6 +636,7 @@ const InterviewGame = () => {
                         </div>
                     )}
                     <div style={{ fontSize: 72, marginBottom: 24 }}>{r.icon}</div>
+                    {r.stageName && <p style={{ textTransform: 'uppercase', letterSpacing: 2, fontSize: 12, color: 'var(--accent-primary)', marginBottom: 4 }}>CUIC Stage {r.stage} · {r.stageName}</p>}
                     <h2 style={{ fontSize: 28, marginBottom: 8 }}>
                         {mode === 'full' ? `Round ${currentRound + 1}: ` : ''}{r.name}
                     </h2>
