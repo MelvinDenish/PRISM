@@ -149,6 +149,8 @@ async def entrypoint(ctx: JobContext):
 
 
 if __name__ == "__main__":
-    # `agent_name` lets the PRISM server use explicit dispatch later if desired; by
-    # default the worker is dispatched to rooms automatically and self-filters above.
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, agent_name="prism-panelist"))
+    # No `agent_name` → AUTOMATIC dispatch: the worker is offered every new room and
+    # the entrypoint self-filters to `gd:` rooms (ignoring 1:1 `session:` rooms). This
+    # is what makes the panelist join GDs with ZERO PRISM-server change. (To switch to
+    # explicit, server-triggered dispatch later, set agent_name and dispatch on start.)
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
