@@ -35,6 +35,7 @@ Server reads from `server/.env`:
 - `EMAIL_USER`, `EMAIL_PASS` — Gmail SMTP for `utils/emailService.js`; if absent, email is silently disabled (no error).
 - `CLIENT_URL` — comma-separated allowed origins for CORS and Socket.IO. Defaults to `http://localhost:5173`.
 - `JUDGE0_API_URL` — optional Judge0 CE endpoint for `/api/code-execution`. If unreachable, the route falls back to local `child_process` execution (`node`, `python`/`python3`, `g++`, `gcc`, `javac`/`java` must be on PATH).
+- `TAVILY_API_KEY` — optional. Enables the Interview Game's company interview-question research pipeline (`server/agent/services/companyResearch.js`): search → fetch → Readability → LLM-structure → `QuestionBank` (`source:'research'`). When unset, research is disabled and the game serves mentor-uploaded + curated questions only (graceful degradation, like the other AI keys).
 - `PORT` — defaults to `5000`.
 
 Client reads `VITE_API_URL` (default `http://localhost:5000/api`) and `VITE_SOCKET_URL` (default `http://localhost:5000`). See `client/.env.example`.

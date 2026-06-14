@@ -1,6 +1,7 @@
 const express = require('express');
 const Progress = require('../models/Progress');
 const InterviewGame = require('../models/InterviewGame');
+const InterviewAttempt = require('../models/InterviewAttempt');
 const Resource = require('../models/Resource');
 const { protect } = require('../middleware/auth');
 const router = express.Router();
@@ -67,6 +68,32 @@ router.get('/dashboard', protect, async (req, res) => {
             if (averageScores.problemSolving < maxScore - 15) scoreAreas.push({ area: 'Problem Solving', score: averageScores.problemSolving });
         }
 
+        // ── Standalone AI interview attempts (B2) ──
+        // SELF-REPORTED (graded from a client-supplied transcript) so these are
+        // kept in their OWN section — never blended into the game-derived
+        // averageScores/radar above, and never used in any comparative surface.
+        const attempts = await InterviewAttempt.find({ user: req.user._id })
+            .sort({ createdAt: -1 })
+            .limit(20)
+            .lean();
+        const aiInterviewScores = attempts.map(a => a.overallScore || 0);
+        const aiInterviews = {
+            total: attempts.length,
+            averageScore: aiInterviewScores.length > 0
+                ? Math.round(aiInterviewScores.reduce((s, v) => s + v, 0) / aiInterviewScores.length) : 0,
+            bestScore: aiInterviewScores.length > 0 ? Math.max(...aiInterviewScores) : 0,
+            // Oldest→newest for a trend line.
+            trend: [...attempts].reverse().map(a => ({ score: a.overallScore || 0, at: a.createdAt })),
+            recent: attempts.slice(0, 5).map(a => ({
+                _id: a._id,
+                type: a.type,
+                topic: a.topic,
+                overallScore: a.overallScore || 0,
+                recommendation: a.recommendation || '',
+                createdAt: a.createdAt,
+            })),
+        };
+
         // Best/recent game stats
         const bestGame = completedGames.reduce((best, g) => {
             const pct = g.maxTotalScore > 0 ? (g.totalScore / g.maxTotalScore) * 100 : 0;
@@ -84,6 +111,7 @@ router.get('/dashboard', protect, async (req, res) => {
                 averageScores,
                 totalGamesPlayed: completedGames.length,
                 bestGameScore: bestGame ? Math.round(bestGame.pct) : 0,
+                aiInterviews,
                 weakAreas,
                 scoreWeaknesses: scoreAreas,
                 roundAverages: {
@@ -96,7 +124,7 @@ router.get('/dashboard', protect, async (req, res) => {
             }
         });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 

@@ -20,6 +20,8 @@ const LearningPath = require('../models/LearningPath');
 const CodeSubmission = require('../models/CodeSubmission');
 const ResumeAnalysis = require('../models/ResumeAnalysis');
 const ResumeDraft = require('../models/ResumeDraft');
+const authoredCoding = require('./data/codingProblems');
+const { verifyProblem } = require('../utils/codingGrader');
 
 const seedAll = async () => {
     try {
@@ -70,7 +72,8 @@ const seedAll = async () => {
         const adminData = { name: 'PRISM Admin', email: 'admin@prism.dev', password: hash, role: 'admin', bio: 'Platform administrator' };
 
         const mentors = await User.insertMany(mentorData);
-        const mentees = await User.insertMany(menteeData);
+        // Demo mentees already have rich data — skip the C7 diagnostic for them.
+        const mentees = await User.insertMany(menteeData.map((m) => ({ ...m, onboarded: true })));
         const admin = await User.create(adminData);
         console.log(`   ✅ ${mentors.length} mentors, ${mentees.length} mentees, 1 admin`);
 
@@ -107,7 +110,8 @@ const seedAll = async () => {
             'Web Development', 'Machine Learning', 'Dynamic Programming',
             'Graph Theory', 'String Algorithms', 'Binary Trees & BST',
             'Sorting & Searching', 'Recursion & Backtracking', 'Bit Manipulation',
-            'Linked Lists', 'Stacks & Queues', 'Heap & Priority Queue', 'Greedy Algorithms'
+            'Linked Lists', 'Stacks & Queues', 'Heap & Priority Queue', 'Greedy Algorithms',
+            'Aptitude & Reasoning', 'HR & Behavioral'
         ];
         const topicDescriptions = [
             'Arrays, Linked Lists, Trees, Graphs, Hash Maps, Heaps',
@@ -129,7 +133,9 @@ const seedAll = async () => {
             'Singly, Doubly, Circular, Floyd\'s Cycle Detection',
             'Implementation, Monotonic Stack, Deque, Expression Evaluation',
             'Min/Max Heap, K-th element problems, Merge K lists',
-            'Activity Selection, Huffman, Job Sequencing, Fractional Knapsack'
+            'Activity Selection, Huffman, Job Sequencing, Fractional Knapsack',
+            'Quantitative Aptitude, Logical & Verbal Reasoning',
+            'HR rounds, Behavioral questions, STAR method'
         ];
         const topics = await Topic.insertMany(
             topicNames.map((name, i) => ({ name, description: topicDescriptions[i], createdBy: admin._id }))
@@ -140,94 +146,29 @@ const seedAll = async () => {
         // 4. RESOURCES (100+)
         // ════════════════════════════════════════
         console.log('📖 Seeding resources...');
+        const levels = ['beginner', 'intermediate', 'advanced']; // used by later sections too
+        const { CATALOG, inferType } = require('./data/resources');
+        const topicByName = Object.fromEntries(topics.map((t) => [t.name, t]));
         const resourceEntries = [];
-        const levels = ['beginner', 'intermediate', 'advanced'];
-        const types = ['video', 'article', 'link'];
-        const resourceTemplates = [
-            { t: 0, items: [
-                { title: 'Arrays & Hashing - Complete Guide', link: 'https://www.youtube.com/watch?v=KLlXCFG5TnA' },
-                { title: 'Linked List Masterclass', link: 'https://www.youtube.com/watch?v=Hj_rA0dhr2I' },
-                { title: 'Hash Map Internal Working', link: 'https://www.geeksforgeeks.org/hashing-data-structure/' },
-                { title: 'Stack & Queue Implementation', link: 'https://visualgo.net/en/list' },
-                { title: 'Tree Data Structure Visualized', link: 'https://www.cs.usfca.edu/~galles/visualization/BST.html' },
-            ]},
-            { t: 1, items: [
-                { title: 'Sorting Algorithms Visualized', link: 'https://www.youtube.com/watch?v=kPRA0W1kECg' },
-                { title: 'Binary Search Deep Dive', link: 'https://leetcode.com/discuss/study-guide/786126/' },
-                { title: 'Two Pointer Technique Guide', link: 'https://www.geeksforgeeks.org/two-pointers-technique/' },
-                { title: 'Sliding Window Pattern', link: 'https://www.youtube.com/watch?v=MK-NZ4hN7rs' },
-                { title: 'Divide and Conquer Explained', link: 'https://www.programiz.com/dsa/divide-and-conquer' },
-            ]},
-            { t: 2, items: [
-                { title: 'System Design Primer', link: 'https://github.com/donnemartin/system-design-primer' },
-                { title: 'Designing Instagram - HLD', link: 'https://www.youtube.com/watch?v=VJpfO6KdyWE' },
-                { title: 'URL Shortener Design', link: 'https://www.educative.io/courses/grokking-the-system-design-interview' },
-                { title: 'Load Balancer Deep Dive', link: 'https://www.nginx.com/resources/glossary/load-balancing/' },
-                { title: 'CAP Theorem Explained', link: 'https://www.ibm.com/topics/cap-theorem' },
-            ]},
-            { t: 3, items: [
-                { title: 'Process vs Thread Explained', link: 'https://www.youtube.com/watch?v=4rLW7zg21gI' },
-                { title: 'CPU Scheduling Algorithms', link: 'https://www.geeksforgeeks.org/cpu-scheduling-in-operating-systems/' },
-                { title: 'Deadlock Detection & Recovery', link: 'https://www.tutorialspoint.com/operating_system/os_deadlocks.htm' },
-                { title: 'Virtual Memory Concepts', link: 'https://www.youtube.com/watch?v=A9WLYbE0p-I' },
-                { title: 'Concurrency & Synchronization', link: 'https://pages.cs.wisc.edu/~remzi/OSTEP/' },
-            ]},
-            { t: 4, items: [
-                { title: 'SQL Joins Masterclass', link: 'https://www.youtube.com/watch?v=9yeOJ0ZMUYw' },
-                { title: 'Database Normalization Guide', link: 'https://www.guru99.com/database-normalization.html' },
-                { title: 'Indexing & Query Optimization', link: 'https://use-the-index-luke.com/' },
-                { title: 'MongoDB vs PostgreSQL Comparison', link: 'https://www.mongodb.com/compare/mongodb-postgresql' },
-                { title: 'ACID Properties Explained', link: 'https://www.geeksforgeeks.org/acid-properties-in-dbms/' },
-            ]},
-            { t: 5, items: [
-                { title: 'TCP/IP Model Deep Dive', link: 'https://www.youtube.com/watch?v=CRdL1PVrsV8' },
-                { title: 'HTTP/HTTPS Protocol Guide', link: 'https://developer.mozilla.org/en-US/docs/Web/HTTP' },
-                { title: 'DNS Resolution Process', link: 'https://www.cloudflare.com/learning/dns/what-is-dns/' },
-                { title: 'OSI Model Layers Explained', link: 'https://www.geeksforgeeks.org/layers-of-osi-model/' },
-                { title: 'Network Security Basics', link: 'https://www.cisco.com/c/en/us/products/security/what-is-network-security.html' },
-            ]},
-            { t: 7, items: [
-                { title: 'React.js Complete Course', link: 'https://www.youtube.com/watch?v=bMknfKXIFA8' },
-                { title: 'Node.js REST API Tutorial', link: 'https://www.youtube.com/watch?v=fgTGADljAeg' },
-                { title: 'JavaScript ES6+ Features', link: 'https://www.javascripttutorial.net/es6/' },
-                { title: 'CSS Flexbox & Grid Guide', link: 'https://css-tricks.com/snippets/css/a-guide-to-flexbox/' },
-                { title: 'Full Stack Project Tutorial', link: 'https://www.youtube.com/watch?v=mrHNSanmqQ4' },
-            ]},
-            { t: 8, items: [
-                { title: 'Machine Learning Crash Course', link: 'https://developers.google.com/machine-learning/crash-course' },
-                { title: 'Neural Networks from Scratch', link: 'https://www.youtube.com/watch?v=aircAruvnKk' },
-                { title: 'Pandas & NumPy Essentials', link: 'https://www.kaggle.com/learn/pandas' },
-                { title: 'Scikit-learn Tutorial', link: 'https://scikit-learn.org/stable/tutorial/' },
-                { title: 'Deep Learning Specialization Notes', link: 'https://www.deeplearning.ai/' },
-            ]},
-            { t: 9, items: [
-                { title: 'DP Patterns - Ultimate Guide', link: 'https://leetcode.com/discuss/study-guide/458695/' },
-                { title: 'Knapsack Problem Variants', link: 'https://www.youtube.com/watch?v=8LusJS5-AGo' },
-                { title: 'LCS & Edit Distance', link: 'https://www.geeksforgeeks.org/longest-common-subsequence-dp-4/' },
-                { title: 'Matrix Chain Multiplication', link: 'https://www.programiz.com/dsa/matrix-chain-multiplication' },
-                { title: 'DP on Trees', link: 'https://codeforces.com/blog/entry/20935' },
-            ]},
-            { t: 10, items: [
-                { title: 'Graph Traversal BFS & DFS', link: 'https://www.youtube.com/watch?v=pcKY4hjDrxk' },
-                { title: 'Dijkstra\'s Shortest Path', link: 'https://visualgo.net/en/sssp' },
-                { title: 'Topological Sort Applications', link: 'https://www.geeksforgeeks.org/topological-sorting/' },
-                { title: 'Minimum Spanning Tree', link: 'https://www.programiz.com/dsa/spanning-tree-and-minimum-spanning-tree' },
-                { title: 'Strongly Connected Components', link: 'https://cp-algorithms.com/graph/strongly-connected-components.html' },
-            ]},
-        ];
-
-        for (const rt of resourceTemplates) {
-            for (let i = 0; i < rt.items.length; i++) {
+        let ri = 0;
+        for (const [topicName, items] of Object.entries(CATALOG)) {
+            const topic = topicByName[topicName];
+            if (!topic) {
+                console.warn(`   ⚠️  Skipping resources for unknown topic "${topicName}"`);
+                continue;
+            }
+            for (const [title, link, level] of items) {
                 resourceEntries.push({
-                    title: rt.items[i].title,
-                    description: `Comprehensive resource for ${topics[rt.t].name}`,
-                    topic: topics[rt.t]._id,
-                    level: levels[i % 3],
-                    resourceType: types[i % 3],
-                    link: rt.items[i].link,
-                    uploadedBy: mentors[i % mentors.length]._id,
-                    companyTag: companies[i % companies.length]._id
+                    title,
+                    description: `${topic.name} — curated resource (${level}).`,
+                    topic: topic._id,
+                    level,
+                    resourceType: inferType(link),
+                    link,
+                    uploadedBy: mentors[ri % mentors.length]._id,
+                    companyTag: companies[ri % companies.length]._id
                 });
+                ri++;
             }
         }
         const resources = await Resource.insertMany(resourceEntries);
@@ -237,37 +178,42 @@ const seedAll = async () => {
         // 5. CODING QUESTIONS (30+)
         // ════════════════════════════════════════
         console.log('💻 Seeding coding questions...');
-        const codingQs = [
-            { title: 'Two Sum', description: 'Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.', difficulty: 'easy', sampleInput: 'nums = [2,7,11,15], target = 9', sampleOutput: '[0,1]' },
-            { title: 'Reverse Linked List', description: 'Given the head of a singly linked list, reverse the list, and return the reversed list.', difficulty: 'easy', sampleInput: 'head = [1,2,3,4,5]', sampleOutput: '[5,4,3,2,1]' },
-            { title: 'Valid Parentheses', description: 'Given a string s containing just the characters \'(\', \')\', \'{\', \'}\', \'[\' and \']\', determine if the input string is valid.', difficulty: 'easy', sampleInput: 's = "([])"', sampleOutput: 'true' },
-            { title: 'Maximum Subarray', description: 'Given an integer array nums, find the subarray with the largest sum, and return its sum.', difficulty: 'medium', sampleInput: 'nums = [-2,1,-3,4,-1,2,1,-5,4]', sampleOutput: '6' },
-            { title: 'Binary Tree Level Order Traversal', description: 'Given the root of a binary tree, return the level order traversal of its nodes\' values.', difficulty: 'medium', sampleInput: 'root = [3,9,20,null,null,15,7]', sampleOutput: '[[3],[9,20],[15,7]]' },
-            { title: 'Merge Intervals', description: 'Given an array of intervals, merge all overlapping intervals.', difficulty: 'medium', sampleInput: 'intervals = [[1,3],[2,6],[8,10],[15,18]]', sampleOutput: '[[1,6],[8,10],[15,18]]' },
-            { title: 'Longest Substring Without Repeating Characters', description: 'Given a string s, find the length of the longest substring without repeating characters.', difficulty: 'medium', sampleInput: 's = "abcabcbb"', sampleOutput: '3' },
-            { title: 'LRU Cache', description: 'Design a data structure that follows the constraints of a Least Recently Used (LRU) cache.', difficulty: 'hard', sampleInput: 'capacity = 2, operations = [put(1,1),put(2,2),get(1)]', sampleOutput: '[null,null,1]' },
-            { title: 'Median of Two Sorted Arrays', description: 'Given two sorted arrays nums1 and nums2, return the median of the two sorted arrays.', difficulty: 'hard', sampleInput: 'nums1 = [1,3], nums2 = [2]', sampleOutput: '2.0' },
-            { title: 'Trapping Rain Water', description: 'Given n non-negative integers representing an elevation map, compute how much water it can trap after raining.', difficulty: 'hard', sampleInput: 'height = [0,1,0,2,1,0,1,3,2,1,2,1]', sampleOutput: '6' },
-            { title: 'Best Time to Buy and Sell Stock', description: 'Find the maximum profit from buying and selling a stock once.', difficulty: 'easy', sampleInput: 'prices = [7,1,5,3,6,4]', sampleOutput: '5' },
-            { title: 'Climbing Stairs', description: 'You are climbing a staircase. It takes n steps. Each time you can climb 1 or 2 steps. How many distinct ways?', difficulty: 'easy', sampleInput: 'n = 3', sampleOutput: '3' },
-            { title: '3Sum', description: 'Given an integer array, return all triplets that sum to zero.', difficulty: 'medium', sampleInput: 'nums = [-1,0,1,2,-1,-4]', sampleOutput: '[[-1,-1,2],[-1,0,1]]' },
-            { title: 'Course Schedule', description: 'Determine if you can finish all courses given prerequisites (cycle detection in DAG).', difficulty: 'medium', sampleInput: 'numCourses = 2, prerequisites = [[1,0]]', sampleOutput: 'true' },
-            { title: 'Serialize and Deserialize Binary Tree', description: 'Design an algorithm to serialize and deserialize a binary tree.', difficulty: 'hard', sampleInput: 'root = [1,2,3,null,null,4,5]', sampleOutput: '[1,2,3,null,null,4,5]' },
-            { title: 'Find Median from Data Stream', description: 'Design a data structure that supports addNum and findMedian efficiently.', difficulty: 'hard', sampleInput: 'addNum(1), addNum(2), findMedian()', sampleOutput: '1.5' },
-            { title: 'Coin Change', description: 'Find the fewest number of coins needed to make up a given amount.', difficulty: 'medium', sampleInput: 'coins = [1,2,5], amount = 11', sampleOutput: '3' },
-            { title: 'Word Break', description: 'Given a string s and a dictionary, determine if s can be segmented into dictionary words.', difficulty: 'medium', sampleInput: 's = "leetcode", dict = ["leet","code"]', sampleOutput: 'true' },
-            { title: 'Rotate Image', description: 'Rotate the given n x n 2D matrix by 90 degrees clockwise in-place.', difficulty: 'medium', sampleInput: 'matrix = [[1,2,3],[4,5,6],[7,8,9]]', sampleOutput: '[[7,4,1],[8,5,2],[9,6,3]]' },
-            { title: 'N-Queens', description: 'Place N queens on an NxN chessboard such that no two queens attack each other.', difficulty: 'hard', sampleInput: 'n = 4', sampleOutput: '[[".Q..","...Q","Q...","..Q."],["..Q.","Q...","...Q",".Q.."]]' },
-            { title: 'Implement Trie', description: 'Implement a trie data structure with insert, search, and startsWith operations.', difficulty: 'medium', sampleInput: 'insert("apple"), search("apple"), startsWith("app")', sampleOutput: '[null, true, true]' },
-            { title: 'Number of Islands', description: 'Given a 2D grid map, count the number of islands (connected \'1\'s).', difficulty: 'medium', sampleInput: 'grid = [["1","1","0"],["1","1","0"],["0","0","1"]]', sampleOutput: '2' },
-            { title: 'Word Ladder', description: 'Find the shortest transformation sequence from beginWord to endWord.', difficulty: 'hard', sampleInput: 'beginWord = "hit", endWord = "cog", wordList = ["hot","dot","dog","lot","log","cog"]', sampleOutput: '5' },
-            { title: 'Longest Increasing Subsequence', description: 'Find the length of the longest strictly increasing subsequence.', difficulty: 'medium', sampleInput: 'nums = [10,9,2,5,3,7,101,18]', sampleOutput: '4' },
-            { title: 'Regular Expression Matching', description: 'Implement regular expression matching with \'.\' and \'*\' support.', difficulty: 'hard', sampleInput: 's = "aa", p = "a*"', sampleOutput: 'true' },
-        ];
-        const codingQuestions = await CodingQuestion.insertMany(
-            codingQs.map((q, i) => ({ ...q, topic: topics[i % topics.length]._id, companyTags: [companies[i % companies.length]._id, companies[(i+3) % companies.length]._id] }))
-        );
-        console.log(`   ✅ ${codingQuestions.length} coding questions`);
+        // Unified, gradeable coding-practice bank (C2). Each authored problem ships
+        // a Python reference solution; we run it here (verifyProblem) to produce
+        // verified expected outputs — A7-safe, never hand-typed — so the standalone
+        // /coding-questions page can grade submissions and track solved state.
+        // Verification runs each problem's reference through executeCode, which
+        // REFUSES local execution under NODE_ENV=production with no Judge0 — every
+        // reference would then fail and zero problems would seed, silently. Warn loudly.
+        if (process.env.NODE_ENV === 'production' && !process.env.JUDGE0_API_URL) {
+            console.warn('   ⚠️  NODE_ENV=production with no JUDGE0_API_URL: coding-problem verification will fail and seed 0 problems. Seed with a non-production env or configure Judge0.');
+        }
+        const codingDocs = [];
+        for (let i = 0; i < authoredCoding.length; i++) {
+            const p = authoredCoding[i];
+            const { testCases, verified, reason } = await verifyProblem(p);
+            if (!verified) {
+                console.warn(`   ⚠️  Skipped unverified coding problem "${p.title}": ${reason || 'verification failed'}`);
+                continue;
+            }
+            codingDocs.push({
+                title: p.title,
+                description: p.description,
+                difficulty: p.difficulty,
+                category: p.category,
+                topic: (topicByName[p.topicName] || topicByName['Data Structures'] || topics[0])._id,
+                companyTags: [companies[i % companies.length]._id, companies[(i + 3) % companies.length]._id],
+                examples: p.examples || [],
+                testCases,
+                boilerplate: p.boilerplate,
+                referenceSolution: p.reference,
+                verified: true,
+                sampleInput: p.examples?.[0]?.input || '',
+                sampleOutput: p.examples?.[0]?.output || '',
+            });
+        }
+        const codingQuestions = await CodingQuestion.insertMany(codingDocs);
+        console.log(`   ✅ ${codingQuestions.length} coding questions (verified, gradeable)`);
 
         // ════════════════════════════════════════
         // 6. PROGRESS for each mentee

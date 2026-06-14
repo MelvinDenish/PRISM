@@ -1,16 +1,25 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
-const Groq = require('groq-sdk');
+const { aiLimiter } = require('../middleware/rateLimit');
+const { getGroq, GEN_MODEL, evalCompletion } = require('../utils/aiModels');
+const { rubricBlock, RUBRIC_VERSION } = require('../utils/interviewRubric');
 const User = require('../models/User');
+const InterviewAttempt = require('../models/InterviewAttempt');
+const { emit: emitSignals } = require('../agent/services/signals');
 const router = express.Router();
 
-const getGroq = () => {
-  if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY not configured');
-  return new Groq({ apiKey: process.env.GROQ_API_KEY });
-};
+// Cap client-supplied AI conversation context to bound Groq token cost and
+// limit the prompt-injection surface (the client echoes the whole transcript).
+const MAX_CONTEXT_MESSAGES = 40;
+const MAX_MESSAGE_CHARS = 8000;
+const sanitizeContext = (context) =>
+  (Array.isArray(context) ? context : [])
+    .slice(-MAX_CONTEXT_MESSAGES)
+    .filter((m) => m && typeof m.content === 'string' && typeof m.role === 'string')
+    .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_MESSAGE_CHARS) }));
 
 // Start AI interview — check for online mentors first
-router.post('/start', protect, async (req, res) => {
+router.post('/start', protect, aiLimiter, async (req, res) => {
   try {
     const { type = 'technical', topic = 'general' } = req.body;
     // Check for online mentors (simplified: check recent activity)
@@ -30,7 +39,7 @@ router.post('/start', protect, async (req, res) => {
       : `You are a group discussion moderator. Present a topic and guide discussion. Evaluate communication, reasoning, and leadership skills.`;
 
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+      model: GEN_MODEL(),
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Start the ${type} interview. The candidate's topic of interest is: ${topic}. Begin with your first question.` }
@@ -50,22 +59,25 @@ router.post('/start', protect, async (req, res) => {
         { role: 'assistant', content: firstQuestion }
       ]
     });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // Chat with AI interviewer
-router.post('/chat', protect, async (req, res) => {
+router.post('/chat', protect, aiLimiter, async (req, res) => {
   try {
-    const { message, conversationContext } = req.body;
+    const { message } = req.body;
+    if (typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ success: false, message: 'Message is required' });
+    }
     const groq = getGroq();
 
     const messages = [
-      ...conversationContext,
-      { role: 'user', content: message }
+      ...sanitizeContext(req.body.conversationContext),
+      { role: 'user', content: message.slice(0, MAX_MESSAGE_CHARS) }
     ];
 
     const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+      model: GEN_MODEL(),
       messages,
       max_tokens: 500,
       temperature: 0.7
@@ -77,16 +89,17 @@ router.post('/chat', protect, async (req, res) => {
       aiMessage: aiResponse,
       updatedContext: [...messages, { role: 'assistant', content: aiResponse }]
     });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 // Evaluate the full interview
-router.post('/evaluate', protect, async (req, res) => {
+router.post('/evaluate', protect, aiLimiter, async (req, res) => {
   try {
-    const { conversationContext, type = 'technical' } = req.body;
+    const { type = 'technical' } = req.body;
+    const conversationContext = sanitizeContext(req.body.conversationContext);
 
     // Validate: user must have sent at least 2 messages
-    const userMessages = (conversationContext || []).filter(m => m.role === 'user');
+    const userMessages = conversationContext.filter(m => m.role === 'user');
     if (userMessages.length < 2) {
       return res.status(400).json({
         success: false,
@@ -96,10 +109,12 @@ router.post('/evaluate', protect, async (req, res) => {
 
     const groq = getGroq();
 
-    // Build a strict evaluation prompt that accounts for actual conversation length
+    // Build a strict evaluation prompt with an anchored rubric (B4) so scores are
+    // comparable across runs. Graded on the stronger eval model (B1, with fallback).
     const evalPrompt = `Based on this ${type} interview conversation, provide a detailed evaluation in JSON format.
-The candidate answered ${userMessages.length} questions. Score STRICTLY based on the quality and depth of their actual responses — do NOT assume or hallucinate answers they didn't give.
-If answers were short, vague, or off-topic, score LOW (20-40). Only give 70+ for genuinely strong, detailed responses.
+The candidate answered ${userMessages.length} questions. Score STRICTLY based on the quality and depth of their actual responses.
+
+${rubricBlock()}
 
 {
   "overallScore": (0-100),
@@ -114,8 +129,7 @@ If answers were short, vague, or off-topic, score LOW (20-40). Only give 70+ for
 }
 Only respond with the JSON, no extra text.`;
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+    const { completion, modelUsed } = await evalCompletion(groq, {
       messages: [
         ...conversationContext,
         { role: 'user', content: evalPrompt }
@@ -132,8 +146,48 @@ Only respond with the JSON, no extra text.`;
       evaluation = { overallScore: 65, detailedFeedback: completion.choices[0]?.message?.content, recommendation: 'Review needed' };
     }
 
-    res.json({ success: true, evaluation });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+    // Persist ONLY for standalone AI interviews (client passes persist:true). The
+    // Interview Game calls this same endpoint for its HR/technical2 rounds but
+    // persists those itself — so it omits the flag and we don't double-count.
+    let attemptId;
+    if (req.body.persist === true && (type === 'technical' || type === 'hr')) {
+      try {
+        const dims = {};
+        for (const k of ['technicalSkill', 'communication', 'problemSolving', 'confidence']) {
+          if (Number.isFinite(Number(evaluation[k]))) dims[k] = Number(evaluation[k]);
+        }
+        const attempt = await InterviewAttempt.create({
+          user: req.user._id,
+          type,
+          topic: typeof req.body.topic === 'string' ? req.body.topic.slice(0, 200) : '',
+          overallScore: Number(evaluation.overallScore) || 0,
+          dimensions: dims,
+          strengths: Array.isArray(evaluation.strengths) ? evaluation.strengths.slice(0, 10).map(String) : [],
+          improvements: Array.isArray(evaluation.improvements) ? evaluation.improvements.slice(0, 10).map(String) : [],
+          detailedFeedback: typeof evaluation.detailedFeedback === 'string' ? evaluation.detailedFeedback : '',
+          recommendation: typeof evaluation.recommendation === 'string' ? evaluation.recommendation : '',
+          questionsAnswered: userMessages.length,
+          rubricVersion: RUBRIC_VERSION,
+          model: modelUsed,
+        });
+        attemptId = attempt._id;
+        // P6 spine: only standalone interviews emit (the Interview Game's rounds
+        // already emit via /submit-round — persist:false there, no double count).
+        await emitSignals(req.user._id, [{
+          pillar: type === 'technical' ? 'cs_core' : 'communication',
+          skill: typeof req.body.topic === 'string' ? req.body.topic.slice(0, 60) : type,
+          score: (Number(evaluation.overallScore) || 0) / 100,
+          source: 'ai_interview',
+          sourceId: attempt._id,
+        }]);
+      } catch (saveErr) {
+        // Persistence is best-effort — never fail the evaluation because of it.
+        console.warn('InterviewAttempt save failed:', saveErr.message);
+      }
+    }
+
+    res.json({ success: true, evaluation, attemptId });
+  } catch (err) { res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message }); }
 });
 
 module.exports = router;

@@ -2,9 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/prism-favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>client</title>
+    <meta name="description" content="PRISM — Placement Resources & Interview Skill Manager. Mentorship, mock interviews, coding practice, and curated prep resources." />
+    <meta name="theme-color" content="#0E0E11" />
+    <title>PRISM — Placement & Interview Prep</title>
+    <script>
+      // Set theme before paint to avoid flash of wrong theme. Dark-first:
+      // default to dark on first visit; a saved preference still wins.
+      (function () {
+        try {
+          var saved = localStorage.getItem('prism_theme');
+          document.documentElement.dataset.theme = saved || 'dark';
+        } catch (e) { document.documentElement.dataset.theme = 'dark'; }
+        // Per-user accent theming was removed — PRISM is brand-led (gold/orange).
+        // Clear any stale cached palette so an old saved theme can't tint the brand.
+        try { localStorage.removeItem('prism_user_theme'); } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

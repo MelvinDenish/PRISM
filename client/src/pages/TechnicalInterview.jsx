@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Editor from '@monaco-editor/react';
 import { io } from 'socket.io-client';
-import Peer from 'peerjs';
+import LiveRoom from '../components/rtc/LiveRoom';
 import { getCodingQuestions, submitCodeExecution, startAIInterview, chatAIInterview, evaluateAIInterview, runTestCases, runCustomCode } from '../services/api';
 import { FiPlay, FiSend, FiVideo, FiVideoOff, FiMic, FiMicOff, FiMessageSquare, FiPhoneOff, FiMonitor, FiClock, FiCpu, FiUser, FiZap, FiHelpCircle, FiCheck, FiTerminal, FiCode } from 'react-icons/fi';
 
@@ -45,10 +45,9 @@ const TechnicalInterview = () => {
     const [messages, setMessages] = useState([]);
     const [chatMsg, setChatMsg] = useState('');
 
-    // Video call state
+    // Video call state — media is handled by <LiveRoom> (LiveKit SFU); this flag
+    // just shows/hides the side panel that hosts it.
     const [videoEnabled, setVideoEnabled] = useState(false);
-    const [audioEnabled, setAudioEnabled] = useState(true);
-    const [connected, setConnected] = useState(false);
     const [elapsed, setElapsed] = useState(0);
 
     // AI Interviewer state
@@ -62,13 +61,10 @@ const TechnicalInterview = () => {
 
     // Refs
     const socketRef = useRef(null);
-    const localVideoRef = useRef(null);
-    const remoteVideoRef = useRef(null);
-    const peerRef = useRef(null);
-    const streamRef = useRef(null);
     const isRemote = useRef(false);
     const timerRef = useRef(null);
     const chatEndRef = useRef(null);
+    const aiInitedRef = useRef(false); // guard: greet via AI interviewer only once
 
     // ═══════════════════════════════════════════
     // INITIALIZATION
@@ -82,9 +78,9 @@ const TechnicalInterview = () => {
         };
         fetchData();
 
-        // Socket connection
-        socketRef.current = io(SOCKET_URL);
-        socketRef.current.emit('join-room', { roomId: id, userId: user._id, userName: user.name });
+        // Socket connection (authenticated via JWT handshake)
+        socketRef.current = io(SOCKET_URL, { auth: { token: localStorage.getItem('prism_token') } });
+        socketRef.current.emit('join-room', { roomId: id });
 
         socketRef.current.on('code-update', ({ code: newCode }) => {
             isRemote.current = true;
@@ -93,31 +89,28 @@ const TechnicalInterview = () => {
 
         socketRef.current.on('room-participants', (p) => {
             setParticipants(p);
-            // Check if a mentor is in the room
-            const hasMentor = p.some(pt => pt.userId !== user._id);
+            // Only a participant whose authenticated role is 'mentor' counts —
+            // another mentee joining must not flip the room into mentor mode and
+            // silently disable the AI interviewer (was: any other participant).
+            const hasMentor = p.some(pt => pt.userId !== user._id && pt.role === 'mentor');
             if (hasMentor) {
                 setMode('mentor');
             } else {
-                // No mentor — start AI mode
+                // No mentor — start AI mode. Guard so the AI greets only once even
+                // though room-participants can fire on every presence change.
                 setMode('ai');
-                initAIInterviewer();
+                if (!aiInitedRef.current) {
+                    aiInitedRef.current = true;
+                    initAIInterviewer();
+                }
             }
         });
 
         socketRef.current.on('receive-message', (msg) => setMessages((prev) => [...prev, msg]));
         socketRef.current.on('sync-code', ({ code: syncCode }) => { isRemote.current = true; setCode(syncCode); });
 
-        // PeerJS signaling
-        socketRef.current.on('peer-joined', ({ peerId, name }) => {
-            if (streamRef.current && peerRef.current) {
-                const call = peerRef.current.call(peerId, streamRef.current);
-                call.on('stream', (remoteStream) => {
-                    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
-                    setConnected(true);
-                    setMode('mentor');
-                });
-            }
-        });
+        // Live video (mentor join) is handled by <LiveRoom> on the shared
+        // `session:<id>` room — no manual WebRTC signaling here anymore.
 
         // Timer for session duration
         timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
@@ -125,8 +118,6 @@ const TechnicalInterview = () => {
         return () => {
             socketRef.current?.emit('leave-room', { roomId: id });
             socketRef.current?.disconnect();
-            streamRef.current?.getTracks().forEach((t) => t.stop());
-            peerRef.current?.destroy();
             clearInterval(timerRef.current);
         };
     }, [id]);
@@ -258,47 +249,10 @@ Give a helpful HINT — don't give the full solution. Suggest an approach, data 
     };
 
     // ═══════════════════════════════════════════
-    // VIDEO CALL
+    // VIDEO CALL — shows/hides the LiveKit panel. Camera/mic/screen-share are
+    // controlled inside <LiveRoom>'s ControlBar; no manual WebRTC here.
     // ═══════════════════════════════════════════
-    const toggleVideo = async () => {
-        if (videoEnabled) {
-            streamRef.current?.getTracks().forEach((t) => t.stop());
-            setVideoEnabled(false);
-            setConnected(false);
-        } else {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { width: 320, height: 240, frameRate: 15 }, // Low bandwidth: 240p
-                    audio: audioEnabled
-                });
-                streamRef.current = stream;
-                if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-
-                // Initialize PeerJS
-                const peer = new Peer();
-                peerRef.current = peer;
-
-                peer.on('open', (peerId) => {
-                    socketRef.current?.emit('session-peer-id', { sessionId: id, peerId });
-                });
-
-                peer.on('call', (call) => {
-                    call.answer(stream);
-                    call.on('stream', (remoteStream) => {
-                        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
-                        setConnected(true);
-                    });
-                });
-
-                setVideoEnabled(true);
-            } catch (err) { console.error('Camera error:', err); }
-        }
-    };
-
-    const toggleAudio = () => {
-        const audio = streamRef.current?.getAudioTracks()[0];
-        if (audio) { audio.enabled = !audio.enabled; setAudioEnabled(audio.enabled); }
-    };
+    const toggleVideo = () => setVideoEnabled((v) => !v);
 
     // ═══════════════════════════════════════════
     // CHAT
@@ -319,7 +273,14 @@ Give a helpful HINT — don't give the full solution. Suggest an approach, data 
                 { role: 'system', content: 'Evaluate based on coding performance in interview.' },
                 { role: 'user', content: `Code submitted:\n${code}\nLanguage: ${language}\nTest results: ${JSON.stringify(testResults)}` }
             ];
-            const { data } = await evaluateAIInterview({ conversationContext: context, type: 'technical' });
+            // persist:true records this standalone attempt for the user's history
+            // (the Interview Game omits the flag so its rounds aren't double-counted).
+            const { data } = await evaluateAIInterview({
+                conversationContext: context,
+                type: 'technical',
+                persist: true,
+                topic: selectedQ?.title || 'Technical Interview',
+            });
             setAiEval(data.evaluation);
         } catch {
             setAiEval({ overallScore: 0, detailedFeedback: 'Evaluation unavailable.', recommendation: 'N/A' });
@@ -339,7 +300,7 @@ Give a helpful HINT — don't give the full solution. Suggest an approach, data 
             <div className="page">
                 <div style={{ maxWidth: 700, margin: '0 auto' }}>
                     <div style={{ textAlign: 'center', marginBottom: 40 }}>
-                        <div style={{ fontSize: 56, marginBottom: 16 }}>📊</div>
+                        <div style={{ width: 72, height: 72, margin: '0 auto 18px', borderRadius: 20, background: 'var(--gradient-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 32, boxShadow: 'var(--shadow-glow)' }}><FiZap /></div>
                         <h1 className="page-title"><span>Interview Evaluation</span></h1>
                     </div>
                     <div className="grid grid-4" style={{ marginBottom: 32 }}>
@@ -383,7 +344,7 @@ Give a helpful HINT — don't give the full solution. Suggest an approach, data 
             {/* ─── LEFT SIDEBAR: Question + AI/Chat ─── */}
             <div style={{ width: 360, background: 'var(--bg-secondary)', borderRight: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {/* Mode indicator */}
-                <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: mode === 'ai' ? 'rgba(99,102,241,0.08)' : 'rgba(16,185,129,0.08)' }}>
+                <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: mode === 'ai' ? 'rgba(226,104,42,0.08)' : 'rgba(201,162,75,0.08)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         {mode === 'ai' ? <FiCpu style={{ color: 'var(--accent-primary)' }} /> : <FiUser style={{ color: 'var(--accent-success)' }} />}
                         <span style={{ fontWeight: 700, fontSize: 13 }}>{mode === 'ai' ? 'AI Interviewer' : 'Mentor Interview'}</span>
@@ -443,7 +404,7 @@ Give a helpful HINT — don't give the full solution. Suggest an approach, data 
                                             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                                                 {msg.role === 'ai' ? <><FiCpu /> AI Interviewer</> : <><FiUser /> You</>}
                                             </div>
-                                            <div style={{ padding: '8px 12px', borderRadius: 8, fontSize: 13, lineHeight: 1.6, background: msg.role === 'ai' ? 'var(--bg-input)' : 'rgba(99,102,241,0.1)', whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+                                            <div style={{ padding: '8px 12px', borderRadius: 8, fontSize: 13, lineHeight: 1.6, background: msg.role === 'ai' ? 'var(--bg-input)' : 'rgba(226,104,42,0.1)', whiteSpace: 'pre-wrap' }}>{msg.content}</div>
                                         </div>
                                     ))
                                 ) : (
@@ -515,11 +476,8 @@ Give a helpful HINT — don't give the full solution. Suggest an approach, data 
                         </button>
                     </div>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <button className={`btn btn-sm ${videoEnabled ? 'btn-danger' : 'btn-secondary'}`} onClick={toggleVideo}>
-                            {videoEnabled ? <FiVideoOff /> : <FiVideo />}
-                        </button>
-                        <button className={`btn btn-sm ${!audioEnabled ? 'btn-danger' : 'btn-secondary'}`} onClick={toggleAudio}>
-                            {audioEnabled ? <FiMic /> : <FiMicOff />}
+                        <button className={`btn btn-sm ${videoEnabled ? 'btn-danger' : 'btn-secondary'}`} onClick={toggleVideo} title={videoEnabled ? 'Hide video panel' : 'Show video panel'}>
+                            {videoEnabled ? <FiVideoOff /> : <FiVideo />} Video
                         </button>
                         <button className="btn btn-danger btn-sm" onClick={endInterview}>
                             <FiCheck /> End & Evaluate
@@ -570,7 +528,7 @@ Give a helpful HINT — don't give the full solution. Suggest an approach, data 
                                     <span className={`badge ${testResults.score >= 60 ? 'badge-success' : 'badge-danger'}`}>Score: {testResults.score}% — {testResults.passedCount}/{testResults.totalCount} passed</span>
                                 </div>
                                 {testResults.testResults?.map((tr, i) => (
-                                    <div key={i} style={{ marginBottom: 6, padding: 6, borderRadius: 4, fontSize: 11, fontFamily: 'monospace', background: tr.passed ? 'rgba(52,211,153,0.06)' : 'rgba(248,113,113,0.06)', border: `1px solid ${tr.passed ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)'}` }}>
+                                    <div key={i} style={{ marginBottom: 6, padding: 6, borderRadius: 4, fontSize: 11, fontFamily: 'monospace', background: tr.passed ? 'rgba(201,162,75,0.06)' : 'rgba(192,70,43,0.06)', border: `1px solid ${tr.passed ? 'rgba(201,162,75,0.2)' : 'rgba(192,70,43,0.2)'}` }}>
                                         <span>{tr.passed ? '✅' : '❌'} Case {tr.testCase}: </span>
                                         <span style={{ color: 'var(--text-muted)' }}>Expected={tr.expectedOutput} Got={tr.actualOutput || 'N/A'}</span>
                                         {tr.error && <span style={{ color: 'var(--accent-danger)' }}> — {tr.error}</span>}
@@ -598,18 +556,15 @@ Give a helpful HINT — don't give the full solution. Suggest an approach, data 
                 </div>
             </div>
 
-            {/* ─── RIGHT PANEL: Video ─── */}
+            {/* ─── RIGHT PANEL: Video (LiveKit SFU) ─── */}
             {videoEnabled && (
-                <div style={{ width: 260, background: 'var(--bg-secondary)', borderLeft: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', padding: 12 }}>
-                    <h4 style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <FiVideo /> Video Call
-                        <span className={`badge ${connected ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: 9, marginLeft: 'auto' }}>
-                            {connected ? 'Connected' : 'Waiting'}
-                        </span>
+                <div style={{ width: 320, background: 'var(--bg-secondary)', borderLeft: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column' }}>
+                    <h4 style={{ fontSize: 12, color: 'var(--text-muted)', padding: '12px 12px 8px', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <FiVideo /> Live Video
                     </h4>
-                    <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '100%', borderRadius: 8, marginBottom: 8, background: '#000', aspectRatio: '4/3' }} />
-                    <video ref={localVideoRef} autoPlay muted playsInline style={{ width: '100%', borderRadius: 8, background: '#000', aspectRatio: '4/3', transform: 'scaleX(-1)' }} />
-                    <div style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'center', marginTop: 8 }}>240p • Low bandwidth mode</div>
+                    <div style={{ flex: 1, minHeight: 0 }}>
+                        <LiveRoom roomName={`session:${id}`} onLeave={() => setVideoEnabled(false)} />
+                    </div>
                 </div>
             )}
         </div>

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { loginUser, registerUser, getMe } from '../services/api';
+import { applyUserTheme } from '../utils/theme';
 import { io } from 'socket.io-client';
 
 const AuthContext = createContext(null);
@@ -12,13 +13,21 @@ export const AuthProvider = ({ children }) => {
     const [error, setError] = useState('');
     const socketRef = useRef(null);
 
+    // PRISM is brand-led (gold/orange) — per-user accent theming was removed.
+    // Always strip any inline override (and clear the cached palette) so a theme
+    // still stored on an old account can never tint the brand on refresh.
+    useEffect(() => { applyUserTheme(null); }, [user]);
+
     // Register user with socket for online tracking
     const registerSocket = (userData) => {
         if (!userData) return;
         if (!socketRef.current) {
-            socketRef.current = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000');
+            socketRef.current = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000', {
+                auth: { token: localStorage.getItem('prism_token') },
+            });
         }
-        socketRef.current.emit('register-user', { userId: userData._id, role: userData.role });
+        // Identity is derived server-side from the JWT; no need to send userId.
+        socketRef.current.emit('register-user');
     };
 
     useEffect(() => {
@@ -72,8 +81,15 @@ export const AuthProvider = ({ children }) => {
         setUser(null);
     };
 
+    // Re-hydrate the user from the server (e.g. after onboarding flips a flag).
+    const refreshUser = async () => {
+        const res = await getMe();
+        setUser(res.data.user);
+        return res.data.user;
+    };
+
     return (
-        <AuthContext.Provider value={{ user, loading, error, login, register, logout }}>
+        <AuthContext.Provider value={{ user, loading, error, login, register, logout, refreshUser }}>
             {children}
         </AuthContext.Provider>
     );

@@ -8,3 +8,9 @@ dist/
 
 # Local Claude Code config (per-machine, not for sharing)
 .claude/
+
+# Runtime file-storage (local STORAGE_DRIVER) — uploaded files are not source
+server/uploads/
+
+# Playwright MCP test artifacts
+.playwright-mcp/

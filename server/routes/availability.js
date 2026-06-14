@@ -9,7 +9,7 @@ router.get('/:mentorId', protect, async (req, res) => {
         const availability = await Availability.findOne({ mentor: req.params.mentorId });
         res.json({ success: true, availability: availability || { availableSlots: [] } });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -25,7 +25,7 @@ router.post('/', protect, authorize('mentor'), async (req, res) => {
         }
         res.json({ success: true, availability });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -33,24 +33,32 @@ router.post('/', protect, authorize('mentor'), async (req, res) => {
 router.patch('/book/:slotIndex', protect, async (req, res) => {
     try {
         const { mentorId } = req.body;
-        const availability = await Availability.findOne({ mentor: mentorId });
-        if (!availability) return res.status(404).json({ success: false, message: 'No availability found' });
-
-        const slotIdx = parseInt(req.params.slotIndex);
-        if (slotIdx < 0 || slotIdx >= availability.availableSlots.length) {
+        const slotIdx = parseInt(req.params.slotIndex, 10);
+        if (!Number.isInteger(slotIdx) || slotIdx < 0) {
             return res.status(400).json({ success: false, message: 'Invalid slot index' });
         }
 
-        if (availability.availableSlots[slotIdx].isBooked) {
+        const slotField = `availableSlots.${slotIdx}.isBooked`;
+        // Atomic claim: only succeeds if the slot exists and is not already booked.
+        // Prevents the check-then-write race that allowed double-booking.
+        const availability = await Availability.findOneAndUpdate(
+            { mentor: mentorId, [slotField]: false },
+            { $set: { [slotField]: true } },
+            { new: true }
+        );
+
+        if (!availability) {
+            // Either no such availability/slot, or it was already booked.
+            const exists = await Availability.findOne({ mentor: mentorId });
+            if (!exists || slotIdx >= exists.availableSlots.length) {
+                return res.status(404).json({ success: false, message: 'No availability found for that slot' });
+            }
             return res.status(409).json({ success: false, message: 'This slot is already booked' });
         }
 
-        availability.availableSlots[slotIdx].isBooked = true;
-        await availability.save();
-
         res.json({ success: true, availability });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 

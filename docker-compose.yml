@@ -1,0 +1,29 @@
+# PRISM local infrastructure.
+#
+# Start everything:   docker compose up -d
+# Stop:               docker compose down        (data is kept in the named volume)
+# Wipe data:          docker compose down -v
+#
+# Point the server at it in server/.env:
+#   MONGODB_URI=mongodb://localhost:27017/prism
+#
+# More services (Redis, Judge0, coturn) will be added here as later phases land
+# — this file is the single source of truth for the self-hosted stack.
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: prism-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - prism_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  prism_mongo_data:

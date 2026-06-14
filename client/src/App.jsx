@@ -1,8 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { MotionConfig } from 'framer-motion';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Resources from './pages/Resources';
 import Mentors from './pages/Mentors';
@@ -21,6 +24,16 @@ import ResumeBuilder from './pages/ResumeBuilder';
 import LearningPaths from './pages/LearningPaths';
 import NotFound from './pages/NotFound';
 import VideoCall from './pages/VideoCall';
+import GDRooms from './pages/GDRooms';
+import Onboarding from './pages/Onboarding';
+import BehavioralBank from './pages/BehavioralBank';
+import BehavioralPractice from './pages/BehavioralPractice';
+import Profile from './pages/Profile';
+import Certificate from './pages/Certificate';
+import QuestionBank from './pages/QuestionBank';
+import ReviewQueue from './pages/ReviewQueue';
+import Assistant from './pages/Assistant';
+import Artifacts from './pages/Artifacts';
 import './index.css';
 
 const ProtectedRoute = ({ children }) => {
@@ -29,17 +42,40 @@ const ProtectedRoute = ({ children }) => {
   return user ? children : <Navigate to="/login" />;
 };
 
+// Role-gated route: requires auth AND one of `roles`. Mirrors the server-side
+// authorize() guard so the UI can't reach pages the API would reject (Phase 1).
+const RoleRoute = ({ roles, children }) => {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="page"><div className="spinner" /></div>;
+  if (!user) return <Navigate to="/login" />;
+  return roles.includes(user.role) ? children : <Navigate to="/dashboard" />;
+};
+
+// Chat-first landing: mentees land on the assistant; mentors/admins keep the
+// dashboard (their workflows are management-oriented, not prep chat).
+const LandingRedirect = () => {
+  const { user } = useAuth();
+  return <Navigate to={user?.role === 'mentee' ? '/assistant' : '/dashboard'} replace />;
+};
+
 const App = () => {
   return (
     <AuthProvider>
+      <MotionConfig reducedMotion="user">
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          {/* Public certificate verification — outside the protected Layout (P2). */}
+          <Route path="/certificate/:certId" element={<Certificate />} />
+          <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
           <Route path="/interview/:id" element={<ProtectedRoute><TechnicalInterview /></ProtectedRoute>} />
           <Route path="/video-call/:sessionId" element={<ProtectedRoute><VideoCall /></ProtectedRoute>} />
           <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-            <Route index element={<Navigate to="/dashboard" />} />
+            <Route index element={<LandingRedirect />} />
+            <Route path="assistant" element={<Assistant />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="topics" element={<Topics />} />
             <Route path="resources" element={<Resources />} />
@@ -47,18 +83,28 @@ const App = () => {
             <Route path="mentors" element={<Mentors />} />
             <Route path="mentor/:id" element={<MentorProfile />} />
             <Route path="sessions" element={<Sessions />} />
+            <Route path="gd-rooms" element={<GDRooms />} />
             <Route path="interview-game" element={<InterviewGame />} />
             <Route path="resume-builder" element={<ResumeBuilder />} />
+            <Route path="artifacts" element={<Artifacts />} />
+            {/* Resume Analysis is folded into the Copilot (analyze_resume tool); route
+                kept reachable but unlinked from the sidebar (P4). */}
             <Route path="resume-analysis" element={<ResumeAnalysis />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="notifications" element={<Notifications />} />
             <Route path="companies" element={<Companies />} />
             <Route path="coding-questions" element={<CodingQuestions />} />
-            <Route path="admin" element={<Admin />} />
+            <Route path="behavioral" element={<BehavioralBank />} />
+            <Route path="behavioral-practice" element={<BehavioralPractice />} />
+            <Route path="profile" element={<Profile />} />
+            <Route path="review" element={<ReviewQueue />} />
+            <Route path="question-bank" element={<RoleRoute roles={['mentor', 'admin']}><QuestionBank /></RoleRoute>} />
+            <Route path="admin" element={<RoleRoute roles={['admin']}><Admin /></RoleRoute>} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
+      </MotionConfig>
     </AuthProvider>
   );
 };

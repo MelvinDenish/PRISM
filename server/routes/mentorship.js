@@ -3,67 +3,30 @@ const MentorshipSession = require('../models/MentorshipSession');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
-const { sendSessionRequestEmail } = require('../utils/emailService');
+const { bookSession } = require('../agent/services/mentorship');
 const router = express.Router();
 
-// POST /api/mentorship - Book a session
+// POST /api/mentorship - Book a session. Validation + notify + email live in the
+// shared service so the assistant's booking confirm-flow behaves identically.
+// Email stays fire-and-forget here to keep this response fast (awaitEmail=false).
 router.post('/', protect, authorize('mentee'), async (req, res) => {
     try {
         const { mentor, scheduledDate, duration, agenda, aimingCompany } = req.body;
-
-        // Validate required fields
-        if (!mentor || !scheduledDate || !agenda) {
-            return res.status(400).json({ success: false, message: 'Mentor, scheduled date, and agenda are required' });
-        }
-
-        // Reject past dates
-        const schedDate = new Date(scheduledDate);
-        if (schedDate <= new Date()) {
-            return res.status(400).json({ success: false, message: 'Cannot book a session in the past' });
-        }
-
-        // Prevent double-booking — only block if same mentor, same time, still active
-        const sessionDuration = duration || 60;
-        const sessionEnd = new Date(schedDate.getTime() + sessionDuration * 60000);
-        const conflict = await MentorshipSession.findOne({
-            mentor,
-            status: { $in: ['pending', 'approved', 'in-progress'] },
-            $and: [
-                { scheduledDate: { $lt: sessionEnd } },
-                { scheduledDate: { $gte: new Date(schedDate.getTime() - sessionDuration * 60000) } },
-                { scheduledDate: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }
-            ]
+        const { session } = await bookSession({
+            menteeId: req.user._id,
+            menteeName: req.user.name,
+            mentorId: mentor,
+            scheduledDate,
+            duration,
+            agenda,
+            aimingCompany,
         });
-        if (conflict) {
-            return res.status(409).json({ success: false, message: 'Mentor has a conflicting session at that time. Please choose another slot.' });
-        }
-
-        // Prevent mentee self-booking
-        if (mentor === req.user._id.toString()) {
-            return res.status(400).json({ success: false, message: 'Cannot book a session with yourself' });
-        }
-
-        const session = await MentorshipSession.create({
-            mentor, mentee: req.user._id, scheduledDate: schedDate, duration: sessionDuration, agenda, aimingCompany
-        });
-
-        // Notify mentor in-app
-        await Notification.create({
-            user: mentor, type: 'session',
-            message: `New mentorship session request from ${req.user.name}`
-        });
-
-        // Send email notification to mentor
-        const mentorUser = await User.findById(mentor);
-        if (mentorUser?.email) {
-            sendSessionRequestEmail(mentorUser.email, mentorUser.name, {
-                name: req.user.name, agenda, scheduledDate
-            }).catch(err => console.error('Email send error:', err));
-        }
-
         res.status(201).json({ success: true, session });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.statusCode ? error.message : (process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message),
+        });
     }
 });
 
@@ -84,7 +47,7 @@ router.get('/', protect, async (req, res) => {
 
         res.json({ success: true, sessions });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -127,7 +90,7 @@ router.patch('/:id/status', protect, async (req, res) => {
 
         res.json({ success: true, session });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 
@@ -144,20 +107,28 @@ router.patch('/:id/rate', protect, async (req, res) => {
         const session = await MentorshipSession.findById(req.params.id);
         if (!session) return res.status(404).json({ success: false, message: 'Session not found' });
 
+        // Authorization: only a participant of THIS session may rate it.
+        const isMentor = session.mentor.equals(req.user._id);
+        const isMentee = session.mentee.equals(req.user._id);
+        if (!isMentor && !isMentee) {
+            return res.status(403).json({ success: false, message: 'Not authorized for this session' });
+        }
+
         // Only completed sessions can be rated
         if (session.status !== 'completed') {
             return res.status(400).json({ success: false, message: 'Can only rate completed sessions' });
         }
 
-        // Prevent double-rating
-        if (session.ratingGiven) {
-            return res.status(400).json({ success: false, message: 'Session has already been rated' });
-        }
-
-        session.ratingGiven = rating;
-        if (req.user.role === 'mentee') {
+        // Each party may rate once — tracked per role so the mentee's rating
+        // doesn't block the mentor's feedback (and vice-versa).
+        if (isMentee) {
+            if (session.menteeRated) {
+                return res.status(400).json({ success: false, message: 'You have already rated this session' });
+            }
+            session.menteeRated = true;
+            session.ratingGiven = rating;
             session.menteeFeedback = feedback;
-            // Update mentor's average rating
+            // Update mentor's average rating from the mentee's score.
             const mentor = await User.findById(session.mentor);
             if (mentor) {
                 const newTotal = mentor.totalReviews + 1;
@@ -166,13 +137,17 @@ router.patch('/:id/rate', protect, async (req, res) => {
                 await mentor.save();
             }
         } else {
+            if (session.mentorRated) {
+                return res.status(400).json({ success: false, message: 'You have already rated this session' });
+            }
+            session.mentorRated = true;
             session.mentorFeedback = feedback;
         }
         await session.save();
 
         res.json({ success: true, session });
     } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : error.message });
     }
 });
 

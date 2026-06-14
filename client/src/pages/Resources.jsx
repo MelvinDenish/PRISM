@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { getResources, getTopics, completeResource, uncompleteResource, getProgress, createResource, summarizeArticle } from '../services/api';
-import { FiSearch, FiFilter, FiPlay, FiExternalLink, FiCheckCircle, FiPlus, FiX, FiBook, FiFileText, FiZap, FiChevronDown, FiChevronUp, FiGlobe } from 'react-icons/fi';
+import { FiSearch, FiFilter, FiPlay, FiExternalLink, FiCheckCircle, FiPlus, FiX, FiBook, FiFileText, FiZap, FiChevronDown, FiChevronUp, FiGlobe, FiUpload, FiAlertTriangle } from 'react-icons/fi';
+import Reveal from '../components/motion/Reveal';
+import PageHero from '../components/ui/PageHero';
+import { SkeletonGrid } from '../components/ui/Skeleton';
+import Modal from '../components/ui/Modal';
+import ResourcePreview from '../components/ResourcePreview';
 
 const Resources = () => {
     const { user } = useAuth();
@@ -16,6 +21,11 @@ const Resources = () => {
     const [summarizing, setSummarizing] = useState(false);
     const [summaryError, setSummaryError] = useState('');
     const [newResource, setNewResource] = useState({ title: '', description: '', topic: '', level: 'beginner', resourceType: 'video', link: '' });
+    const [addMode, setAddMode] = useState('link'); // 'link' | 'file'
+    const [addFile, setAddFile] = useState(null);
+    const [addError, setAddError] = useState('');
+    const [adding, setAdding] = useState(false);
+    const [preview, setPreview] = useState(null);
 
     useEffect(() => {
         const fetch = async () => {
@@ -53,10 +63,31 @@ const Resources = () => {
         } catch (err) { console.error(err); }
     };
 
+    const resetAddForm = () => {
+        setNewResource({ title: '', description: '', topic: '', level: 'beginner', resourceType: 'video', link: '' });
+        setAddFile(null); setAddMode('link'); setAddError('');
+    };
+
     const handleAddResource = async (e) => {
         e.preventDefault();
-        try { await createResource(newResource); setShowAdd(false); setNewResource({ title: '', description: '', topic: '', level: 'beginner', resourceType: 'video', link: '' }); handleFilter(); }
-        catch (err) { console.error(err); }
+        setAddError('');
+        if (!newResource.topic) { setAddError('Please choose a topic.'); return; }
+        if (addMode === 'file' && !addFile) { setAddError('Please choose a file to upload.'); return; }
+        if (addMode === 'link' && !newResource.link) { setAddError('Please provide a link/URL.'); return; }
+        setAdding(true);
+        try {
+            if (addMode === 'file' && addFile) {
+                const fd = new FormData();
+                Object.entries({ title: newResource.title, description: newResource.description, topic: newResource.topic, level: newResource.level }).forEach(([k, v]) => fd.append(k, v ?? ''));
+                fd.append('file', addFile);
+                await createResource(fd);
+            } else {
+                await createResource(newResource);
+            }
+            setShowAdd(false); resetAddForm(); handleFilter();
+        }
+        catch (err) { setAddError(err?.response?.data?.message || 'Could not add the resource.'); }
+        finally { setAdding(false); }
     };
 
     const toggleExpand = (id) => {
@@ -91,12 +122,15 @@ const Resources = () => {
 
     return (
         <div className="page">
-            <div className="page-header">
-                <h1 className="page-title">📚 <span>Learning Resources</span></h1>
-                {(user?.role === 'mentor' || user?.role === 'admin') && (
-                    <button className="btn btn-primary" onClick={() => setShowAdd(true)}><FiPlus /> Add Resource</button>
+            <PageHero
+                eyebrow="Prepare"
+                title="Learning Resources"
+                subtitle="Curated videos, articles and references — track what you finish."
+                icon={<FiBook />}
+                actions={(user?.role === 'mentor' || user?.role === 'admin') && (
+                    <button className="btn btn-action" onClick={() => setShowAdd(true)}><FiPlus /> Add Resource</button>
                 )}
-            </div>
+            />
 
             {/* Filters */}
             <div className="glass-card" style={{ marginBottom: 24, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -121,19 +155,19 @@ const Resources = () => {
                 <button className="btn btn-primary btn-sm" onClick={handleFilter}><FiSearch /> Search</button>
             </div>
 
-            {loading ? <div className="spinner" /> : (
+            {loading ? <SkeletonGrid count={5} cols={1} /> : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {resources.map(r => {
+                    {resources.map((r, idx) => {
                         const isExpanded = expandedId === r._id;
                         const ytId = getYouTubeId(r.link);
                         const isVideo = r.resourceType === 'video' && ytId;
                         const isArticle = r.resourceType === 'article';
                         return (
-                            <div key={r._id} className="glass-card" style={{ position: 'relative', overflow: 'hidden' }}>
+                            <Reveal as="div" key={r._id} i={idx} className="glass-card spotlight" style={{ position: 'relative', overflow: 'hidden' }}>
                                 {/* Card Header — always visible */}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => toggleExpand(r._id)}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1 }}>
-                                        <div style={{ width: 42, height: 42, borderRadius: 10, background: isVideo ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isVideo ? '#ef4444' : 'var(--accent-primary)', fontSize: 18, flexShrink: 0 }}>
+                                        <div style={{ width: 42, height: 42, borderRadius: 10, background: isVideo ? 'rgba(226,104,42,0.12)' : 'rgba(201,162,75,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: isVideo ? 'var(--accent-action)' : 'var(--accent-primary)', fontSize: 18, flexShrink: 0 }}>
                                             {isVideo ? <FiPlay /> : isArticle ? <FiFileText /> : <FiBook />}
                                         </div>
                                         <div style={{ flex: 1, minWidth: 0 }}>
@@ -184,20 +218,20 @@ const Resources = () => {
                                                         <button className="btn btn-primary btn-sm" onClick={e => handleSummarize(r, e)} disabled={summarizing}>
                                                             <FiZap /> {summarizing ? 'Summarizing...' : '✨ AI Summary'}
                                                         </button>
-                                                        <a href={r.link} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm" onClick={e => e.stopPropagation()}>
-                                                            <FiExternalLink /> Read Full Article
+                                                        <a href={r.link} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm" onClick={e => { e.stopPropagation(); e.preventDefault(); setPreview(r); }}>
+                                                            <FiExternalLink /> Read in app
                                                         </a>
                                                     </div>
                                                 </div>
                                                 {/* AI Summary Result */}
                                                 {summary && (
-                                                    <div style={{ padding: 16, background: 'rgba(16,185,129,0.04)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(16,185,129,0.15)' }}>
+                                                    <div style={{ padding: 16, background: 'rgba(201,162,75,0.04)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(201,162,75,0.15)' }}>
                                                         <h4 style={{ color: 'var(--accent-primary)', marginBottom: 8, fontSize: 13 }}>🤖 AI-Generated Summary</h4>
                                                         <div style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{summary}</div>
                                                     </div>
                                                 )}
                                                 {summaryError && (
-                                                    <div style={{ padding: 12, background: 'rgba(248,113,113,0.06)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--accent-danger)', fontSize: 13 }}>
+                                                    <div style={{ padding: 12, background: 'rgba(192,70,43,0.06)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(192,70,43,0.2)', color: 'var(--accent-danger)', fontSize: 13 }}>
                                                         {summaryError}
                                                     </div>
                                                 )}
@@ -208,7 +242,7 @@ const Resources = () => {
                                         {!isVideo && !isArticle && r.link && (
                                             <div style={{ padding: 20, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', marginBottom: 16 }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                                                    <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(16,185,129,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)' }}>
+                                                    <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(201,162,75,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)' }}>
                                                         <FiGlobe />
                                                     </div>
                                                     <div>
@@ -221,18 +255,18 @@ const Resources = () => {
                                                     <button className="btn btn-primary btn-sm" onClick={e => handleSummarize(r, e)} disabled={summarizing}>
                                                         <FiZap /> {summarizing ? 'Summarizing...' : '✨ AI Summary'}
                                                     </button>
-                                                    <a href={r.link} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm" onClick={e => e.stopPropagation()}>
-                                                        <FiExternalLink /> Open Resource
+                                                    <a href={r.link} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm" onClick={e => { e.stopPropagation(); e.preventDefault(); setPreview(r); }}>
+                                                        <FiExternalLink /> Open in app
                                                     </a>
                                                 </div>
                                                 {summary && (
-                                                    <div style={{ marginTop: 12, padding: 16, background: 'rgba(16,185,129,0.04)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(16,185,129,0.15)' }}>
+                                                    <div style={{ marginTop: 12, padding: 16, background: 'rgba(201,162,75,0.04)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(201,162,75,0.15)' }}>
                                                         <h4 style={{ color: 'var(--accent-primary)', marginBottom: 8, fontSize: 13 }}>🤖 AI-Generated Summary</h4>
                                                         <div style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>{summary}</div>
                                                     </div>
                                                 )}
                                                 {summaryError && (
-                                                    <div style={{ marginTop: 12, padding: 12, background: 'rgba(248,113,113,0.06)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(248,113,113,0.2)', color: 'var(--accent-danger)', fontSize: 13 }}>
+                                                    <div style={{ marginTop: 12, padding: 12, background: 'rgba(192,70,43,0.06)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(192,70,43,0.2)', color: 'var(--accent-danger)', fontSize: 13 }}>
                                                         {summaryError}
                                                     </div>
                                                 )}
@@ -246,7 +280,7 @@ const Resources = () => {
                                 {completed.includes(r._id) && (
                                     <div style={{ position: 'absolute', top: 0, right: 0, background: 'var(--accent-success)', color: 'white', padding: '3px 10px', borderRadius: '0 var(--radius-lg) 0 var(--radius-sm)', fontSize: 10, fontWeight: 600 }}>✓ Done</div>
                                 )}
-                            </div>
+                            </Reveal>
                         );
                     })}
                 </div>
@@ -255,8 +289,7 @@ const Resources = () => {
 
             {/* Add Resource Modal */}
             {showAdd && (
-                <div className="modal-overlay" onClick={() => setShowAdd(false)}>
-                    <div className="modal" onClick={e => e.stopPropagation()}>
+                <Modal onClose={() => setShowAdd(false)}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
                             <h2>Add Resource</h2>
                             <button style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 20 }} onClick={() => setShowAdd(false)}><FiX /></button>
@@ -265,16 +298,39 @@ const Resources = () => {
                             <div className="form-group"><label>Title</label><input className="form-input" value={newResource.title} onChange={e => setNewResource({ ...newResource, title: e.target.value })} required /></div>
                             <div className="form-group"><label>Description</label><textarea className="form-textarea" value={newResource.description} onChange={e => setNewResource({ ...newResource, description: e.target.value })} /></div>
                             <div className="form-group"><label>Topic</label><select className="form-select" value={newResource.topic} onChange={e => setNewResource({ ...newResource, topic: e.target.value })} required><option value="">Select topic</option>{topics.map(t => <option key={t._id} value={t._id}>{t.name}</option>)}</select></div>
-                            <div className="grid grid-2">
-                                <div className="form-group"><label>Level</label><select className="form-select" value={newResource.level} onChange={e => setNewResource({ ...newResource, level: e.target.value })}><option value="beginner">Beginner</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option></select></div>
-                                <div className="form-group"><label>Type</label><select className="form-select" value={newResource.resourceType} onChange={e => setNewResource({ ...newResource, resourceType: e.target.value })}><option value="video">Video</option><option value="article">Article</option><option value="pdf">PDF</option></select></div>
+                            <div className="form-group"><label>Level</label><select className="form-select" value={newResource.level} onChange={e => setNewResource({ ...newResource, level: e.target.value })}><option value="beginner">Beginner</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option></select></div>
+
+                            {/* Source: external link OR uploaded file */}
+                            <div className="form-group">
+                                <label>Source</label>
+                                <div className="segmented segmented--sm" style={{ marginBottom: 12 }}>
+                                    <button type="button" className={`segmented-item ${addMode === 'link' ? 'active' : ''}`} onClick={() => setAddMode('link')}><span className="segmented-label"><FiExternalLink /> Link</span></button>
+                                    <button type="button" className={`segmented-item ${addMode === 'file' ? 'active' : ''}`} onClick={() => setAddMode('file')}><span className="segmented-label"><FiUpload /> Upload file</span></button>
+                                </div>
+                                {addMode === 'link' ? (
+                                    <>
+                                        <select className="form-select" style={{ marginBottom: 10 }} value={newResource.resourceType} onChange={e => setNewResource({ ...newResource, resourceType: e.target.value })}>
+                                            <option value="video">Video</option>
+                                            <option value="article">Article</option>
+                                            <option value="link">Link</option>
+                                        </select>
+                                        <input className="form-input" value={newResource.link} onChange={e => setNewResource({ ...newResource, link: e.target.value })} placeholder="https://..." />
+                                    </>
+                                ) : (
+                                    <>
+                                        <input className="form-input" type="file" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.svg,.txt,.zip" onChange={e => setAddFile(e.target.files?.[0] || null)} />
+                                        <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>{addFile ? `${addFile.name} (${Math.round(addFile.size / 1024)} KB)` : 'PDF, PPT, DOC, images… up to 25 MB. Type is detected automatically.'}</p>
+                                    </>
+                                )}
                             </div>
-                            <div className="form-group"><label>Link / URL</label><input className="form-input" value={newResource.link} onChange={e => setNewResource({ ...newResource, link: e.target.value })} placeholder="https://..." /></div>
-                            <button className="btn btn-primary" style={{ width: '100%' }}>Add Resource</button>
+
+                            {addError && <div className="form-notice" role="alert" style={{ marginBottom: 12 }}><FiAlertTriangle /> {addError}</div>}
+                            <button className="btn btn-action" style={{ width: '100%' }} disabled={adding}>{adding ? 'Saving…' : 'Add Resource'}</button>
                         </form>
-                    </div>
-                </div>
+                </Modal>
             )}
+
+            {preview && <ResourcePreview resource={preview} onClose={() => setPreview(null)} />}
         </div>
     );
 };

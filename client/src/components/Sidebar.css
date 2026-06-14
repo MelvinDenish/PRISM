@@ -20,10 +20,10 @@
   position: absolute;
   inset: 0;
   background: linear-gradient(180deg,
-    rgba(16, 185, 129, 0.04) 0%,
+    rgba(201, 162, 75, 0.04) 0%,
     transparent 30%,
     transparent 70%,
-    rgba(6, 182, 212, 0.03) 100%);
+    rgba(226, 104, 42, 0.03) 100%);
   pointer-events: none;
 }
 
@@ -47,7 +47,7 @@
   font-weight: 800;
   font-size: 18px;
   color: white;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+  box-shadow: 0 4px 12px rgba(201, 162, 75, 0.3);
 }
 
 .brand-text {
@@ -106,28 +106,39 @@
 
 .nav-link:hover {
   color: var(--text-primary);
-  background: rgba(16, 185, 129, 0.06);
+  background: var(--bg-subtle);
 }
 
 .nav-link.active {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--accent-primary);
-  font-weight: 600;
+  background: rgba(201, 162, 75, 0.1);
+  color: var(--accent-primary-strong);
+  font-weight: 700;
 }
+.nav-link.active .nav-icon { color: var(--accent-primary); }
 
-.nav-link.active::before {
-  content: '';
+/* Animated shared-element active bar (framer-motion layoutId) slides between items */
+.nav-active-bar {
   position: absolute;
   left: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 19%;
+  height: 62%;
   width: 3px;
-  height: 60%;
-  background: var(--gradient-primary);
+  background: var(--accent-primary);
   border-radius: 0 4px 4px 0;
+  box-shadow: 0 0 10px var(--border-glow);
 }
 
-.nav-icon { font-size: 18px; flex-shrink: 0; }
+.nav-icon { font-size: 18px; flex-shrink: 0; color: var(--text-muted); transition: color 0.2s; }
+.nav-link:hover .nav-icon { color: var(--text-secondary); }
+
+/* nav section grouping */
+.nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-group + .nav-group { margin-top: 4px; }
+.nav-group-label {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.09em; color: var(--text-muted);
+  padding: 14px 16px 6px;
+}
 
 .sidebar-footer {
   padding: 16px 20px;
@@ -135,7 +146,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(16, 185, 129, 0.02);
+  background: rgba(201, 162, 75, 0.02);
 }
 
 .user-info {
@@ -198,6 +209,50 @@
   margin-left: var(--sidebar-width);
   flex: 1;
   min-height: 100vh;
+  position: relative;
+  /* NOTE: deliberately NO z-index here. Adding one makes .main-content a
+     stacking context that traps position:fixed modals below the sidebar.
+     The aurora sits behind content via its own z-index:-1 instead. */
+  transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ===================== DESKTOP COLLAPSE ===================== */
+@media (min-width: 769px) {
+  .sidebar.sidebar--collapsed {
+    transform: translateX(-100%);
+    box-shadow: none;
+  }
+  .main-content.main-content--expanded {
+    margin-left: 0;
+  }
+}
+
+/* Floating collapse toggle — sits just outside the sidebar's right edge,
+   slides to the screen edge when collapsed. Desktop only. */
+.sidebar-toggle {
+  display: none;
+  position: fixed;
+  top: 16px;
+  left: calc(var(--sidebar-width) - 17px); /* straddle the sidebar's right edge */
+  z-index: 120;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-glass-strong);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: var(--text-secondary);
+  font-size: 17px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.2s, border-color 0.2s;
+}
+.sidebar-toggle:hover { color: var(--accent-primary); border-color: var(--border-active); }
+.sidebar-toggle.collapsed { left: 12px; }
+@media (min-width: 769px) {
+  .sidebar-toggle { display: inline-flex; }
 }
 
 .mobile-menu-btn {

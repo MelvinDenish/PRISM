@@ -13,4 +13,8 @@ const mockInterviewSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
+// Indexes (plan §3): listed/filtered by status and mentor, sorted by date.
+mockInterviewSchema.index({ status: 1, scheduledDate: -1 });
+mockInterviewSchema.index({ mentor: 1 });
+
 module.exports = mongoose.model('MockInterview', mockInterviewSchema);

@@ -1,8 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getSessions, updateSessionStatus, rateSession } from '../services/api';
-import { FiCheck, FiX, FiStar, FiClock, FiVideo, FiPhoneOff } from 'react-icons/fi';
+import { getSessions, updateSessionStatus, rateSession, createWebinar } from '../services/api';
+import { FiCheck, FiX, FiStar, FiClock, FiVideo, FiPhoneOff, FiCalendar, FiRadio, FiCopy } from 'react-icons/fi';
+import Reveal from '../components/motion/Reveal';
+import PageHero from '../components/ui/PageHero';
+import SegmentedControl from '../components/ui/SegmentedControl';
+import { SkeletonGrid } from '../components/ui/Skeleton';
+import Modal from '../components/ui/Modal';
 
 const Sessions = () => {
     const { user } = useAuth();
@@ -13,8 +18,29 @@ const Sessions = () => {
     const [ratingModal, setRatingModal] = useState(null);
     const [rating, setRating] = useState(5);
     const [feedback, setFeedback] = useState('');
+    // Webinar: mentor selects pending requests to consolidate into one live session.
+    const [selected, setSelected] = useState({});
+    const [webinarModal, setWebinarModal] = useState(null);
+    const [hosting, setHosting] = useState(false);
 
     useEffect(() => { fetchSessions(); }, [filter]);
+
+    const toggleSelect = (id) => setSelected((prev) => ({ ...prev, [id]: !prev[id] }));
+    const selectedIds = Object.keys(selected).filter((id) => selected[id]);
+
+    const handleHostWebinar = async () => {
+        if (!selectedIds.length) return;
+        setHosting(true);
+        try {
+            const res = await createWebinar({ sessionIds: selectedIds });
+            setWebinarModal(res.data);
+            setSelected({});
+            fetchSessions();
+        } catch (err) {
+            alert(err?.response?.data?.message || 'Could not create webinar');
+        }
+        setHosting(false);
+    };
 
     const fetchSessions = async () => {
         setLoading(true);
@@ -39,25 +65,42 @@ const Sessions = () => {
     };
 
     const statusColors = { pending: 'warning', approved: 'primary', 'in-progress': 'info', completed: 'success', rejected: 'danger', cancelled: 'danger' };
-    const statusIcons = { pending: '🟡', approved: '🟢', 'in-progress': '📹', completed: '✅', rejected: '❌' };
 
     return (
         <div className="page">
-            <div className="page-header">
-                <h1 className="page-title">📅 <span>Mentorship Sessions</span></h1>
-                <div style={{ display: 'flex', gap: 8 }}>
-                    {['', 'pending', 'approved', 'in-progress', 'completed'].map(f => (
-                        <button key={f} className={`btn btn-sm ${filter === f ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFilter(f)}>
-                            {f || 'All'}
-                        </button>
-                    ))}
-                </div>
-            </div>
+            <PageHero
+                eyebrow="Mentorship"
+                title="Mentorship Sessions"
+                subtitle="Approve, join and review your 1:1 sessions."
+                icon={<FiCalendar />}
+                actions={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        {user?.role === 'mentor' && selectedIds.length > 0 && (
+                            <button className="btn btn-primary btn-sm" onClick={handleHostWebinar} disabled={hosting} style={{ background: 'var(--gradient-primary)', border: 'none' }}>
+                                <FiRadio /> {hosting ? 'Creating…' : `Host Webinar (${selectedIds.length})`}
+                            </button>
+                        )}
+                        <SegmentedControl
+                            id="session-filter"
+                            size="sm"
+                            value={filter}
+                            onChange={setFilter}
+                            options={[
+                                { value: '', label: 'All' },
+                                { value: 'pending', label: 'Pending' },
+                                { value: 'approved', label: 'Approved' },
+                                { value: 'in-progress', label: 'Live' },
+                                { value: 'completed', label: 'Done' },
+                            ]}
+                        />
+                    </div>
+                }
+            />
 
-            {loading ? <div className="spinner" /> : (
+            {loading ? <SkeletonGrid count={4} cols={1} /> : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    {sessions.map(s => (
-                        <div key={s._id} className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+                    {sessions.map((s, idx) => (
+                        <Reveal as="div" key={s._id} i={idx} className="glass-card spotlight" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
                             <div style={{ flex: 1 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
                                     <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--gradient-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: 'white', fontSize: 18 }}>
@@ -74,10 +117,18 @@ const Sessions = () => {
                                     <span><FiClock style={{ marginRight: 4 }} />{new Date(s.scheduledDate).toLocaleString()}</span>
                                     {s.duration && <span>⏱ {s.duration} min</span>}
                                 </div>
-                                {s.agenda && <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 8, padding: '8px 12px', background: 'rgba(16,185,129,0.04)', borderRadius: 'var(--radius-sm)', borderLeft: '2px solid var(--accent-primary)' }}>{s.agenda}</p>}
+                                {s.agenda && <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 8, padding: '8px 12px', background: 'rgba(201,162,75,0.04)', borderRadius: 'var(--radius-sm)', borderLeft: '2px solid var(--accent-primary)' }}>{s.agenda}</p>}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                <span className={`badge badge-${statusColors[s.status]}`}>{statusIcons[s.status]} {s.status}</span>
+                                <span className={`badge badge-${statusColors[s.status]}`}>{s.status}</span>
+                                {s.webinar && <span className="badge badge-info"><FiRadio style={{ marginRight: 4 }} />Webinar</span>}
+
+                                {/* Mentor: select pending requests to bundle into a webinar */}
+                                {user?.role === 'mentor' && s.status === 'pending' && (
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' }}>
+                                        <input type="checkbox" checked={!!selected[s._id]} onChange={() => toggleSelect(s._id)} /> Webinar
+                                    </label>
+                                )}
 
                                 {/* Mentor: Approve/Reject pending sessions */}
                                 {user?.role === 'mentor' && s.status === 'pending' && (
@@ -87,8 +138,15 @@ const Sessions = () => {
                                     </>
                                 )}
 
-                                {/* START VIDEO CALL — once session is approved */}
-                                {s.status === 'approved' && (
+                                {/* Webinar-linked approved session → join the live webinar */}
+                                {s.status === 'approved' && s.webinar && (
+                                    <button className="btn btn-primary btn-sm" onClick={() => navigate(s.meetingLink || '/gd-rooms')} style={{ background: 'var(--gradient-primary)', border: 'none' }}>
+                                        <FiRadio /> Join Webinar
+                                    </button>
+                                )}
+
+                                {/* START VIDEO CALL — 1:1 approved session (not a webinar) */}
+                                {s.status === 'approved' && !s.webinar && (
                                     <>
                                         <button className="btn btn-primary btn-sm" onClick={() => handleStartCall(s._id)} style={{ background: 'var(--gradient-primary)', border: 'none' }}>
                                             <FiVideo /> Start Video Call
@@ -121,16 +179,15 @@ const Sessions = () => {
                                     </span>
                                 )}
                             </div>
-                        </div>
+                        </Reveal>
                     ))}
                 </div>
             )}
-            {!loading && sessions.length === 0 && <div className="empty-state"><div className="icon">📅</div><p>No sessions yet</p></div>}
+            {!loading && sessions.length === 0 && <div className="empty-state"><div className="icon"><FiCalendar /></div><p>No sessions yet</p></div>}
 
             {ratingModal && (
-                <div className="modal-overlay" onClick={() => setRatingModal(null)}>
-                    <div className="modal" onClick={e => e.stopPropagation()}>
-                        <h2>⭐ Rate Session</h2>
+                <Modal onClose={() => setRatingModal(null)}>
+                        <h2>Rate Session</h2>
                         <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>How was your session with {user?.role === 'mentor' ? ratingModal.mentee?.name : ratingModal.mentor?.name}?</p>
                         <form onSubmit={handleRate}>
                             <div className="form-group">
@@ -144,8 +201,25 @@ const Sessions = () => {
                             <div className="form-group"><label>Feedback</label><textarea className="form-textarea" rows={4} value={feedback} onChange={e => setFeedback(e.target.value)} placeholder="Share your experience..." /></div>
                             <button className="btn btn-primary" style={{ width: '100%' }}>Submit Rating</button>
                         </form>
+                </Modal>
+            )}
+
+            {webinarModal && (
+                <Modal onClose={() => setWebinarModal(null)}>
+                    <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><FiRadio /> Webinar Created</h2>
+                    <p style={{ color: 'var(--text-muted)', marginBottom: 16 }}>
+                        {webinarModal.invited} student{webinarModal.invited === 1 ? '' : 's'} were invited and notified. Share this code — only invited students can join.
+                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                        <code style={{ fontSize: 22, fontWeight: 800, letterSpacing: 3, padding: '8px 16px', background: 'var(--bg-input)', borderRadius: 8 }}>{webinarModal.inviteCode}</code>
+                        <button className="btn btn-secondary btn-sm" onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/gd-rooms?join=${webinarModal.inviteCode}`)}>
+                            <FiCopy /> Copy link
+                        </button>
                     </div>
-                </div>
+                    <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => navigate(webinarModal.meetingLink || `/gd-rooms?join=${webinarModal.inviteCode}`)}>
+                        Enter Webinar as Host
+                    </button>
+                </Modal>
             )}
         </div>
     );

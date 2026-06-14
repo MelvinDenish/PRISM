@@ -1,162 +1,55 @@
 const User = require('../models/User');
+const MentorshipSession = require('../models/MentorshipSession');
+const socketAuth = require('./socketAuth');
 
 const socketHandler = (io) => {
-    const rooms = new Map();
-    const gdVideoRooms = new Map();
-    const sessionPeers = new Map(); // sessionId => [{ peerId, userId, userName, socketId }]
     const userSockets = new Map(); // socketId => userId (for online tracking)
+    // NOTE: live video (1:1 mentorship, technical interview, GD, webinar) is now
+    // handled by the LiveKit SFU — tokens are minted in routes/rtc.js and media
+    // flows through LiveKit, not Socket.IO. The old PeerJS signaling + peer maps
+    // (sessionPeers / gdVideoRooms) and the in-memory interview-coding `rooms`
+    // map + its join-room/leave-room/code-change/cursor-change handlers (the
+    // unmounted MockInterview collaborative editor) were removed.
+
+    // Authorization: a coding room / video session is keyed by a MentorshipSession
+    // _id. Only that session's mentor or mentee (or an admin) may join — otherwise
+    // any authenticated user could join a private 1:1 session by guessing the id.
+    const isSessionParticipant = async (sessionId, user) => {
+        try {
+            if (user.role === 'admin') return true;
+            const session = await MentorshipSession.findById(sessionId).select('mentor mentee');
+            if (!session) return false;
+            return session.mentor.equals(user._id) || session.mentee.equals(user._id);
+        } catch {
+            return false; // invalid id / lookup error → deny
+        }
+    };
+
+    // Reject unauthenticated connections; attaches socket.user (real identity).
+    io.use(socketAuth);
 
     io.on('connection', (socket) => {
-        console.log(`🔌 User connected: ${socket.id}`);
+        // socket.user is guaranteed by socketAuth — use it as the source of truth
+        // for identity. Client-sent userId/userName are ignored for identity.
+        const authUserId = socket.user._id.toString();
+        const authUserName = socket.user.name;
+        console.log(`🔌 User connected: ${socket.id} (${authUserName})`);
 
         // ==================== ONLINE TRACKING ====================
-        socket.on('register-user', async ({ userId, role }) => {
-            if (!userId) return;
-            userSockets.set(socket.id, userId);
-            try { await User.findByIdAndUpdate(userId, { isOnline: true }); } catch {}
-        });
-
-        // ==================== INTERVIEW ROOMS ====================
-
-        // Join an interview room
-        socket.on('join-room', ({ roomId, userId, userName }) => {
-            socket.join(roomId);
-
-            if (!rooms.has(roomId)) {
-                rooms.set(roomId, { participants: [], code: '// Start coding here...\n' });
-            }
-
-            const room = rooms.get(roomId);
-            // Remove existing entry for this user
-            room.participants = room.participants.filter(p => p.userId !== userId);
-            room.participants.push({ socketId: socket.id, userId, userName });
-
-            // Notify others in room
-            socket.to(roomId).emit('user-joined', { userId, userName, socketId: socket.id });
-
-            // Send current code state to new joiner
-            socket.emit('sync-code', { code: room.code });
-
-            // Send participant list
-            io.to(roomId).emit('room-participants', room.participants);
-        });
-
-        // Leave room
-        socket.on('leave-room', ({ roomId }) => {
-            socket.leave(roomId);
-            if (rooms.has(roomId)) {
-                const room = rooms.get(roomId);
-                room.participants = room.participants.filter((p) => p.socketId !== socket.id);
-                io.to(roomId).emit('room-participants', room.participants);
-                socket.to(roomId).emit('user-left', { socketId: socket.id });
-            }
-        });
-
-        // ==================== CODE SYNC ====================
-
-        // Sync code changes
-        socket.on('code-change', ({ roomId, code }) => {
-            if (rooms.has(roomId)) {
-                rooms.get(roomId).code = code;
-            }
-            socket.to(roomId).emit('code-update', { code });
-        });
-
-        // Sync cursor position
-        socket.on('cursor-change', ({ roomId, cursor, userId }) => {
-            socket.to(roomId).emit('cursor-update', { cursor, userId });
-        });
-
-        // ==================== WEBRTC SIGNALING ====================
-
-        // Session peer ID exchange (for 1:1 video in mentorship sessions)
-        // Flow: New joiner sends peer-id → server tells new joiner to CALL existing peers
-        //       → server tells existing peers to WAIT (incoming-peer, don't call back)
-        socket.on('session-peer-id', ({ sessionId, peerId, userName }) => {
-            if (!sessionPeers.has(sessionId)) {
-                sessionPeers.set(sessionId, []);
-            }
-            const peers = sessionPeers.get(sessionId);
-            // Remove old entry for this socket (e.g. reconnect)
-            const filtered = peers.filter(p => p.socketId !== socket.id);
-            filtered.push({ peerId, userName: userName || 'Participant', socketId: socket.id });
-            sessionPeers.set(sessionId, filtered);
-
-            const existingPeers = filtered.filter(p => p.socketId !== socket.id);
-
-            // Tell the NEW joiner about existing peers → new joiner will CALL them
-            existingPeers.forEach(ep => {
-                socket.emit('call-peer', { peerId: ep.peerId, name: ep.userName });
-            });
-
-            // Tell EXISTING peers about the new joiner → they should NOT call,
-            // just update the name label and wait for the incoming call
-            socket.to(sessionId).emit('incoming-peer', { peerId, name: userName || 'Participant' });
-
-            console.log(`📹 Session ${sessionId}: ${userName} joined (peer: ${peerId}). Total: ${filtered.length}`);
-        });
-
-        // WebRTC offer
-        socket.on('offer', ({ roomId, offer, to }) => {
-            socket.to(to).emit('offer', { offer, from: socket.id });
-        });
-
-        // WebRTC answer
-        socket.on('answer', ({ roomId, answer, to }) => {
-            socket.to(to).emit('answer', { answer, from: socket.id });
-        });
-
-        // ICE candidate
-        socket.on('ice-candidate', ({ roomId, candidate, to }) => {
-            socket.to(to).emit('ice-candidate', { candidate, from: socket.id });
+        socket.on('register-user', async () => {
+            userSockets.set(socket.id, authUserId);
+            try { await User.findByIdAndUpdate(authUserId, { isOnline: true }); } catch {}
         });
 
         // ==================== GD ROOM EVENTS ====================
+        // Video media is handled by the LiveKit SFU (see routes/rtc.js). These
+        // events only carry presence, chat, and the discussion timer.
 
-        // Join GD room
-        socket.on('join-gd', ({ roomId, userId, userName }) => {
+        // Join GD room (presence + chat + timer channel)
+        socket.on('join-gd', ({ roomId }) => {
+            if (!roomId) return;
             socket.join(`gd-${roomId}`);
-            socket.to(`gd-${roomId}`).emit('gd-user-joined', { userId, userName, socketId: socket.id });
-        });
-
-        // GD Video: Join with PeerJS peer ID
-        socket.on('gd-video-join', ({ roomId, peerId, name, userId }) => {
-            const gdRoom = `gd-${roomId}`;
-
-            if (!gdVideoRooms.has(roomId)) {
-                gdVideoRooms.set(roomId, []);
-            }
-
-            const videoRoom = gdVideoRooms.get(roomId);
-            // Remove old entry for same user
-            const filtered = videoRoom.filter(p => p.userId !== userId);
-            filtered.push({ peerId, userId, name, socketId: socket.id });
-            gdVideoRooms.set(roomId, filtered);
-
-            // Notify existing video peers about the new peer
-            socket.to(gdRoom).emit('gd-peer-joined', { peerId, name, userId });
-
-            // Send existing peers to the new joiner so they can call them
-            const existingPeers = filtered.filter(p => p.userId !== userId);
-            existingPeers.forEach(peer => {
-                socket.emit('gd-peer-joined', { peerId: peer.peerId, name: peer.name, userId: peer.userId });
-            });
-
-            console.log(`🎥 GD Video: ${name} joined room ${roomId} with peer ${peerId}. Total peers: ${filtered.length}`);
-        });
-
-        // GD Video: Leave
-        socket.on('gd-leave-video', ({ roomId }) => {
-            if (gdVideoRooms.has(roomId)) {
-                const videoRoom = gdVideoRooms.get(roomId);
-                const leaving = videoRoom.find(p => p.socketId === socket.id);
-                if (leaving) {
-                    const filtered = videoRoom.filter(p => p.socketId !== socket.id);
-                    gdVideoRooms.set(roomId, filtered);
-                    io.to(`gd-${roomId}`).emit('gd-peer-left', { peerId: leaving.peerId, userId: leaving.userId });
-                    console.log(`🎥 GD Video: ${leaving.name} left room ${roomId}`);
-                }
-            }
+            socket.to(`gd-${roomId}`).emit('gd-user-joined', { userId: authUserId, userName: authUserName, socketId: socket.id });
         });
 
         // GD timer events
@@ -186,57 +79,46 @@ const socketHandler = (io) => {
 
         // ==================== CHAT ====================
 
-        socket.on('send-message', ({ roomId, message, userName }) => {
-            socket.to(roomId).emit('receive-message', { message, userName, timestamp: new Date() });
+        // Broadcast chat using the server-derived identity — never trust a
+        // client-sent userName (prevents chat impersonation).
+        socket.on('send-message', ({ roomId, message }) => {
+            if (!roomId || typeof message !== 'string' || !socket.rooms.has(roomId)) return;
+            socket.to(roomId).emit('receive-message', {
+                message: message.slice(0, 4000),
+                userName: authUserName,
+                timestamp: new Date(),
+            });
         });
 
         // ==================== SESSION EVENTS ====================
 
-        socket.on('join-session', ({ sessionId, userId, userName }) => {
+        socket.on('join-session', async ({ sessionId }) => {
+            if (!sessionId) return;
+            if (!(await isSessionParticipant(sessionId, socket.user))) {
+                return socket.emit('session-unauthorized', { sessionId });
+            }
             socket.join(sessionId);
-            console.log(`📹 ${userName || 'User'} joined session room: ${sessionId}`);
+            console.log(`📹 ${authUserName || 'User'} joined session room: ${sessionId}`);
         });
 
         socket.on('end-session', ({ sessionId }) => {
             io.to(sessionId).emit('session-ended');
-            // Clean up session peers
-            sessionPeers.delete(sessionId);
         });
 
         // ==================== DISCONNECT ====================
 
+        // `disconnecting` fires while socket.rooms is still populated — use it to
+        // tell GD rooms a participant left so their presence list shrinks (the
+        // `disconnect` event below runs after rooms are already cleared).
+        socket.on('disconnecting', () => {
+            socket.rooms.forEach((r) => {
+                if (typeof r === 'string' && r.startsWith('gd-')) {
+                    socket.to(r).emit('gd-user-left', { userId: authUserId, socketId: socket.id });
+                }
+            });
+        });
+
         socket.on('disconnect', () => {
-            // Clean up from interview rooms
-            rooms.forEach((room, roomId) => {
-                const participant = room.participants.find((p) => p.socketId === socket.id);
-                if (participant) {
-                    room.participants = room.participants.filter((p) => p.socketId !== socket.id);
-                    io.to(roomId).emit('room-participants', room.participants);
-                    io.to(roomId).emit('user-left', { socketId: socket.id });
-                }
-            });
-
-            // Clean up from GD video rooms
-            gdVideoRooms.forEach((peers, roomId) => {
-                const leaving = peers.find(p => p.socketId === socket.id);
-                if (leaving) {
-                    const filtered = peers.filter(p => p.socketId !== socket.id);
-                    gdVideoRooms.set(roomId, filtered);
-                    io.to(`gd-${roomId}`).emit('gd-peer-left', { peerId: leaving.peerId, userId: leaving.userId });
-                }
-            });
-
-            // Clean up from mentorship session rooms
-            sessionPeers.forEach((peers, sessionId) => {
-                const leaving = peers.find(p => p.socketId === socket.id);
-                if (leaving) {
-                    const filtered = peers.filter(p => p.socketId !== socket.id);
-                    sessionPeers.set(sessionId, filtered);
-                    io.to(sessionId).emit('session-peer-left', { userName: leaving.userName });
-                    if (filtered.length === 0) sessionPeers.delete(sessionId);
-                }
-            });
-
             // Set user offline
             const userId = userSockets.get(socket.id);
             if (userId) {

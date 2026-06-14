@@ -24,9 +24,19 @@ const questionBankSchema = new mongoose.Schema({
         c: String
     },
     verified: { type: Boolean, default: true },
+    // Phase 3: company-aware provenance. `companyTag` ties a question to a real
+    // company; `source` records where it came from (mentor uploads + internet
+    // research are preferred over generic curated questions during sampling).
+    companyTag: { type: mongoose.Schema.Types.ObjectId, ref: 'Company' },
+    source: { type: String, enum: ['curated', 'mentor', 'research'], default: 'curated' },
+    year: Number,                  // the year the question was reportedly asked
+    provenanceUrl: String,         // research source URL (for 'research')
+    researchedAt: Date,            // when the research pipeline produced it
     createdAt: { type: Date, default: Date.now }
 });
 
 questionBankSchema.index({ type: 1, difficulty: 1 });
+// Phase 3: company-targeted sampling looks up by { companyTag, type }.
+questionBankSchema.index({ companyTag: 1, type: 1 });
 
 module.exports = mongoose.model('QuestionBank', questionBankSchema);

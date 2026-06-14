@@ -1,29 +1,60 @@
 import { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
-import { FiMenu, FiX } from 'react-icons/fi';
+import AuroraBackground from './AuroraBackground';
+import PageTransition from './motion/PageTransition';
+import { FiMenu, FiChevronsLeft, FiChevronsRight } from 'react-icons/fi';
 
 const Layout = () => {
-    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer
+    const [collapsed, setCollapsed] = useState(
+        () => localStorage.getItem('prism_sidebar') === 'collapsed'
+    ); // desktop collapse
+    const location = useLocation();
+
+    const toggleCollapsed = () => {
+        setCollapsed((prev) => {
+            const next = !prev;
+            localStorage.setItem('prism_sidebar', next ? 'collapsed' : 'open');
+            return next;
+        });
+    };
 
     return (
         <div style={{ display: 'flex', minHeight: '100vh' }}>
+            <AuroraBackground variant="app" />
+
             {/* Mobile overlay */}
             {sidebarOpen && (
-                <div 
-                    className="sidebar-overlay" 
-                    onClick={() => setSidebarOpen(false)}
-                />
+                <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
             )}
 
-            <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+            <Sidebar
+                isOpen={sidebarOpen}
+                collapsed={collapsed}
+                onClose={() => setSidebarOpen(false)}
+            />
 
-            <main className="main-content">
+            {/* Desktop collapse toggle — same button hides the sidebar to the
+                side and brings it back. Sits just outside the sidebar edge. */}
+            <button
+                className={`sidebar-toggle ${collapsed ? 'collapsed' : ''}`}
+                onClick={toggleCollapsed}
+                aria-label={collapsed ? 'Show sidebar' : 'Hide sidebar'}
+                title={collapsed ? 'Show sidebar' : 'Hide sidebar'}
+            >
+                {collapsed ? <FiChevronsRight /> : <FiChevronsLeft />}
+            </button>
+
+            <main className={`main-content ${collapsed ? 'main-content--expanded' : ''}`}>
                 {/* Mobile hamburger */}
                 <button className="mobile-menu-btn" onClick={() => setSidebarOpen(true)}>
                     <FiMenu />
                 </button>
-                <Outlet />
+                {/* Keyed by path so each navigation replays the gentle enter transition */}
+                <PageTransition key={location.pathname}>
+                    <Outlet />
+                </PageTransition>
             </main>
         </div>
     );

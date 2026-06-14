@@ -1,12 +1,37 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
-const Groq = require('groq-sdk');
+const { aiLimiter } = require('../middleware/rateLimit');
+const { getGroq, GEN_MODEL, evalCompletion } = require('../utils/aiModels');
+const { rubricBlock, RUBRIC_VERSION } = require('../utils/interviewRubric');
+const mongoose = require('mongoose');
+const GDSession = require('../models/GDSession');
 const router = express.Router();
 
-const getGroq = () => {
-  if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY not configured');
-  return new Groq({ apiKey: process.env.GROQ_API_KEY });
-};
+const clampScore = (v) => Math.max(0, Math.min(Math.round(Number(v) || 0), 100));
+const strList = (v) => (Array.isArray(v) ? v.filter((s) => typeof s === 'string').slice(0, 6).map((s) => s.slice(0, 300)) : []);
+
+// Cap client-supplied AI context to bound Groq token cost and the
+// prompt-injection surface (the client echoes the running transcript).
+const MAX_CONTEXT_MESSAGES = 40;
+const MAX_MESSAGE_CHARS = 8000;
+const sanitizeContext = (context) =>
+  (Array.isArray(context) ? context : [])
+    .slice(-MAX_CONTEXT_MESSAGES)
+    .filter((m) => m && typeof m.content === 'string' && typeof m.role === 'string')
+    .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_MESSAGE_CHARS) }));
+
+// Rebuild a {speaker,message}[] transcript from the sanitized context. Lines are
+// stored as "Name: text"; split on the first short colon, else label by role.
+const transcriptFromContext = (ctx) => ctx
+  .filter((m) => m.role === 'user' || m.role === 'assistant')
+  .map((m) => {
+    const txt = String(m.content || '');
+    const i = txt.indexOf(':');
+    return (i > 0 && i <= 24)
+      ? { speaker: txt.slice(0, i).trim(), message: txt.slice(i + 1).trim() }
+      : { speaker: m.role === 'user' ? 'You' : 'Participant', message: txt };
+  })
+  .slice(-MAX_CONTEXT_MESSAGES);
 
 // AI participant profiles for GD
 const PARTICIPANTS = [
@@ -18,16 +43,16 @@ const PARTICIPANTS = [
 ];
 
 // POST /api/group-discussion/start — Generate topic and start GD with AI participants
-router.post('/start', protect, async (req, res) => {
+router.post('/start', protect, aiLimiter, async (req, res) => {
   try {
     const groq = getGroq();
     const { customTopic } = req.body;
 
     // Generate a GD topic if none provided
-    let topic = customTopic;
+    let topic = typeof customTopic === 'string' ? customTopic.slice(0, 500) : '';
     if (!topic) {
       const topicRes = await groq.chat.completions.create({
-        model: 'llama-3.1-8b-instant',
+        model: GEN_MODEL(),
         messages: [
           { role: 'system', content: 'Return ONLY a single group discussion topic as a plain string. No quotes, no explanation.' },
           { role: 'user', content: 'Generate a thought-provoking group discussion topic for a placement interview. It should be relevant to technology, business, society, or current affairs. Make it debatable with no clear "right" answer. Examples: "Should AI replace human decision-making in healthcare?", "Is remote work sustainable long-term or just a trend?"' }
@@ -44,7 +69,7 @@ router.post('/start', protect, async (req, res) => {
 
     // Generate opening statement from first AI participant
     const openingRes = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+      model: GEN_MODEL(),
       messages: [
         { role: 'system', content: `You are ${selectedParticipants[0].name}, a ${selectedParticipants[0].style}. You are in a group discussion for a placement interview. The topic is: "${topic}". Give your opening statement in 2-3 sentences. Be natural, speak in first person, and take a clear stance. Do NOT use your name in the response.` },
         { role: 'user', content: 'Start the group discussion with your opening statement.' }
@@ -68,25 +93,29 @@ router.post('/start', protect, async (req, res) => {
       ]
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 });
 
 // POST /api/group-discussion/respond — User speaks, AI participants respond
-router.post('/respond', protect, async (req, res) => {
+router.post('/respond', protect, aiLimiter, async (req, res) => {
   try {
-    const { userMessage, context, participants, topic } = req.body;
+    const { userMessage, participants, topic } = req.body;
+    if (typeof userMessage !== 'string' || !userMessage.trim()) {
+      return res.status(400).json({ success: false, message: 'A message is required' });
+    }
     const groq = getGroq();
 
     // Add user's message to context
     const updatedContext = [
-      ...context,
-      { role: 'user', content: `Candidate: ${userMessage}` }
+      ...sanitizeContext(req.body.context),
+      { role: 'user', content: `Candidate: ${userMessage.slice(0, MAX_MESSAGE_CHARS)}` }
     ];
 
     // Pick 1-2 AI participants to respond
+    const safeParticipants = Array.isArray(participants) ? participants : [];
     const respondCount = 1 + Math.floor(Math.random() * 2);
-    const responders = [...participants].sort(() => Math.random() - 0.5).slice(0, respondCount);
+    const responders = [...safeParticipants].sort(() => Math.random() - 0.5).slice(0, respondCount);
 
     const responses = [];
     let runningContext = [...updatedContext];
@@ -95,7 +124,7 @@ router.post('/respond', protect, async (req, res) => {
       const participant = PARTICIPANTS.find(p => p.name === responder.name) || responder;
 
       const completion = await groq.chat.completions.create({
-        model: 'llama-3.1-8b-instant',
+        model: GEN_MODEL(),
         messages: [
           ...runningContext,
           { role: 'user', content: `Now ${participant.name} responds. ${participant.name} is ${participant.style || 'thoughtful and articulate'}. Topic: "${topic}". Respond naturally in 2-3 sentences. You may agree, disagree, counter-argue, add new points, or build upon what the candidate said. Be conversational and realistic. Speak in first person. Return ONLY the response text, no name prefix.` }
@@ -115,21 +144,25 @@ router.post('/respond', protect, async (req, res) => {
       context: runningContext
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 });
 
 // POST /api/group-discussion/evaluate — Evaluate user's GD performance
-router.post('/evaluate', protect, async (req, res) => {
+router.post('/evaluate', protect, aiLimiter, async (req, res) => {
   try {
-    const { context, topic } = req.body;
+    const { topic } = req.body;
+    const context = sanitizeContext(req.body.context);
     const groq = getGroq();
 
-    const evalRes = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+    const { completion: evalRes, modelUsed } = await evalCompletion(groq, {
       messages: [
         ...context,
-        { role: 'user', content: `Evaluate the candidate's performance in this group discussion on "${topic}". Return ONLY valid JSON:
+        { role: 'user', content: `Evaluate the candidate's performance in this group discussion on "${topic}".
+
+${rubricBlock()}
+
+Return ONLY valid JSON:
 {
   "overallScore": (0-100),
   "communication": (0-100),
@@ -155,9 +188,52 @@ router.post('/evaluate', protect, async (req, res) => {
       evaluation = { overallScore: 60, detailedFeedback: evalRes.choices[0]?.message?.content, verdict: 'Review needed' };
     }
 
-    res.json({ success: true, evaluation });
+    // Persist the SERVER-computed scores so the game round (and history) read an
+    // authoritative number, not the client's. Best-effort: history is non-critical.
+    let gdSessionId = null;
+    try {
+      const doc = await GDSession.create({
+        user: req.user._id,
+        game: mongoose.isValidObjectId(req.body.gameId) ? req.body.gameId : null,
+        topic: String(topic || '').slice(0, 500),
+        transcript: transcriptFromContext(context),
+        scores: {
+          overall: clampScore(evaluation.overallScore),
+          communication: clampScore(evaluation.communication),
+          contentQuality: clampScore(evaluation.contentQuality),
+          leadership: clampScore(evaluation.leadership),
+          teamwork: clampScore(evaluation.teamwork),
+          reasoning: clampScore(evaluation.reasoning),
+        },
+        feedback: {
+          strengths: strList(evaluation.strengths),
+          improvements: strList(evaluation.improvements),
+          detailedFeedback: String(evaluation.detailedFeedback || '').slice(0, 4000),
+          verdict: String(evaluation.verdict || ''),
+        },
+        rubricVersion: RUBRIC_VERSION || '',
+        gradedBy: modelUsed || '',
+      });
+      gdSessionId = doc._id;
+    } catch (e) { console.warn('GDSession persist failed:', e.message); }
+
+    res.json({ success: true, evaluation, gdSessionId });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
+  }
+});
+
+// GET /api/group-discussion/history — recent solo-GD scorecards for trends.
+router.get('/history', protect, async (req, res) => {
+  try {
+    const sessions = await GDSession.find({ user: req.user._id })
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .select('topic scores feedback.verdict createdAt')
+      .lean();
+    res.json({ success: true, sessions });
+  } catch (err) {
+    res.status(500).json({ success: false, message: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message });
   }
 });
 
