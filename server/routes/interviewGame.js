@@ -6,6 +6,7 @@ const InterviewGame = require('../models/InterviewGame');
 const GDSession = require('../models/GDSession');
 const { gradeMcqRound, sanitizeGame } = require('../utils/interviewGameScoring');
 const { executeCode } = require('./codeExecution');
+const { normalizeStdin } = require('../agent/services/codeRun');
 // Coding-problem gen/verify helpers live in a shared util (Phase 2) so the
 // learning-path final test reuses the exact same verified grading path.
 const { normOut, FALLBACK_CODING_PROBLEM, generateCodingProblems, validateCodingProblems } = require('../utils/codingProblems');
@@ -496,7 +497,7 @@ router.post('/submit-round', protect, async (req, res) => {
         let passed = 0;
         for (const tc of tests) {
           try {
-            const out = await executeCode(language, code, tc.input || '');
+            const out = await executeCode(language, code, normalizeStdin(tc.input || ''));
             if (out && out.exitCode === 0 && normOut(out.stdout) === normOut(tc.expectedOutput)) passed += 1;
           } catch (_) { /* a failing/erroring test simply doesn't count */ }
         }
@@ -512,7 +513,7 @@ router.post('/submit-round', protect, async (req, res) => {
       let passed = 0;
       for (const tc of tests) {
         try {
-          const out = await executeCode(language, req.body.code, tc.input || '');
+          const out = await executeCode(language, req.body.code, normalizeStdin(tc.input || ''));
           if (out && out.exitCode === 0 && normOut(out.output) === normOut(tc.expectedOutput)) passed += 1;
         } catch (_) { /* a failing/erroring test simply doesn't count */ }
       }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { listArtifacts, downloadArtifact } from '../services/api';
-import { FiFolder, FiDownload, FiFileText, FiFile, FiCode } from 'react-icons/fi';
+import { listArtifacts, downloadArtifact, deleteArtifact } from '../services/api';
+import { FiFolder, FiDownload, FiFileText, FiFile, FiCode, FiTrash2 } from 'react-icons/fi';
 import Reveal from '../components/motion/Reveal';
 import PageHero from '../components/ui/PageHero';
 
@@ -24,6 +24,7 @@ const Artifacts = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [downloading, setDownloading] = useState(null);
+    const [deleting, setDeleting] = useState(null);
 
     // Load on mount. `loading` already defaults to true, so we never setState
     // synchronously inside the effect (state changes happen after the await).
@@ -50,6 +51,20 @@ const Artifacts = () => {
             setError(err.message || 'Download failed.');
         }
         setDownloading(null);
+    };
+
+    const handleDelete = async (a) => {
+        if (!window.confirm(`Delete "${a.title || 'Untitled'}"? This can't be undone.`)) return;
+        setError('');
+        setDeleting(a._id);
+        try {
+            await deleteArtifact(a._id);
+            // Optimistically drop it from the list (server already removed it).
+            setArtifacts((prev) => prev.filter((x) => x._id !== a._id));
+        } catch (err) {
+            setError(err?.response?.data?.message || 'Could not delete the file.');
+        }
+        setDeleting(null);
     };
 
     return (
@@ -88,14 +103,25 @@ const Artifacts = () => {
                             <p style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 6 }}>
                                 {a.createdAt ? new Date(a.createdAt).toLocaleDateString() : ''}
                             </p>
-                            <button
-                                className="btn btn-action btn-sm"
-                                style={{ marginTop: 14, width: '100%' }}
-                                onClick={() => handleDownload(a)}
-                                disabled={downloading === a._id}
-                            >
-                                <FiDownload /> {downloading === a._id ? 'Downloading…' : 'Download'}
-                            </button>
+                            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                                <button
+                                    className="btn btn-action btn-sm"
+                                    style={{ flex: 1 }}
+                                    onClick={() => handleDownload(a)}
+                                    disabled={downloading === a._id || deleting === a._id}
+                                >
+                                    <FiDownload /> {downloading === a._id ? 'Downloading…' : 'Download'}
+                                </button>
+                                <button
+                                    className="btn btn-danger btn-sm"
+                                    aria-label={`Delete ${a.title || 'file'}`}
+                                    title="Delete"
+                                    onClick={() => handleDelete(a)}
+                                    disabled={deleting === a._id || downloading === a._id}
+                                >
+                                    <FiTrash2 /> {deleting === a._id ? 'Deleting…' : ''}
+                                </button>
+                            </div>
                         </Reveal>
                     ))}
                 </div>

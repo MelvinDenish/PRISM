@@ -1,20 +1,26 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { startInterviewGame, getGameQuestions, submitGameRound, startAIInterview, chatAIInterview, evaluateAIInterview, runTestCases, runCustomCode, startGroupDiscussion, respondGroupDiscussion, evaluateGroupDiscussion, getLeaderboard, getGameHistory, getCompanies, getGameReport, getGDHistory } from '../services/api';
-import { FiPlay, FiClock, FiAward, FiCheck, FiArrowRight, FiRotateCcw, FiSend, FiCpu, FiUser, FiAlertTriangle, FiMapPin, FiCode, FiTerminal, FiTarget, FiRefreshCw } from 'react-icons/fi';
+import { FiPlay, FiClock, FiAward, FiCheck, FiArrowRight, FiRotateCcw, FiSend, FiCpu, FiUser, FiAlertTriangle, FiMapPin, FiCode, FiTerminal, FiTarget, FiRefreshCw, FiActivity, FiBriefcase, FiUsers, FiCheckCircle, FiXCircle, FiBookOpen, FiZap, FiBarChart2 } from 'react-icons/fi';
 import Editor from '@monaco-editor/react';
+
+// Some seeded coding problems store the newline ESCAPE literally ("\"+"n") in their
+// description / example / test-case input. Render those as real newlines so the
+// text reads correctly (the server normalizes the same data before execution).
+const unescapeText = (s) =>
+    typeof s === 'string' ? s.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\\t/g, '\t') : s;
 
 // Rounds mapped onto the real CUIC (Anna University) 5-stage placement pipeline.
 // Stage 1 (Pre-Placement Talk) is a non-graded briefing shown before Round 1;
 // the graded rounds below are unchanged (types/scoring identical) so nothing
 // breaks — `stage`/`stageName` only drive the CUIC labelling.
 const ROUNDS = [
-    { type: 'aptitude', name: 'Aptitude Test', icon: '🧠', desc: '15 MCQ questions — quantitative, logical, verbal', time: 1200, passScore: 40, stage: 2, stageName: 'Online Assessment' },
-    { type: 'technical1', name: 'Technical Round 1', icon: '💻', desc: '10 MCQ questions — CS fundamentals', time: 900, passScore: 50, stage: 2, stageName: 'Online Assessment' },
-    { type: 'coding', name: 'Coding Round', icon: '⌨️', desc: '2 coding problems — solve within time', time: 2400, passScore: 30, stage: 2, stageName: 'Online Assessment' },
-    { type: 'gd', name: 'Group Discussion', icon: '🗣️', desc: 'AI-moderated topic discussion', time: 600, passScore: 40, stage: 3, stageName: 'Group Discussion' },
-    { type: 'technical2', name: 'Technical Interview', icon: '🔧', desc: 'Live interview with AI interviewer', time: 900, passScore: 50, stage: 4, stageName: 'Technical Interview' },
-    { type: 'hr', name: 'HR Interview', icon: '👔', desc: '10 behavioral questions', time: 900, passScore: 40, stage: 5, stageName: 'HR Interview' },
+    { type: 'aptitude', name: 'Aptitude Test', icon: FiActivity, desc: '15 MCQ questions — quantitative, logical, verbal', time: 1200, passScore: 40, stage: 2, stageName: 'Online Assessment' },
+    { type: 'technical1', name: 'Technical Round 1', icon: FiCpu, desc: '10 MCQ questions — CS fundamentals', time: 900, passScore: 50, stage: 2, stageName: 'Online Assessment' },
+    { type: 'coding', name: 'Coding Round', icon: FiCode, desc: '2 coding problems — solve within time', time: 2400, passScore: 30, stage: 2, stageName: 'Online Assessment' },
+    { type: 'gd', name: 'Group Discussion', icon: FiUsers, desc: 'AI-moderated topic discussion', time: 600, passScore: 40, stage: 3, stageName: 'Group Discussion' },
+    { type: 'technical2', name: 'Technical Interview', icon: FiTerminal, desc: 'Live interview with AI interviewer', time: 900, passScore: 50, stage: 4, stageName: 'Technical Interview' },
+    { type: 'hr', name: 'HR Interview', icon: FiBriefcase, desc: '10 behavioral questions', time: 900, passScore: 40, stage: 5, stageName: 'HR Interview' },
 ];
 
 // The CUIC 5-stage process shown on the start screen (Stage 1 is the briefing).
@@ -452,12 +458,13 @@ const InterviewGame = () => {
 
                     {/* Tabs */}
                     <div style={{ display: 'flex', gap: 4, marginBottom: 24, background: 'rgba(20,20,24,0.03)', borderRadius: 12, padding: 4 }}>
-                        {[['play', '🎮 Play'], ['leaderboard', '🏆 Leaderboard'], ['history', '📊 My History']].map(([key, label]) => (
-                            <button key={key} onClick={() => { setMenuTab(key); if (key === 'leaderboard') loadLeaderboard(); if (key === 'history') loadHistory(); }}
+                        {[{ key: 'play', label: 'Play', Icon: FiPlay }, { key: 'leaderboard', label: 'Leaderboard', Icon: FiAward }, { key: 'history', label: 'My History', Icon: FiBarChart2 }].map((t) => (
+                            <button key={t.key} onClick={() => { setMenuTab(t.key); if (t.key === 'leaderboard') loadLeaderboard(); if (t.key === 'history') loadHistory(); }}
                                 style={{ flex: 1, padding: '10px 16px', borderRadius: 10, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 14,
-                                    background: menuTab === key ? 'var(--accent-primary)' : 'transparent',
-                                    color: menuTab === key ? '#fff' : 'var(--text-muted)', transition: 'all 0.2s' }}>
-                                {label}
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                                    background: menuTab === t.key ? 'var(--accent-primary)' : 'transparent',
+                                    color: menuTab === t.key ? '#fff' : 'var(--text-muted)', transition: 'all 0.2s' }}>
+                                <t.Icon /> {t.label}
                             </button>
                         ))}
                     </div>
@@ -466,7 +473,7 @@ const InterviewGame = () => {
                     {menuTab === 'play' && (
                         <>
                             <div className="glass-card" style={{ padding: 32, marginBottom: 32, textAlign: 'center' }}>
-                                <h2 style={{ marginBottom: 8 }}>🏆 Full Interview Game</h2>
+                                <h2 style={{ marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}><FiAward style={{ color: 'var(--accent-primary)' }} /> Full Interview Game</h2>
                                 <p style={{ color: 'var(--text-muted)', marginBottom: 20, fontSize: 14 }}>
                                     The real <strong>CUIC 5-stage placement pipeline</strong>, end to end. Score below a round's cutoff and you're eliminated — just like the real drive.
                                 </p>
@@ -506,16 +513,16 @@ const InterviewGame = () => {
                                 </div>
                                 <button className="btn btn-primary btn-lg" onClick={() => startGame('full')}><FiPlay /> Start Full Interview</button>
                             </div>
-                            <h3 style={{ marginBottom: 16 }}>🎯 Practice Individual Rounds</h3>
+                            <h3 style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><FiTarget style={{ color: 'var(--accent-primary)' }} /> Practice Individual Rounds</h3>
                             <div className="grid grid-3">
                                 {ROUNDS.map((r, i) => (
                                     <div key={r.type} className="glass-card" style={{ padding: 20, cursor: 'pointer' }} onClick={() => startGame('single', i)}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                                            <div style={{ fontSize: 28 }}>{r.icon}</div>
+                                            <div style={{ width: 44, height: 44, borderRadius: 12, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(16,185,129,0.1)', color: 'var(--accent-primary)', fontSize: 20 }}><r.icon /></div>
                                             <div><h4 style={{ fontSize: 14 }}>{r.name}</h4><p style={{ color: 'var(--text-muted)', fontSize: 11 }}>{r.desc}</p></div>
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-muted)' }}>
-                                            <span>⏱ {Math.floor(r.time / 60)} min</span>
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><FiClock size={12} /> {Math.floor(r.time / 60)} min</span>
                                             <span>Pass: {r.passScore}%</span>
                                         </div>
                                     </div>
@@ -527,7 +534,7 @@ const InterviewGame = () => {
                     {/* Leaderboard Tab */}
                     {menuTab === 'leaderboard' && (
                         <div className="glass-card" style={{ padding: 24 }}>
-                            <h3 style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>🏆 Top Performers</h3>
+                            <h3 style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><FiAward style={{ color: 'var(--accent-primary)' }} /> Top Performers</h3>
                             {lbLoading ? <div className="spinner" /> : leaderboard.length === 0 ? (
                                 <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 40 }}>No completed games yet. Be the first!</p>
                             ) : (
@@ -545,7 +552,7 @@ const InterviewGame = () => {
                                         {leaderboard.map((p, i) => (
                                             <tr key={p._id} style={{ borderBottom: '1px solid rgba(20,20,24,0.03)' }}>
                                                 <td style={{ padding: '10px 12px', fontWeight: 700, color: i < 3 ? ['#FFD700','#C0C0C0','#CD7F32'][i] : 'var(--text-primary)' }}>
-                                                    {i < 3 ? ['🥇','🥈','🥉'][i] : `#${i+1}`}
+                                                    {i < 3 ? <FiAward style={{ verticalAlign: '-2px', color: ['#FFD700','#C0C0C0','#CD7F32'][i] }} /> : `#${i+1}`}
                                                 </td>
                                                 <td style={{ padding: '10px 12px', fontWeight: 600 }}>{p.name}</td>
                                                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>
@@ -567,7 +574,7 @@ const InterviewGame = () => {
                         <div>
                             {lbLoading ? <div className="spinner" /> : (history.length === 0 && gdHistory.length === 0) ? (
                                 <div className="glass-card" style={{ textAlign: 'center', padding: 40 }}>
-                                    <div style={{ fontSize: 48, marginBottom: 12 }}>📊</div>
+                                    <div style={{ fontSize: 48, marginBottom: 12, color: 'var(--text-muted)', display: 'flex', justifyContent: 'center' }}><FiBarChart2 /></div>
                                     <p style={{ color: 'var(--text-muted)' }}>No games played yet. Start your first interview!</p>
                                 </div>
                             ) : (
@@ -587,19 +594,22 @@ const InterviewGame = () => {
                                                 </div>
                                             </div>
                                             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                                {g.rounds?.map((r, i) => (
-                                                    <div key={i} style={{ padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                                                {g.rounds?.map((r, i) => {
+                                                    const RIcon = ROUNDS[i]?.icon;
+                                                    return (
+                                                    <div key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
                                                         background: r.status === 'completed' ? (r.score >= (ROUNDS[i]?.passScore || 40) ? 'rgba(201,162,75,0.15)' : 'rgba(192,70,43,0.15)') : 'rgba(20,20,24,0.04)',
                                                         color: r.status === 'completed' ? (r.score >= (ROUNDS[i]?.passScore || 40) ? 'var(--accent-success)' : 'var(--accent-danger)') : 'var(--text-muted)' }}>
-                                                        {ROUNDS[i]?.icon} {r.score}%
+                                                        {RIcon && <RIcon size={12} />} {r.score}%
                                                     </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
                                         </div>
                                     ))}
                                     {gdHistory.length > 0 && (
                                         <div style={{ marginTop: 12 }}>
-                                            <h3 style={{ marginBottom: 12 }}>🗣️ Group Discussions</h3>
+                                            <h3 style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}><FiUsers style={{ color: 'var(--accent-primary)' }} /> Group Discussions</h3>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                                 {gdHistory.map((s) => (
                                                     <div key={s._id} className="glass-card" style={{ padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
@@ -635,7 +645,7 @@ const InterviewGame = () => {
                             {ROUNDS.map((_, i) => (<div key={i} className={`round-dot ${i < currentRound ? 'completed' : i === currentRound ? 'active' : ''}`} />))}
                         </div>
                     )}
-                    <div style={{ fontSize: 72, marginBottom: 24 }}>{r.icon}</div>
+                    <div style={{ width: 96, height: 96, margin: '0 auto 24px', borderRadius: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(16,185,129,0.1)', color: 'var(--accent-primary)', fontSize: 44 }}><r.icon /></div>
                     {r.stageName && <p style={{ textTransform: 'uppercase', letterSpacing: 2, fontSize: 12, color: 'var(--accent-primary)', marginBottom: 4 }}>CUIC Stage {r.stage} · {r.stageName}</p>}
                     <h2 style={{ fontSize: 28, marginBottom: 8 }}>
                         {mode === 'full' ? `Round ${currentRound + 1}: ` : ''}{r.name}
@@ -797,14 +807,14 @@ const InterviewGame = () => {
                                             </span>
                                         </div>
                                         <div style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.8, whiteSpace: 'pre-wrap', marginBottom: 20 }}>
-                                            {questions[currentQ].description}
+                                            {unescapeText(questions[currentQ].description)}
                                         </div>
                                         {questions[currentQ].examples?.map((ex, i) => (
                                             <div key={i} style={{ marginBottom: 16, padding: 12, background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid var(--accent-primary)' }}>
                                                 <div style={{ fontSize: 12, color: 'var(--accent-primary)', fontWeight: 700, marginBottom: 6 }}>Example {i + 1}:</div>
                                                 <div style={{ fontFamily: 'monospace', fontSize: 13 }}>
-                                                    <div><strong>Input:</strong> <code>{ex.input}</code></div>
-                                                    <div><strong>Output:</strong> <code>{ex.output}</code></div>
+                                                    <div><strong>Input:</strong> <code style={{ whiteSpace: 'pre-wrap' }}>{unescapeText(ex.input)}</code></div>
+                                                    <div><strong>Output:</strong> <code style={{ whiteSpace: 'pre-wrap' }}>{unescapeText(ex.output)}</code></div>
                                                     {ex.explanation && <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}><strong>Explanation:</strong> {ex.explanation}</div>}
                                                 </div>
                                             </div>
@@ -818,7 +828,7 @@ const InterviewGame = () => {
                                         {questions[currentQ].testCases?.map((tc, i) => (
                                             <div key={i} style={{ marginBottom: 12, padding: 10, background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', fontSize: 13, fontFamily: 'monospace' }}>
                                                 <span className="badge badge-info" style={{ fontSize: 10, marginBottom: 6 }}>Case {i + 1}</span>
-                                                <div><strong>Input:</strong> <pre style={{ margin: 0, marginTop: 2, color: 'var(--text-secondary)' }}>{tc.input}</pre></div>
+                                                <div><strong>Input:</strong> <pre style={{ margin: 0, marginTop: 2, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{unescapeText(tc.input)}</pre></div>
                                                 <div style={{ marginTop: 4 }}><strong>Expected:</strong> <code style={{ color: 'var(--accent-success)' }}>{tc.expectedOutput}</code></div>
                                             </div>
                                         ))}
@@ -842,11 +852,11 @@ const InterviewGame = () => {
                                                         border: `1px solid ${tr.passed ? 'rgba(201,162,75,0.2)' : 'rgba(192,70,43,0.2)'}`
                                                     }}>
                                                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                                            <span style={{ fontWeight: 600 }}>{tr.passed ? '✅' : '❌'} Test {tr.testCase}</span>
+                                                            <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}>{tr.passed ? <FiCheckCircle style={{ color: 'var(--accent-success)' }} /> : <FiXCircle style={{ color: 'var(--accent-danger)' }} />} Test {tr.testCase}</span>
                                                             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{tr.status} {tr.time ? `• ${tr.time}s` : ''}</span>
                                                         </div>
                                                         <div style={{ fontFamily: 'monospace', fontSize: 12 }}>
-                                                            <div><span style={{ color: 'var(--text-muted)' }}>Input:</span> {tr.input}</div>
+                                                            <div><span style={{ color: 'var(--text-muted)' }}>Input:</span> <span style={{ whiteSpace: 'pre-wrap' }}>{unescapeText(tr.input)}</span></div>
                                                             <div><span style={{ color: 'var(--text-muted)' }}>Expected:</span> <span style={{ color: 'var(--accent-success)' }}>{tr.expectedOutput}</span></div>
                                                             {tr.actualOutput && <div><span style={{ color: 'var(--text-muted)' }}>Got:</span> <span style={{ color: tr.passed ? 'var(--accent-success)' : 'var(--accent-danger)' }}>{tr.actualOutput}</span></div>}
                                                             {tr.error && <div style={{ color: 'var(--accent-danger)', marginTop: 4 }}>Error: {tr.error}</div>}
@@ -884,16 +894,18 @@ const InterviewGame = () => {
                                     </div>
                                     <button className="btn btn-success" onClick={handleSubmitRound}><FiCheck /> Submit Round</button>
                                 </div>
-                                {/* Custom Input Console */}
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4 }}>
-                                    <div>
+                                {/* Custom Input Console — minmax(0,1fr) + minWidth:0 stop a long
+                                    unbreakable output line (e.g. a traceback path) from blowing the
+                                    grid out and collapsing the input column. */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 8, marginTop: 4 }}>
+                                    <div style={{ minWidth: 0 }}>
                                         <label style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2, display: 'block' }}>Custom Input (stdin)</label>
                                         <textarea className="form-textarea" rows={3} value={customInput} onChange={e => setCustomInput(e.target.value)}
-                                            placeholder="Enter custom input..." style={{ fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }} />
+                                            placeholder="Enter custom input..." style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }} />
                                     </div>
-                                    <div>
+                                    <div style={{ minWidth: 0 }}>
                                         <label style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2, display: 'block' }}>Output</label>
-                                        <pre style={{ padding: 8, background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', fontSize: 12, fontFamily: 'monospace', minHeight: 62, maxHeight: 80, overflow: 'auto', margin: 0, border: '1px solid var(--border-color)', color: customOutput.startsWith('Error') ? 'var(--accent-danger)' : 'var(--accent-success)' }}>{customOutput || 'Output will appear here...'}</pre>
+                                        <pre style={{ padding: 8, background: 'var(--bg-input)', borderRadius: 'var(--radius-sm)', fontSize: 12, fontFamily: 'monospace', minHeight: 62, maxHeight: 80, overflow: 'auto', margin: 0, border: '1px solid var(--border-color)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word', color: customOutput.startsWith('Error') ? 'var(--accent-danger)' : 'var(--accent-success)' }}>{customOutput || 'Output will appear here...'}</pre>
                                     </div>
                                 </div>
                             </div>
@@ -1026,7 +1038,7 @@ const InterviewGame = () => {
         return (
             <div className="page">
                 <div style={{ maxWidth: 700, margin: '40px auto', textAlign: 'center' }}>
-                    <div style={{ fontSize: 64, marginBottom: 16 }}>❌</div>
+                    <div style={{ fontSize: 64, marginBottom: 16, color: 'var(--accent-danger)', display: 'flex', justifyContent: 'center' }}><FiXCircle /></div>
                     <h1 className="page-title" style={{ fontSize: 32, marginBottom: 8 }}><span>Round Failed</span></h1>
                     <p style={{ color: 'var(--text-muted)', marginBottom: 8, fontSize: 16 }}>
                         You scored <strong style={{ color: 'var(--accent-danger)' }}>{roundScore}%</strong> in {ROUNDS[currentRound].name}
@@ -1036,17 +1048,17 @@ const InterviewGame = () => {
                     {failSuggestions && (
                         <div style={{ textAlign: 'left' }}>
                             <div className="glass-card" style={{ marginBottom: 20, borderLeft: '3px solid var(--accent-warning)' }}>
-                                <h3 style={{ marginBottom: 16 }}>📚 Topics You Need to Focus On</h3>
+                                <h3 style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><FiBookOpen style={{ color: 'var(--accent-warning)' }} /> Topics You Need to Focus On</h3>
                                 {failSuggestions.topics.map((t, i) => (
                                     <div key={i} style={{ marginBottom: 16, padding: 16, background: 'rgba(201,162,75,0.04)', borderRadius: 'var(--radius-sm)' }}>
                                         <h4 style={{ color: 'var(--accent-primary)', marginBottom: 4 }}>{t.name}</h4>
                                         <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{t.reason}</p>
-                                        <button className="btn btn-primary btn-sm" style={{ marginTop: 8 }} onClick={() => navigate('/topics')}>📖 Go to {t.name}</button>
+                                        <button className="btn btn-primary btn-sm" style={{ marginTop: 8 }} onClick={() => navigate('/topics')}><FiBookOpen /> Go to {t.name}</button>
                                     </div>
                                 ))}
                             </div>
                             <div className="glass-card" style={{ borderLeft: '3px solid var(--accent-secondary)' }}>
-                                <h3 style={{ marginBottom: 12 }}>💡 Tips</h3>
+                                <h3 style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}><FiZap style={{ color: 'var(--accent-secondary)' }} /> Tips</h3>
                                 {failSuggestions.tips.map((tip, i) => (
                                     <p key={i} style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 8, paddingLeft: 16, borderLeft: '2px solid var(--border-color)' }}>• {tip}</p>
                                 ))}
@@ -1058,7 +1070,7 @@ const InterviewGame = () => {
                         {reviewAddedTotal > 0 && (
                             <button className="btn btn-secondary btn-lg" onClick={() => navigate('/review')}><FiRefreshCw /> Review {reviewAddedTotal} Flagged</button>
                         )}
-                        <button className="btn btn-secondary btn-lg" onClick={() => navigate('/topics')}>📚 Study Topics</button>
+                        <button className="btn btn-secondary btn-lg" onClick={() => navigate('/topics')}><FiBookOpen /> Study Topics</button>
                     </div>
                 </div>
             </div>
@@ -1075,9 +1087,9 @@ const InterviewGame = () => {
                     <div className="score-ring" style={{ borderColor: roundScore >= 70 ? 'var(--accent-success)' : 'var(--accent-warning)' }}>
                         <span style={{ background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>{roundScore || 0}</span>
                     </div>
-                    <h2 style={{ marginBottom: 8 }}>✅ {ROUNDS[currentRound].name} Passed!</h2>
+                    <h2 style={{ marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}><FiCheckCircle style={{ color: 'var(--accent-success)' }} /> {ROUNDS[currentRound].name} Passed!</h2>
                     <p style={{ color: 'var(--text-muted)', marginBottom: 12 }}>You scored {roundScore}/100</p>
-                    {mode === 'full' && <p style={{ color: 'var(--accent-success)', fontSize: 13, marginBottom: 32 }}>Cutoff: {ROUNDS[currentRound].passScore}% ✓</p>}
+                    {mode === 'full' && <p style={{ color: 'var(--accent-success)', fontSize: 13, marginBottom: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>Cutoff: {ROUNDS[currentRound].passScore}% <FiCheck /></p>}
 
                     {aiEval && (
                         <div className="glass-card" style={{ textAlign: 'left', marginBottom: 24 }}>
@@ -1088,7 +1100,7 @@ const InterviewGame = () => {
 
                     {ROUNDS[currentRound]?.type === 'gd' && gdEval && (
                         <div className="glass-card" style={{ padding: 20, marginBottom: 24, textAlign: 'left' }}>
-                            <h3 style={{ marginBottom: 12 }}>🗣️ GD Scorecard</h3>
+                            <h3 style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}><FiUsers style={{ color: 'var(--accent-primary)' }} /> GD Scorecard</h3>
                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
                                 {[
                                     ['Communication', gdEval.communication],
@@ -1133,13 +1145,13 @@ const InterviewGame = () => {
         return (
             <div className="page">
                 <div style={{ maxWidth: 700, margin: '0 auto', textAlign: 'center' }}>
-                    <div style={{ fontSize: 64, marginBottom: 16 }}>{placed ? '🎉' : '🏆'}</div>
+                    <div style={{ fontSize: 64, marginBottom: 16, display: 'flex', justifyContent: 'center', color: placed ? 'var(--accent-success)' : 'var(--accent-primary)' }}>{placed ? <FiCheckCircle /> : <FiAward />}</div>
                     <h1 className="page-title" style={{ fontSize: 36, marginBottom: 8 }}>
                         <span>{mode === 'single' ? 'Round Complete!' : placed ? 'Congratulations! You Got Placed!' : 'Interview Complete!'}</span>
                     </h1>
                     {mode === 'full' && (
                         <p style={{ color: placed ? 'var(--accent-success)' : 'var(--text-muted)', fontSize: 16, marginBottom: 24 }}>
-                            {placed ? 'You cleared all rounds! 🎊' : 'Keep practicing to improve.'}
+                            {placed ? 'You cleared all rounds!' : 'Keep practicing to improve.'}
                         </p>
                     )}
                     <div className="score-ring" style={{ width: 180, height: 180, fontSize: 48, margin: '0 auto 32px', borderColor: pct >= 70 ? 'var(--accent-success)' : pct >= 40 ? 'var(--accent-warning)' : 'var(--accent-danger)' }}>
@@ -1152,7 +1164,7 @@ const InterviewGame = () => {
                                 const passed = s >= r.passScore;
                                 return (
                                     <div key={r.type} className="glass-card" style={{ padding: 16, textAlign: 'center', borderLeft: `3px solid ${passed ? 'var(--accent-success)' : s !== undefined ? 'var(--accent-danger)' : 'var(--border-color)'}` }}>
-                                        <div style={{ fontSize: 24, marginBottom: 4 }}>{r.icon}</div>
+                                        <div style={{ fontSize: 22, marginBottom: 4, display: 'flex', justifyContent: 'center', color: 'var(--accent-primary)' }}><r.icon /></div>
                                         <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.name}</p>
                                         <p style={{ fontSize: 22, fontWeight: 800, color: passed ? 'var(--accent-success)' : s !== undefined ? 'var(--accent-danger)' : 'var(--text-muted)' }}>{s !== undefined ? s : '—'}</p>
                                         <span className={`badge ${passed ? 'badge-success' : s !== undefined ? 'badge-danger' : 'badge-info'}`} style={{ fontSize: 10 }}>{passed ? 'PASS' : s !== undefined ? 'FAIL' : 'N/A'}</span>

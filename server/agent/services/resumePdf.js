@@ -113,16 +113,61 @@ function resumeHtml(designIn, draft) {
 
 /** Render a draft to a PDF buffer (resolves its design if not passed one). */
 async function renderResumePdf(draft) {
+  // AI-authored resumes carry their own standalone HTML — render that verbatim.
+  if (draft && typeof draft.generatedHtml === 'string' && draft.generatedHtml.trim()) {
+    const { buffer } = await renderHtmlDoc(draft.generatedHtml);
+    return buffer;
+  }
   const design = resolveDesign(draft);
   const html = resumeHtml(design, draft);
+  return (await renderHtmlDoc(html)).buffer;
+}
+
+// A4 at 96 CSS-dpi: 210mm × 297mm ≈ 794 × 1123 px. Used to estimate page count
+// for the self-heal/overflow check (Stage C of the AI-authored pipeline).
+const A4_PAGE_PX = 1123;
+
+/**
+ * Render an arbitrary (UNTRUSTED, already-sanitized) HTML document to a PDF and,
+ * in the same pass, measure it for the verify/repair loop. SECURITY: the page is
+ * rendered OFFLINE — every non-document network request (external CSS/JS/img/font)
+ * is aborted, so a malicious resume can neither exfiltrate nor SSRF. Returns
+ * `{ buffer, pages, text }` where `pages` is an A4 page-count estimate and `text`
+ * is the rendered innerText (for CUIC field presence checks).
+ * @param {string} html
+ * @param {{ measure?: boolean }} [opts]
+ */
+async function renderHtmlDoc(html, { measure = true } = {}) {
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    // Modern Puppeteer returns a Uint8Array; coerce to a Node Buffer so
-    // storage.saveFile and Artifact.sizeBytes behave as the rest of the app expects.
+    // Block ALL sub-resource loads — only the inline document itself renders.
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      if (req.isNavigationRequest() && req.frame() === page.mainFrame() && req.url() === 'about:blank') return req.continue();
+      // setContent uses a data/about:blank document, so any *other* request is a
+      // sub-resource (external font/img/script/css) → abort it.
+      if (req.resourceType() === 'document') return req.continue();
+      return req.abort();
+    });
+
+    await page.setContent(html, { waitUntil: 'load', timeout: 15000 });
+
+    let pages = 1;
+    let text = '';
+    if (measure) {
+      const info = await page.evaluate((pagePx) => ({
+        height: Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0),
+        text: (document.body ? document.body.innerText : '') || '',
+        pagePx,
+      }), A4_PAGE_PX);
+      pages = Math.max(1, Math.ceil((info.height || 0) / A4_PAGE_PX));
+      text = info.text;
+    }
+
     const pdf = await page.pdf({ printBackground: true, preferCSSPageSize: true });
-    return Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf);
+    const buffer = Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf);
+    return { buffer, pages, text };
   } finally {
     await page.close();
   }
@@ -151,4 +196,4 @@ async function exportResumePdfArtifact({ userId, draft, title }) {
   return { id, title, format: 'pdf', url: `/api/artifacts/${id}/download` };
 }
 
-module.exports = { resumeHtml, renderResumePdf, getBrowser, closeBrowser, exportResumePdfArtifact };
+module.exports = { resumeHtml, renderResumePdf, renderHtmlDoc, getBrowser, closeBrowser, exportResumePdfArtifact };

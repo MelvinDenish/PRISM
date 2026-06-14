@@ -138,7 +138,18 @@ export const summarizeArticle = (data) => api.post('/summarize', data);
 
 // Resume Builder
 export const getResumeDesignSystem = () => api.get('/resume-builder/design-system');
-export const resumeIntake = (messages) => api.post('/resume-builder/intake', { messages });
+// Gap-aware intake: client holds `collected` and echoes it back each turn so the
+// server can merge the per-turn delta and re-score the completeness gate.
+export const resumeIntake = (messages, collected) => api.post('/resume-builder/intake', { messages, collected });
+// "Fill a page for me" assist. draftResumeContent: AI expands the user's project
+// briefs (grounded) → { draftedProjects }. applyResumeContent: folds the user's
+// EDITED projects back through the gate → { collected, assessment }.
+export const draftResumeContent = (collected) => api.post('/resume-builder/draft-content', { collected });
+export const applyResumeContent = (collected, projects) => api.post('/resume-builder/draft-content', { collected, apply: true, projects });
+// AI-authored resume (Generative Resume). authorResume: lazy path sends {} (drafts
+// from profile) or { collected } (confirmed chat content); optional { instruction }.
+export const authorResume = (data) => api.post('/resume-builder/author', data || {});
+export const regenerateResume = (id, instruction) => api.post(`/resume-builder/drafts/${id}/regenerate`, instruction ? { instruction } : {});
 export const getResumeDrafts = () => api.get('/resume-builder/drafts');
 export const getResumeDraft = (id) => api.get(`/resume-builder/drafts/${id}`);
 export const saveResumeDraft = (data) => api.post('/resume-builder/drafts', data);
@@ -280,6 +291,7 @@ export const deleteConversation = (id) => api.delete(`/assistant/conversations/$
 
 // Artifacts (generated downloadable files)
 export const listArtifacts = () => api.get('/artifacts');
+export const deleteArtifact = (id) => api.delete(`/artifacts/${id}`);
 
 /**
  * Download an artifact as a blob and trigger a browser save-file dialog.

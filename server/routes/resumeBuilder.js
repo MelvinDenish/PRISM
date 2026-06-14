@@ -12,6 +12,8 @@ const { generateDocument } = require('../agent/services/document');
 const { LAYOUTS, FONT_PAIRS, DENSITIES, HEADING_STYLES, SECTION_KEYS, SEED_KEYS } = require('../agent/services/resumeDesign');
 const { exportResumePdfArtifact } = require('../agent/services/resumePdf');
 const { intakeTurn } = require('../agent/services/resumeIntake');
+const { shapeAuthorContent, authorHtml, summaryFromContent, expandProjectContent } = require('../agent/services/resumeAuthor');
+const { assessCompleteness, seedCollectedFromProfile, mergeCollected } = require('../agent/services/resumeCompleteness');
 const { cuicFileName, cuicChecklist, CUIC_SECTIONS } = require('../utils/cuicResume');
 const router = express.Router();
 
@@ -36,22 +38,152 @@ router.get('/design-system', protect, (req, res) => {
   });
 });
 
-// CONVERSATIONAL INTAKE — chat that asks for details (prefilled from profile),
-// then finalizes content + an AI-chosen design into a new draft.
-// Body: { messages: [{role,content}] }  →  { success, reply } | { success, draft }
+// Shared profile snapshot for the resume pipeline — includes CUIC academics
+// (cgpa / 10th / 12th / register number / department) so the AI-authored resume
+// always carries them. Never selects password/internal flags.
+async function loadResumeProfile(userId) {
+  const user = await User.findById(userId)
+    .select('name email bio skills expertise aimingCompany currentCompany experienceLevel experience college graduationYear linkedin github registerNumber department cgpa tenthPercent twelfthPercent')
+    .lean();
+  return {
+    name: user?.name || '', email: user?.email || '', bio: user?.bio || '', skills: user?.skills || [],
+    expertise: user?.expertise || [], aimingCompany: user?.aimingCompany || '', currentCompany: user?.currentCompany || '',
+    experienceLevel: user?.experienceLevel || '', yearsOfExperience: user?.experience || 0,
+    college: user?.college || '', graduationYear: user?.graduationYear || '', linkedin: user?.linkedin || '', github: user?.github || '',
+    registerNumber: user?.registerNumber || '', department: user?.department || '',
+    cgpa: user?.cgpa != null ? String(user.cgpa) : '', tenthPercent: user?.tenthPercent != null ? String(user.tenthPercent) : '', twelfthPercent: user?.twelfthPercent != null ? String(user.twelfthPercent) : '',
+  };
+}
+
+// Build a draft name + the persisted ResumeDraft fields from shaped content + html.
+function authoredDraftDoc(userId, shaped, html, meta) {
+  return {
+    user: userId,
+    name: `AI Resume — ${new Date().toLocaleDateString()}`,
+    personalInfo: shaped.personalInfo,
+    education: shaped.education,
+    experience: shaped.experience,
+    skills: shaped.skills,
+    projects: shaped.projects,
+    certifications: shaped.certifications,
+    achievements: shaped.achievements,
+    positionsOfResponsibility: shaped.positionsOfResponsibility,
+    hobbies: shaped.hobbies,
+    languages: shaped.languages,
+    cgpa: shaped.cgpa, tenthPercent: shaped.tenthPercent, twelfthPercent: shaped.twelfthPercent,
+    generatedHtml: html,
+    generationMeta: meta,
+    lastGenerated: new Date(),
+  };
+}
+
+// STAGE 0 — GAP-AWARE INTAKE with a DETERMINISTIC completeness gate. Seeds from
+// the profile, asks only for what's missing, and re-scores each turn. The client
+// holds `collected` and echoes it back; `ready` mirrors the server-side gate.
+// Body: { messages: [{role,content}], collected? }
+//   →  { success, reply, collected, assessment: { have, missing, gateMet, contentScore }, ready }
 router.post('/intake', protect, aiLimiter, async (req, res) => {
   try {
-    const { messages } = req.body || {};
-    const user = await User.findById(req.user._id)
-      .select('name email bio skills expertise aimingCompany currentCompany experienceLevel experience college graduationYear linkedin github').lean();
-    const profile = {
-      name: user?.name || '', email: user?.email || '', bio: user?.bio || '', skills: user?.skills || [],
-      expertise: user?.expertise || [], aimingCompany: user?.aimingCompany || '', currentCompany: user?.currentCompany || '',
-      experienceLevel: user?.experienceLevel || '', yearsOfExperience: user?.experience || 0,
-      college: user?.college || '', graduationYear: user?.graduationYear || '', linkedin: user?.linkedin || '', github: user?.github || '',
-    };
-    const result = await intakeTurn({ userId: req.user._id, messages, profile });
+    const { messages, collected } = req.body || {};
+    const profile = await loadResumeProfile(req.user._id);
+    const result = await intakeTurn({ messages, collected, profile });
     return res.json({ success: true, ...result });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    return res.status(status).json({ success: false, message: process.env.NODE_ENV === 'production' && status >= 500 ? 'Internal Server Error' : err.message });
+  }
+});
+
+// DRAFT-CONTENT — the "fill a page for me" assist. The deterministic gate keeps a
+// word-count item ("enough detail to fill a page") that the user shouldn't have to
+// TYPE past; this lets the AI draft fuller project descriptions (grounded in what
+// they already gave) which the user then edits and accepts. Two modes:
+//   • draft  (body { collected }):                 LLM expands project briefs → { draftedProjects }
+//   • apply  (body { collected, apply:true, projects }): deterministically merge the
+//     user's EDITED projects back through mergeCollected → assessCompleteness, so the
+//     checklist/button/gate stay consistent with the rest of the intake.
+router.post('/draft-content', protect, aiLimiter, async (req, res) => {
+  try {
+    const { collected, apply, projects } = req.body || {};
+    const profile = await loadResumeProfile(req.user._id);
+    const base = (collected && typeof collected === 'object') ? collected : seedCollectedFromProfile(profile);
+
+    if (apply) {
+      // Accept path: fold the user's edited project descriptions in and re-score.
+      const edited = Array.isArray(projects) ? projects : [];
+      const merged = mergeCollected(base, { projects: edited });
+      const assessment = assessCompleteness(merged, profile);
+      return res.json({ success: true, collected: merged, assessment });
+    }
+
+    // Draft path: expand the briefs (no merge yet — the user edits first).
+    const draftedProjects = await expandProjectContent(base);
+    return res.json({ success: true, draftedProjects });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    return res.status(status).json({ success: false, message: process.env.NODE_ENV === 'production' && status >= 500 ? 'Internal Server Error' : err.message });
+  }
+});
+
+// AUTHOR — the AI-authored resume pipeline (Stages A→C). The content comes from the
+// gated /intake chat (body { collected }); a legacy empty body seeds from the profile,
+// which then fails the gate below (no projects) and is rejected. Optional { instruction }
+// steers the design. The completeness gate is enforced HERE — the real wall, not just
+// the disabled client button. Persists + returns the draft.
+router.post('/author', protect, aiLimiter, async (req, res) => {
+  try {
+    const { collected, instruction } = req.body || {};
+    const profile = await loadResumeProfile(req.user._id);
+    const rawContent = (collected && typeof collected === 'object') ? collected : seedCollectedFromProfile(profile);
+
+    // GATE: refuse to generate a weak resume. The client disables its button on the
+    // same signal, but this is the enforcement — a direct call can't bypass it.
+    const assessment = assessCompleteness(rawContent, profile);
+    if (!assessment.gateMet) {
+      return res.status(422).json({
+        success: false,
+        message: "Let's finish a few details first so your resume is strong enough.",
+        assessment,
+      });
+    }
+
+    const shaped = shapeAuthorContent(rawContent, profile);
+    // Grounded summary fallback: if the chat never captured a summary, write one from
+    // the collected content (best-effort — never blocks generation).
+    if (!shaped.personalInfo.summary) {
+      shaped.personalInfo.summary = await summaryFromContent(shaped);
+    }
+    const { html, meta } = await authorHtml({ content: shaped, instruction });
+    const draft = await ResumeDraft.create(authoredDraftDoc(req.user._id, shaped, html, meta));
+    return res.status(201).json({ success: true, draft });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    return res.status(status).json({ success: false, message: process.env.NODE_ENV === 'production' && status >= 500 ? 'Internal Server Error' : err.message });
+  }
+});
+
+// REGENERATE — re-author the HTML for an existing draft (same content, brand-new
+// design). Optional { instruction } steers the look ("two-column, blue accent").
+router.post('/drafts/:id/regenerate', protect, aiLimiter, async (req, res) => {
+  try {
+    const { instruction } = req.body || {};
+    const draft = await ResumeDraft.findOne({ _id: req.params.id, user: req.user._id });
+    if (!draft) return res.status(404).json({ success: false, message: 'Draft not found' });
+    const profile = await loadResumeProfile(req.user._id);
+    // Re-shape from the draft's own stored content (no new facts invented).
+    const shaped = shapeAuthorContent({
+      personalInfo: draft.personalInfo, education: draft.education, experience: draft.experience,
+      skills: draft.skills, projects: draft.projects, certifications: draft.certifications,
+      achievements: draft.achievements, positionsOfResponsibility: draft.positionsOfResponsibility,
+      hobbies: draft.hobbies, languages: draft.languages,
+      cgpa: draft.cgpa, tenthPercent: draft.tenthPercent, twelfthPercent: draft.twelfthPercent,
+    }, profile);
+    const { html, meta } = await authorHtml({ content: shaped, instruction });
+    draft.generatedHtml = html;
+    draft.generationMeta = meta;
+    draft.lastGenerated = new Date();
+    await draft.save();
+    return res.json({ success: true, draft });
   } catch (err) {
     const status = err.statusCode || 500;
     return res.status(status).json({ success: false, message: process.env.NODE_ENV === 'production' && status >= 500 ? 'Internal Server Error' : err.message });
@@ -355,6 +487,21 @@ function _buildResumeSections(draft) {
     }
     sections.push({ heading: 'Projects', paragraphs });
   }
+
+  // Extra sections (AI intake) — included so the ATS-plain DOCX doesn't silently
+  // drop CUIC-relevant content (achievements, positions of responsibility, etc.).
+  const certEntries = (draft.certifications || []).filter((c) => c && c.name);
+  if (certEntries.length) {
+    sections.push({ heading: 'Certifications', paragraphs: certEntries.map((c) => [c.name, c.issuer, c.date].filter(Boolean).join(' — ')) });
+  }
+  const listSection = (heading, arr) => {
+    const items = (arr || []).map((s) => String(s || '').trim()).filter(Boolean);
+    if (items.length) sections.push({ heading, paragraphs: items });
+  };
+  listSection('Achievements', draft.achievements);
+  listSection('Positions of Responsibility', draft.positionsOfResponsibility);
+  listSection('Languages', draft.languages);
+  listSection('Hobbies', draft.hobbies);
 
   return { sections };
 }

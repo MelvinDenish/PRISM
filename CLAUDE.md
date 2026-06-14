@@ -60,6 +60,8 @@ One handler holds four in-memory `Map`s: `rooms` (interview coding rooms), `gdVi
 
 **GD timer.** `start-gd` schedules three `setTimeout`s for 5-min warning / 1-min warning / end. These live in memory and won't survive a server restart; treat them as best-effort.
 
+**GD AI panelist (optional).** `client/src/components/gd/GdModerator.jsx` speaks scripted moderator lines via the browser Web Speech API (`client/src/utils/speech.js`). A separate, portable LiveKit Agents worker (`voice-agent/`, deployed by you) can instead join `gd:<roomId>` rooms as a real human-voice HR/technical panelist (Whisper STT → LLM brain → streaming Orpheus TTS). `GdModerator` detects it by a participant identity prefixed `panelist`, and when present goes silent (no double-speak) and drops it from speaking stats — but **only then**; with no agent the browser-TTS path is unchanged (graceful degradation). Per-user scoring is untouched (`POST /api/gd-rooms/:id/evaluate`, each user from their own mic transcript). No new server env — the agent reuses the LiveKit keys. See `voice-agent/README.md`.
+
 ### Client (`client/src/`)
 Vite + React 19 + React Router 7. `App.jsx` defines all routes — protected routes wrap in `<ProtectedRoute>` which reads `useAuth()`. `AuthContext` (`context/AuthContext.jsx`) stores JWT in `localStorage` under `prism_token`, hydrates `user` from `GET /api/auth/me` on mount, and opens a single Socket.IO connection on login to emit `register-user` for presence tracking.
 

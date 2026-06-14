@@ -17,6 +17,7 @@ const path = require('path');
 const mongoose = require('mongoose');
 const { protect } = require('../middleware/auth');
 const Artifact = require('../models/Artifact');
+const storage = require('../utils/storage');
 
 const router = express.Router();
 
@@ -128,6 +129,39 @@ router.get('/:id/download', protect, async (req, res) => {
   } catch (err) {
     console.error('Download artifact error:', err);
     return res.status(500).json({ success: false, message: 'Could not download artifact' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/artifacts/:id  — ownership-checked delete (DB row + stored file)
+// ---------------------------------------------------------------------------
+router.delete('/:id', protect, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidId(id)) {
+      return res.status(404).json({ success: false, message: 'Artifact not found' });
+    }
+
+    const userId = req.user._id.toString();
+    const artifact = await Artifact.findOne({ _id: id, user: userId });
+    if (!artifact) {
+      // 404 regardless of existence — never leak another user's artifacts.
+      return res.status(404).json({ success: false, message: 'Artifact not found' });
+    }
+
+    // Best-effort remove the stored file; a storage error must NOT block the DB
+    // delete (an orphaned blob is recoverable, a dangling DB row is the user-facing bug).
+    try {
+      await storage.deleteFile(artifact.artifactKey);
+    } catch (e) {
+      console.error('Artifact file delete error (continuing):', e);
+    }
+
+    await Artifact.deleteOne({ _id: id });
+    return res.json({ success: true, message: 'File deleted' });
+  } catch (err) {
+    console.error('Delete artifact error:', err);
+    return res.status(500).json({ success: false, message: 'Could not delete artifact' });
   }
 });
 

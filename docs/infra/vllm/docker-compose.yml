@@ -1,0 +1,40 @@
+# vLLM (production) — high-throughput, OpenAI-compatible server for the resume
+# generator. ~2.3–3x Ollama throughput under concurrency (PagedAttention).
+# Needs an NVIDIA GPU (24 GB+ for the 32B AWQ/Q4) + NVIDIA Container Toolkit.
+#
+#   docker compose up -d
+#   # Serves OpenAI-compatible API at http://localhost:8000/v1
+#
+# Then in server/.env (reuse VLLM_API_KEY below as RESUME_LLM_API_KEY):
+#   RESUME_LLM_BASE_URL=http://localhost:8000/v1
+#   RESUME_LLM_API_KEY=prism-local-key
+#   RESUME_DESIGN_MODEL=Qwen/Qwen2.5-Coder-32B-Instruct-AWQ
+#   RESUME_CONTENT_MODEL=Qwen/Qwen2.5-Coder-32B-Instruct-AWQ
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: prism-vllm
+    ports:
+      - "8000:8000"
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}        # only needed for gated models
+      - VLLM_API_KEY=prism-local-key                # clients must send this as the Bearer key
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    ipc: host
+    command: >
+      --model Qwen/Qwen2.5-Coder-32B-Instruct-AWQ
+      --quantization awq
+      --max-model-len 8192
+      --gpu-memory-utilization 0.92
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  hf_cache:

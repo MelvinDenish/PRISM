@@ -1,0 +1,15 @@
+# PRISM resume model (Ollama) — Qwen2.5-Coder 32B tuned for HTML resume authoring.
+# Build:  ollama create prism-resume -f Modelfile
+# Use:    set RESUME_DESIGN_MODEL=prism-resume and RESUME_CONTENT_MODEL=prism-resume
+#         (and RESUME_LLM_BASE_URL=http://localhost:11434/v1) in server/.env
+FROM qwen2.5-coder:32b
+
+# Bigger context so the content JSON + design instructions + repair feedback fit,
+# and a moderate temperature for design variety without breaking valid HTML.
+PARAMETER num_ctx 8192
+PARAMETER temperature 0.8
+PARAMETER top_p 0.9
+
+# The detailed task/system prompt is supplied per-request by resumeAuthor.js;
+# this is just a light nudge so direct `ollama run` testing behaves sensibly.
+SYSTEM """You produce complete, valid, single-file HTML documents on request. Return only raw HTML — no markdown, no code fences, no commentary."""

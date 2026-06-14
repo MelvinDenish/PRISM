@@ -1,7 +1,7 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
 const { codeExecLimiter } = require('../middleware/rateLimit');
-const { runSandboxed } = require('../agent/services/codeRun');
+const { runSandboxed, normalizeStdin } = require('../agent/services/codeRun');
 const router = express.Router();
 
 // Thin wrapper kept for interviewGame.js compatibility:
@@ -43,7 +43,7 @@ router.post('/run-tests', codeExecLimiter, protect, async (req, res) => {
 
         const testResults = [];
         for (const tc of testCases) {
-            const result = await executeCode(language, sourceCode, tc.input || '');
+            const result = await executeCode(language, sourceCode, normalizeStdin(tc.input || ''));
             const actualOutput = (result.stdout || '').trim();
             const expectedOutput = (tc.expectedOutput || '').trim();
             const passed = actualOutput === expectedOutput && result.exitCode === 0;

@@ -34,6 +34,26 @@ const ProposalCard = ({ action, conversationId, onConfirmed }) => {
 
   if (status === 'dismissed') return null;
 
+  // Navigation handoff (e.g. open_resume_builder): the proposal carries a `link`
+  // and no server executor — render an "Open" button that just navigates. This is
+  // NOT confirm-gated (nothing is written), unlike the write proposals below.
+  if (action.link) {
+    return (
+      <div className="proposal-card proposal-card--idle">
+        <div className="proposal-card__title">{action.title || 'Open'}</div>
+        {action.summary && <div className="proposal-card__summary">{action.summary}</div>}
+        <div className="proposal-card__actions">
+          <Link to={action.link} className="proposal-card__confirm">
+            {action.title?.toLowerCase().includes('resume') ? 'Open Resume Builder' : 'Open'} <FiArrowRight />
+          </Link>
+          <button className="proposal-card__dismiss" onClick={() => setStatus('dismissed')}>
+            <FiX /> Dismiss
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`proposal-card proposal-card--${status}`}>
       <div className="proposal-card__title">{action.title || 'Confirm action'}</div>

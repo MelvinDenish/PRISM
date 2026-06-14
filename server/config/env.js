@@ -45,6 +45,17 @@ const SCHEMA = {
   LLM_ORCHESTRATOR_MODEL: { default: 'llama-3.3-70b-versatile' },
   LLM_GEN_MODEL: { default: 'llama-3.3-70b-versatile' },
   LLM_FAST_MODEL: { default: 'llama-3.1-8b-instant' },
+
+  // Resume generator (AI-authored HTML resumes). Separate, SWAPPABLE provider +
+  // per-stage models so the resume pipeline can use a stronger design model (or a
+  // self-hosted vLLM/Ollama endpoint) independent of the copilot. All fall back to
+  // the LLM_* / GROQ_API_KEY settings, so unset = "use Groq". To switch providers,
+  // point RESUME_LLM_BASE_URL/RESUME_LLM_API_KEY at any OpenAI-compatible server.
+  // Defaults reflect the plan's pick: gpt-oss-120b for design, llama-3.3-70b for content.
+  RESUME_LLM_BASE_URL: { default: '' },
+  RESUME_LLM_API_KEY: { default: '', secret: true },
+  RESUME_DESIGN_MODEL: { default: 'openai/gpt-oss-120b' },
+  RESUME_CONTENT_MODEL: { default: 'llama-3.3-70b-versatile' },
   GEMINI_API_KEY: { feature: 'Resume ATS analysis (falls back to keyword matching)', secret: true },
   // Company-specific interview-question research (Interview Game, Phase 3). When
   // unset, the research pipeline is disabled and the game uses mentor + curated
@@ -146,6 +157,13 @@ const config = Object.freeze({
   llmOrchestratorModel: () => process.env.LLM_ORCHESTRATOR_MODEL || 'llama-3.3-70b-versatile',
   llmGenModel: () => process.env.LLM_GEN_MODEL || 'llama-3.3-70b-versatile',
   llmFastModel: () => process.env.LLM_FAST_MODEL || 'llama-3.1-8b-instant',
+
+  // Resume generator provider/models (swappable; fall back to LLM_*/GROQ_API_KEY).
+  hasResumeLlm: () => Boolean(process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY),
+  resumeLlmBaseUrl: () => process.env.RESUME_LLM_BASE_URL || process.env.LLM_BASE_URL || '',
+  resumeLlmApiKey: () => process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY || '',
+  resumeDesignModel: () => process.env.RESUME_DESIGN_MODEL || 'openai/gpt-oss-120b',
+  resumeContentModel: () => process.env.RESUME_CONTENT_MODEL || 'llama-3.3-70b-versatile',
   hasGemini: () => Boolean(process.env.GEMINI_API_KEY),
   hasTavily: () => Boolean(process.env.TAVILY_API_KEY),
   tavilyKey: () => process.env.TAVILY_API_KEY || '',

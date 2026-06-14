@@ -281,6 +281,7 @@ const GDRooms = () => {
                                         durationMin={GD_DURATION_MIN}
                                         remaining={timer}
                                         myUserId={user._id}
+                                        isHost={isHost}
                                         onReport={handleReport}
                                     />
                                 )}

@@ -1,0 +1,29 @@
+# Ollama (dev / single-GPU) — OpenAI-compatible LLM server for the resume generator.
+#   docker compose up -d
+#   docker compose exec ollama ollama pull qwen2.5-coder:32b
+# Then in server/.env:
+#   RESUME_LLM_BASE_URL=http://localhost:11434/v1
+#   RESUME_LLM_API_KEY=ollama
+#   RESUME_DESIGN_MODEL=qwen2.5-coder:32b
+#   RESUME_CONTENT_MODEL=qwen2.5-coder:32b
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: prism-ollama
+    ports:
+      - "11434:11434"          # OpenAI-compatible API at http://localhost:11434/v1
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+    # GPU passthrough (requires NVIDIA Container Toolkit). Drop this block to run
+    # CPU-only (slow — only viable for the 7B tier).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  ollama_models:
