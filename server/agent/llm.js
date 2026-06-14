@@ -22,17 +22,20 @@ const FAST_MODEL = () => config.llmFastModel();
 // enough for a slow generation but short enough that a stalled provider fails fast.
 const TIMEOUT_MS = () => Number(process.env.LLM_TIMEOUT_MS) || 30000;
 
-function endpoint() {
-  const base = (config.llmBaseUrl() || GROQ_DEFAULT_BASE).replace(/\/+$/, '');
+// baseUrl/apiKey are optional per-call overrides so a caller (e.g. the resume
+// generator) can target a DIFFERENT OpenAI-compatible provider than the copilot
+// without touching global config. When omitted, the global LLM_* config is used.
+function endpoint(baseUrl) {
+  const base = ((baseUrl || config.llmBaseUrl()) || GROQ_DEFAULT_BASE).replace(/\/+$/, '');
   return `${base}/chat/completions`;
 }
 
-function headers() {
-  const apiKey = config.llmApiKey();
-  if (!apiKey) throw new Error('LLM not configured (set LLM_API_KEY or GROQ_API_KEY)');
-  const h = { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` };
+function headers(apiKey, baseUrl) {
+  const key = apiKey || config.llmApiKey();
+  if (!key) throw new Error('LLM not configured (set LLM_API_KEY or GROQ_API_KEY)');
+  const h = { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` };
   // OpenRouter recommends attribution headers (optional; ignored elsewhere).
-  if (/openrouter\.ai/i.test(config.llmBaseUrl())) {
+  if (/openrouter\.ai/i.test(baseUrl || config.llmBaseUrl())) {
     h['HTTP-Referer'] = (process.env.CLIENT_URL || 'http://localhost:5173').split(',')[0].trim();
     h['X-Title'] = 'PRISM Copilot';
   }
@@ -52,12 +55,14 @@ function headers() {
  * @param {number} [params.max_tokens]
  * @param {string|object} [params.tool_choice]
  */
-async function chat({ messages, tools, model, temperature = 0.3, max_tokens = 1500, tool_choice }) {
+async function chat({ messages, tools, model, temperature = 0.3, max_tokens = 1500, tool_choice, baseUrl, apiKey, response_format }) {
   const body = { model: model || ORCHESTRATOR_MODEL(), messages, temperature, max_tokens };
   if (tools && tools.length) {
     body.tools = tools;
     body.tool_choice = tool_choice || 'auto';
   }
+  // Optional OpenAI-compatible JSON mode (used by the resume content stage).
+  if (response_format) body.response_format = response_format;
 
   // Hard timeout so a hung/queued provider request can never freeze the whole chat
   // turn (the old code awaited fetch with no deadline). Covers both the request and
@@ -67,9 +72,9 @@ async function chat({ messages, tools, model, temperature = 0.3, max_tokens = 15
 
   let res, text;
   try {
-    res = await fetch(endpoint(), {
+    res = await fetch(endpoint(baseUrl), {
       method: 'POST',
-      headers: headers(),
+      headers: headers(apiKey, baseUrl),
       body: JSON.stringify(body),
       signal: controller.signal,
     });

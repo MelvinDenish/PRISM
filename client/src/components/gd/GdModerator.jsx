@@ -36,7 +36,15 @@ const remoteParticipantsOf = (room) => {
   return m && typeof m.values === 'function' ? [...m.values()] : [];
 };
 
-const GdModerator = ({ started, ended, topic, durationMin = 10, remaining, myUserId, onModeratorLine, onReport }) => {
+// The optional server-side AI panelist (the `voice-agent` service) joins each GD
+// room with an identity that STARTS WITH this prefix. When it is present it does
+// ALL the speaking, so the local browser-TTS moderator stays silent and the agent
+// is excluded from the speaking-time stats. When it is absent, everything below
+// behaves exactly as before (graceful degradation — the GD never depends on it).
+const AGENT_IDENTITY_PREFIX = 'panelist';
+const isAgentIdentity = (identity) => String(identity || '').startsWith(AGENT_IDENTITY_PREFIX);
+
+const GdModerator = ({ started, ended, topic, durationMin = 10, remaining, myUserId, isHost = false, onModeratorLine, onReport }) => {
   const room = useRoomContext();
   const statsRef = useRef(new Map()); // uid -> { name, seconds, turns, speakingNow }
   const dictationRef = useRef(null);
@@ -48,10 +56,27 @@ const GdModerator = ({ started, ended, topic, durationMin = 10, remaining, myUse
   const remainingRef = useRef(remaining);
   remainingRef.current = remaining;
 
+  // Flips true once a real AI panelist (the voice-agent) is detected in the room.
+  const [agentActive, setAgentActive] = useState(false);
+  const agentActiveRef = useRef(false);
+
   const say = (line) => {
+    // If a real AI panelist is in the room, it owns the voice — stay silent so we
+    // never double-speak over it (and show no scripted caption).
+    if (agentActiveRef.current) return;
     setCaption(line);
     onModeratorLine?.(line);
     speak(line);
+  };
+
+  // Broadcast the revealed topic to the room so the AI panelist (if deployed) can
+  // open on it. Host-only + best-effort; a no-op/harmless when no agent is listening.
+  const publishTopic = () => {
+    if (!isHost || !topic || !room?.localParticipant?.publishData) return;
+    try {
+      const payload = new TextEncoder().encode(JSON.stringify({ type: 'gd-topic', topic, durationMin }));
+      room.localParticipant.publishData(payload, { reliable: true, topic: 'gd-meta' });
+    } catch { /* data channel not ready — the agent also has a generic opener */ }
   };
 
   // ── Auto camera + mic on, and start dictation, when the GD starts ──
@@ -67,7 +92,15 @@ const GdModerator = ({ started, ended, topic, durationMin = 10, remaining, myUse
     }
   }, [started, room]);
 
+  // ── Send the topic to the AI panelist (if any) as soon as the GD starts ──
+  useEffect(() => {
+    if (started && topic) publishTopic();
+  }, [started, topic]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Intro line once the topic is known ──
+  // Fires immediately — IDENTICAL to the no-agent behaviour (graceful degradation
+  // path is unchanged). If an AI panelist is in the room, `say()` early-returns and
+  // the tick's cancelSpeech() cuts any line already speaking, so the agent leads.
   useEffect(() => {
     if (!started || !topic || flags.current.intro) return;
     flags.current.intro = true;
@@ -78,7 +111,18 @@ const GdModerator = ({ started, ended, topic, durationMin = 10, remaining, myUse
   useEffect(() => {
     if (!started || ended || !room) return;
     const tick = setInterval(() => {
-      const everyone = [room.localParticipant, ...remoteParticipantsOf(room)].filter(Boolean);
+      const remotes = remoteParticipantsOf(room);
+      // Detect the AI panelist. Once present: silence the local moderator, drop any
+      // queued scripted line, and (re)send the topic in case it joined late.
+      const agent = remotes.find((p) => isAgentIdentity(p.identity));
+      if (agent && !agentActiveRef.current) {
+        agentActiveRef.current = true;
+        setAgentActive(true);
+        cancelSpeech();
+        publishTopic();
+      }
+      // The agent is never a "participant" for stats/nudging purposes.
+      const everyone = [room.localParticipant, ...remotes].filter((p) => p && !isAgentIdentity(p.identity));
       everyone.forEach((p) => {
         const uid = parseUserId(p.identity);
         const entry = statsRef.current.get(uid) || { name: p.name || '', seconds: 0, turns: 0, speakingNow: false };
@@ -139,6 +183,20 @@ const GdModerator = ({ started, ended, topic, durationMin = 10, remaining, myUse
 
   // Cleanup on unmount.
   useEffect(() => () => { dictationRef.current?.stop(); cancelSpeech(); }, []);
+
+  // A real AI panelist is talking (over its own audio track) but we have no local
+  // caption for it — show a small "live" badge instead of the scripted bubble.
+  if (agentActive && !caption) {
+    return (
+      <div style={{
+        position: 'absolute', bottom: 72, left: '50%', transform: 'translateX(-50%)',
+        padding: '6px 14px', borderRadius: 999, zIndex: 5, background: 'rgba(16,185,129,0.92)',
+        color: '#04110d', fontSize: 12, fontWeight: 600, boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
+      }}>
+        🎙️ AI panelist is leading the discussion
+      </div>
+    );
+  }
 
   if (!caption) return null;
   return (

@@ -37,6 +37,22 @@ const resumeDraftSchema = new mongoose.Schema({
     skills: [String],
     projects: [{ name: String, description: String, technologies: String, link: String }],
     certifications: [{ name: String, issuer: String, date: String }],
+    // ── Extra sections collected by the AI intake (Stage 0) ──
+    achievements: [String],
+    positionsOfResponsibility: [String],
+    hobbies: [String],
+    languages: [String],
+    // CUIC academics (mirrors User.* so the AI-authored resume always carries them).
+    cgpa: String,
+    tenthPercent: String,
+    twelfthPercent: String,
+    // ── AI-authored resume (Generative Resume) ──
+    // The full standalone HTML the design model produced (sanitized). This is the
+    // source of truth for the preview + PDF export when present; legacy drafts
+    // without it fall back to the structured token renderer.
+    generatedHtml: { type: String, default: '' },
+    // Lightweight provenance for "Regenerate" / debugging (model + repair count).
+    generationMeta: { type: mongoose.Schema.Types.Mixed, default: undefined },
     coverLetter: { template: { type: String, enum: ['professional', 'creative'], default: 'professional' }, content: String, jobTitle: String, companyName: String },
     jobDescription: String,
     lastGenerated: Date,

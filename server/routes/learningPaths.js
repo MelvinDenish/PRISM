@@ -9,6 +9,7 @@ const { generatePathTest } = require('../agent/services/pathTest');
 const { gradeMcqRound } = require('../utils/interviewGameScoring');
 const { normOut } = require('../utils/codingProblems');
 const { executeCode } = require('./codeExecution');
+const { normalizeStdin } = require('../agent/services/codeRun');
 const router = express.Router();
 
 const fail = (res, err) => res.status(err.statusCode || 500).json({
@@ -161,7 +162,7 @@ router.post('/:id/test/submit', protect, async (req, res) => {
         let passed = 0;
         for (const tc of tests) {
           try {
-            const out = await executeCode(language, sub.code, tc.input || '');
+            const out = await executeCode(language, sub.code, normalizeStdin(tc.input || ''));
             if (out && out.exitCode === 0 && normOut(out.stdout) === normOut(tc.expectedOutput)) passed += 1;
           } catch (_) { /* a failing test simply doesn't count */ }
         }

@@ -310,6 +310,30 @@ const TOOLS = {
     },
   },
 
+  // Hand off to the in-app Resume Builder. Use when the user wants to CREATE /
+  // BUILD / MAKE a brand-new resume from scratch (the AI authors a full, uniquely
+  // designed resume there) — as opposed to analyze_resume / rewrite_resume which
+  // act on pasted resume text. Renders as an "Open Resume Builder" link (no write),
+  // so the proposal carries `link` and is NOT confirm-gated.
+  open_resume_builder: {
+    kind: 'write',
+    roles: ['mentee', 'mentor', 'admin'],
+    definition: {
+      type: 'function',
+      function: {
+        name: 'open_resume_builder',
+        description: "Use when the user wants to create, build, make, or design a NEW resume from scratch (not analyze or rewrite pasted resume text). The Resume Builder will collect their details and have the AI design a complete, unique resume. Returns a link to open it; nothing is written here.",
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    handler: async () => ({
+      type: 'open_resume_builder',
+      title: 'Build your resume in PRISM',
+      summary: "I'll take you to the Resume Builder — it'll gather your details and design a complete, one-of-a-kind resume you can download as a PDF. No need to leave PRISM.",
+      link: '/resume-builder?start=generate',
+    }),
+  },
+
   // ---- Phase 2 tools -------------------------------------------------------
 
   generate_document: {

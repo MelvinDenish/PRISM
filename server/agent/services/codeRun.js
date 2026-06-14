@@ -23,6 +23,30 @@ const LANG_MAP = { javascript: 63, python: 71, java: 62, cpp: 54, c: 50 };
 const MAX_CODE_LENGTH = 50000; // 50KB — used by the HTTP route (preserves existing cap)
 const EXEC_TIMEOUT = 10000;    // 10s
 
+// Some coding test-case inputs are authored with the newline ESCAPE written
+// literally (the two characters "\" + "n") instead of a real newline — e.g. seed
+// data like '3\\nflower\\nflow'. Fed to a program's stdin, that whole thing
+// arrives as ONE line, so `int(input())` throws `ValueError`. Convert the common
+// literal escapes back to real control chars before they become stdin. This is a
+// no-op on data that already uses real newlines (a real newline is one char, not
+// the two chars "\"+"n"), so it is safe for every caller.
+function normalizeStdin(input) {
+  if (typeof input !== 'string' || input.indexOf('\\') === -1) return input || '';
+  return input
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t');
+}
+
+// The local fallback writes the user's code to an OS temp file, so raw tracebacks
+// leak an internal path like `C:\…\Temp\prism_1781432374787_dpap2u.py`. Replace any
+// such temp artifact reference with a friendly filename so the user sees a clean
+// error (e.g. `File "solution.py", line 1`). Needs no knowledge of the exact id.
+const TMP_ARTIFACT_RE = /[^\s"']*prism_\d+_[a-z0-9]+(\.[a-z0-9]+)?/gi;
+function sanitizeOutput(text) {
+  return typeof text === 'string' ? text.replace(TMP_ARTIFACT_RE, (_m, ext) => `solution${ext || ''}`) : text;
+}
+
 // JavaScript lint patterns split into two passes (see validateCode / stripNonCode):
 //   - jsLiteralPatterns: must inspect STRING CONTENTS, so they run against the
 //     original source (strings intact). Matching a string literal like
@@ -279,8 +303,9 @@ async function runSandboxed({ language, code, stdin = '', maxBytes = MAX_CODE_LE
         exitCode: 1,
       };
     }
-    return executeLocal(language, code, stdin);
+    const local = await executeLocal(language, code, stdin);
+    return { ...local, stdout: sanitizeOutput(local.stdout), stderr: sanitizeOutput(local.stderr) };
   }
 }
 
-module.exports = { runSandboxed, validateCode, DANGEROUS_PATTERNS, LANG_MAP, MAX_CODE_LENGTH };
+module.exports = { runSandboxed, validateCode, normalizeStdin, DANGEROUS_PATTERNS, LANG_MAP, MAX_CODE_LENGTH };
