@@ -24,6 +24,7 @@ It is deployed-and-verified-by-you (it cannot run in CI without LiveKit creds an
 a GPU/TTS endpoint). Confirm plugin import paths against the pinned version.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -188,6 +189,7 @@ async def entrypoint(ctx: JobContext):
     # (topic "gd-meta"). Capture it so the opener can name the real topic; fall back
     # to a generic opener if none arrives.
     state = {"topic": "", "duration_min": 10}
+    topic_ready = asyncio.Event()
 
     def _on_data(packet: rtc.DataPacket):
         try:
@@ -198,6 +200,7 @@ async def entrypoint(ctx: JobContext):
                 state["topic"] = str(msg["topic"])[:500]
                 state["duration_min"] = int(msg.get("durationMin") or 10)
                 logger.info("Received GD topic: %s", state["topic"])
+                topic_ready.set()
         except Exception as exc:  # pragma: no cover
             logger.debug("Ignoring data packet: %s", exc)
 
@@ -219,10 +222,20 @@ async def entrypoint(ctx: JobContext):
         # configured here — it's a future enhancement. It is not required for the
         # current build: per-participant scoring stays on the PRISM server's existing
         # /api/gd-rooms/:id/evaluate, which scores each user from their OWN mic.
-        room_input_options=RoomInputOptions(),
+        # close_on_disconnect=False: a participant's connection can blip (and the GD
+        # video reconnects around Start), so don't tear the session down on the first
+        # disconnect — otherwise the panelist never lives long enough to speak.
+        room_input_options=RoomInputOptions(close_on_disconnect=False),
     )
 
-    # Give the host's topic packet a moment to arrive, then open with the rules.
+    # Greet only once the GD has actually STARTED — the host publishes the topic on
+    # Start. We join the LiveKit room when the user ENTERS (before Start), so greeting
+    # immediately would talk to an empty waiting room. Wait for the topic, then greet
+    # (generic fallback if none arrives within the window).
+    try:
+        await asyncio.wait_for(topic_ready.wait(), timeout=900)
+    except asyncio.TimeoutError:
+        pass
     topic = state["topic"]
     opener = (
         f"Greet the group, then state the discussion rules clearly and briefly, and "
