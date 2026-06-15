@@ -53,6 +53,11 @@ python agent.py dev                               # connects and waits for GD ro
 Start a Group Discussion in PRISM; the panelist should join `gd:<roomId>` and open
 with the rules in a human voice.
 
+> 🚀 **Deploy reminder (local vs AWS):** local/dev uses **Kokoro** (CPU, no key, no rate
+> limit). When deploying to **AWS/production, switch back to Orpheus** (self-hosted on a
+> GPU) — a one-line env change: `TTS_PROVIDER` / `TTS_BASE_URL` / `TTS_MODEL` / `TTS_VOICE`.
+> (Groq-hosted Orpheus free tier is too rate-limited — `429` — for real conversations.)
+
 ## Voice (TTS) options — pick by cost/portability
 
 | Option | Voice | Cost | Notes |

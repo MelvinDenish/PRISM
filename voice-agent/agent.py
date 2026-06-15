@@ -27,9 +27,12 @@ a GPU/TTS endpoint). Confirm plugin import paths against the pinned version.
 import json
 import logging
 import os
+import uuid
 
+import aiohttp
 from livekit import agents, rtc
-from livekit.agents import Agent, AgentSession, JobContext, RoomInputOptions, WorkerOptions, cli
+from livekit.agents import Agent, AgentSession, JobContext, RoomInputOptions, WorkerOptions, cli, tts
+from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
 from livekit.plugins import openai, silero
 
 # Native Groq plugin (optional) — used for Groq-hosted TTS, which speaks Groq's exact
@@ -80,12 +83,73 @@ TTS_VOICE = os.getenv("TTS_VOICE", "troy")
 TTS_PROVIDER = os.getenv("TTS_PROVIDER", "groq").lower()
 
 
+TTS_FORMAT = (os.getenv("TTS_RESPONSE_FORMAT", "wav") or "wav").strip()
+TTS_SAMPLE_RATE = int(os.getenv("TTS_SAMPLE_RATE", "24000"))
+
+
+class SimpleHTTPTTS(tts.TTS):
+    """Minimal TTS for self-hosted OpenAI-style `/v1/audio/speech` endpoints (e.g.
+    Kokoro-FastAPI, a basic Orpheus FastAPI) that return a COMPLETE audio file rather
+    than OpenAI's streamed audio events. livekit's `openai.TTS` can't frame those
+    ('no audio frames were pushed'); this does a plain POST and hands the whole file
+    to the AudioEmitter, which decodes it via `av`."""
+
+    def __init__(self, *, base_url, voice, model, api_key="", sample_rate=24000, fmt="wav"):
+        super().__init__(
+            capabilities=tts.TTSCapabilities(streaming=False),
+            sample_rate=sample_rate,
+            num_channels=1,
+        )
+        self._base_url = base_url.rstrip("/")
+        self._voice, self._model, self._api_key, self._fmt = voice, model, api_key, fmt
+
+    def synthesize(self, text, *, conn_options=DEFAULT_API_CONNECT_OPTIONS):
+        return _SimpleHTTPStream(tts=self, input_text=text, conn_options=conn_options)
+
+
+class _SimpleHTTPStream(tts.ChunkedStream):
+    def __init__(self, *, tts, input_text, conn_options):
+        super().__init__(tts=tts, input_text=input_text, conn_options=conn_options)
+        self._t, self._text = tts, input_text
+
+    async def _run(self, output_emitter):
+        t = self._t
+        headers = {"Authorization": f"Bearer {t._api_key}"} if t._api_key and t._api_key != "not-needed" else {}
+        payload = {"model": t._model, "voice": t._voice, "input": self._text, "response_format": t._fmt}
+        async with aiohttp.ClientSession() as sess:
+            async with sess.post(
+                f"{t._base_url}/audio/speech", json=payload, headers=headers,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                resp.raise_for_status()
+                audio = await resp.read()
+        output_emitter.initialize(
+            request_id=uuid.uuid4().hex,
+            sample_rate=t.sample_rate,
+            num_channels=t.num_channels,
+            mime_type=f"audio/{t._fmt}",
+        )
+        output_emitter.push(audio)
+        output_emitter.flush()
+
+
 def build_tts():
-    """Pick the TTS backend. Groq needs its native plugin (its /audio/speech rejects
-    the openai plugin's `stream_format`); self-hosted Orpheus uses the openai plugin."""
+    """Pick the TTS backend:
+      groq   → native Groq plugin (Groq's /audio/speech rejects openai.TTS's stream_format)
+      kokoro → SimpleHTTPTTS adapter for file-returning endpoints (local Kokoro on-ramp)
+      openai → openai.TTS for endpoints that implement OpenAI's STREAMING audio events
+    """
     if TTS_PROVIDER == "groq" and groq_plugin is not None:
         return groq_plugin.TTS(model=TTS_MODEL, voice=TTS_VOICE)
-    return openai.TTS(model=TTS_MODEL, voice=TTS_VOICE, base_url=TTS_BASE_URL, api_key=TTS_API_KEY)
+    if TTS_PROVIDER in ("kokoro", "http"):
+        return SimpleHTTPTTS(
+            base_url=TTS_BASE_URL, voice=TTS_VOICE, model=TTS_MODEL,
+            api_key=TTS_API_KEY, sample_rate=TTS_SAMPLE_RATE, fmt=TTS_FORMAT,
+        )
+    kwargs = dict(model=TTS_MODEL, voice=TTS_VOICE, base_url=TTS_BASE_URL, api_key=TTS_API_KEY)
+    if TTS_FORMAT:
+        kwargs["response_format"] = TTS_FORMAT
+    return openai.TTS(**kwargs)
 
 
 PANELIST_INSTRUCTIONS = """\
