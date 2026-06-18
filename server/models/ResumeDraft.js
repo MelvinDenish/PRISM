@@ -53,6 +53,11 @@ const resumeDraftSchema = new mongoose.Schema({
     generatedHtml: { type: String, default: '' },
     // Lightweight provenance for "Regenerate" / debugging (model + repair count).
     generationMeta: { type: mongoose.Schema.Types.Mixed, default: undefined },
+    // Async generation state: the agentic design loop runs in the BACKGROUND (it can take
+    // several rounds), so /author and /regenerate return immediately and the client polls
+    // the draft until status leaves 'generating'. Legacy drafts default to 'idle'.
+    generationStatus: { type: String, enum: ['idle', 'generating', 'done', 'failed'], default: 'idle' },
+    generationError: { type: String, default: '' },
     coverLetter: { template: { type: String, enum: ['professional', 'creative'], default: 'professional' }, content: String, jobTitle: String, companyName: String },
     jobDescription: String,
     lastGenerated: Date,

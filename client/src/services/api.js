@@ -155,6 +155,30 @@ export const authorResume = (data) => api.post('/resume-builder/author', data ||
 export const regenerateResume = (id, instruction) => api.post(`/resume-builder/drafts/${id}/regenerate`, instruction ? { instruction } : {});
 export const getResumeDrafts = () => api.get('/resume-builder/drafts');
 export const getResumeDraft = (id) => api.get(`/resume-builder/drafts/${id}`);
+
+// Async generation: the server authors the resume in the BACKGROUND (the agentic
+// best-of-N + up-to-5-round design loop can take up to a minute). These POST, then poll
+// the draft until it leaves 'generating', resolving to the finished draft in the same
+// axios-like `{ data }` shape callers already expect. Throws on a failed/timed-out run.
+const _pollDraftUntilGenerated = async (id, { intervalMs = 2500, timeoutMs = 180000 } = {}) => {
+  const start = Date.now();
+  for (;;) {
+    const { data } = await getResumeDraft(id);
+    if (data?.draft?.generationStatus !== 'generating') return data;
+    if (Date.now() - start > timeoutMs) throw new Error('Resume generation is taking too long. Please try again.');
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+};
+const _finishGeneration = async (postData) => {
+  const id = postData?.draft?._id;
+  // Legacy/synchronous server (no 'generating') → return the finished draft as-is.
+  if (!id || postData?.draft?.generationStatus !== 'generating') return { data: postData };
+  const data = await _pollDraftUntilGenerated(id);
+  if (data?.draft?.generationStatus === 'failed') throw new Error(data.draft.generationError || 'Resume generation failed.');
+  return { data };
+};
+export const authorResumeAndWait = async (payload) => _finishGeneration((await authorResume(payload)).data);
+export const regenerateResumeAndWait = async (id, instruction) => _finishGeneration((await regenerateResume(id, instruction)).data);
 export const saveResumeDraft = (data) => api.post('/resume-builder/drafts', data);
 export const updateResumeDraft = (id, data) => api.put(`/resume-builder/drafts/${id}`, data);
 export const deleteResumeDraft = (id) => api.delete(`/resume-builder/drafts/${id}`);
