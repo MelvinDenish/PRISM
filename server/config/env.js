@@ -65,9 +65,10 @@ const SCHEMA = {
   RESUME_LLM_BASE_URL: { default: '' },
   RESUME_LLM_API_KEY: { default: '', secret: true },
   RESUME_DESIGN_MODEL: { default: 'openai/gpt-oss-120b' },
-  // Best-of-N design pool (comma-separated). All must be PII-safe (Groq). When unset,
-  // defaults to gpt-oss-120b + kimi-k2 + llama-3.3-70b. The loop drafts across the first
-  // 2 (when vision is on) and repairs with the first (primary).
+  // Best-of-N design pool (comma-separated). When unset, defaults to gpt-oss-120b +
+  // gpt-oss-20b + llama-3.3-70b (all LIVE on Groq — kimi-k2 was deprecated 2026-03-23 and
+  // would collapse best-of-N). The loop drafts across the first 2 (when vision is on) and
+  // repairs with the first (primary).
   RESUME_DESIGN_MODELS: { default: '' },
   RESUME_CONTENT_MODEL: { default: 'llama-3.3-70b-versatile' },
   // Multimodal critic for the resume design self-critique loop. Defaults to Groq's
@@ -195,7 +196,7 @@ const config = Object.freeze({
     const csv = (process.env.RESUME_DESIGN_MODELS || '').split(',').map((s) => s.trim()).filter(Boolean);
     if (csv.length) return csv;
     const primary = process.env.RESUME_DESIGN_MODEL || 'openai/gpt-oss-120b';
-    return [primary, 'moonshotai/kimi-k2-instruct', 'llama-3.3-70b-versatile'];
+    return [primary, 'openai/gpt-oss-20b', 'llama-3.3-70b-versatile'];
   },
   resumeContentModel: () => process.env.RESUME_CONTENT_MODEL || 'llama-3.3-70b-versatile',
   // Vision critic for the resume design loop. hasResumeVision() gates the loop on
