@@ -23,6 +23,7 @@ const { config } = require('../../config/env');
 const { shapeDraft } = require('./resume');
 const { inlineFontsForHtml } = require('./resumeFonts');
 const { pickDesignSystem, designSystemSeedText } = require('./resumeDesignCatalog');
+const { exemplarBlock } = require('./resumeExemplars');
 // Agentic core: the shared best-of-N + keepBest + bounded-reflexion loop, and the
 // dedicated Design Critique Agent (structural verify + vision critic in one verdict).
 const { refineLoop } = require('../core/refineLoop');
@@ -83,6 +84,8 @@ function designSystemPrompt() {
     '- A real layout — consider a two-column grid or a colored sidebar (contact/skills) with a wide main column for experience/projects. Align everything to a consistent grid; generous, even whitespace.',
     '- A tasteful, restrained color system: one accent used deliberately (section markers, name, rules, sidebar), strong contrast, never garish.',
     '- Polished details: consistent date alignment, subtle dividers, skill chips/tags, balanced margins. AVOID the generic "centered name + underlined ALL-CAPS section titles" template look.',
+    '',
+    exemplarBlock(),
   ].join('\n');
 }
 
