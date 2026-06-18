@@ -5,7 +5,7 @@
  */
 
 const crypto = require('crypto');
-const { GEN_MODEL } = require('./aiModels');
+const { chatCompletion } = require('./aiModels');
 
 // Clamp any model-returned score into a clean 0-100 integer.
 const clampScore = (v) => Math.max(0, Math.min(Math.round(Number(v) || 0), 100));
@@ -33,22 +33,20 @@ const GD_TOPICS = [
 const randomTopic = () => GD_TOPICS[Math.floor(Math.random() * GD_TOPICS.length)];
 
 /**
- * Generate a fresh, debatable GD topic via Groq. Falls back to a random static
- * topic on ANY error so the caller never has to handle a thrown topic.
- * @param {import('groq-sdk').Groq} groq
+ * Generate a fresh, debatable GD topic via the non-PII failover pool. Falls back to
+ * a random static topic on ANY error so the caller never has to handle a thrown topic.
  * @returns {Promise<string>}
  */
-async function generateTopic(groq) {
+async function generateTopic() {
   try {
-    const res = await groq.chat.completions.create({
-      model: GEN_MODEL(),
+    const res = await chatCompletion({
       messages: [
         { role: 'system', content: 'Return ONLY a single group discussion topic as a plain string. No quotes, no explanation.' },
         { role: 'user', content: 'Generate a thought-provoking group discussion topic for a placement interview. It should be relevant to technology, business, society, or current affairs. Make it debatable with no clear "right" answer. Examples: "Should AI replace human decision-making in healthcare?", "Is remote work sustainable long-term or just a trend?"' },
       ],
       max_tokens: 100,
       temperature: 0.9,
-    });
+    }, 'fast');
     return res.choices[0]?.message?.content?.trim() || randomTopic();
   } catch {
     return randomTopic();

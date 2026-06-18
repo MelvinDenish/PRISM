@@ -1,0 +1,4 @@
+# Cached webfonts (woff2) fetched on demand by resumeFonts.js — do not commit.
+# Keep the directory in git, ignore its contents.
+*
+!.gitignore

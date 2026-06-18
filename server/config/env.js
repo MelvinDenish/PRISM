@@ -46,6 +46,16 @@ const SCHEMA = {
   LLM_GEN_MODEL: { default: 'llama-3.3-70b-versatile' },
   LLM_FAST_MODEL: { default: 'llama-3.1-8b-instant' },
 
+  // Multi-provider failover pool (free, OpenAI-compatible). The non-PII "fast"
+  // pool fans across these providers and fails over on 429/5xx/timeout. BOTH keys
+  // are optional — an absent key simply drops that provider from the pool, so unset
+  // = today's Groq-only behavior (graceful degradation). PII routes (resume) NEVER
+  // use Cerebras/OpenRouter: those free tiers may train on inputs (student PII).
+  CEREBRAS_API_KEY: { feature: 'Cerebras in the non-PII failover pool (fastest). Skipped when unset', secret: true },
+  CEREBRAS_BASE_URL: { default: 'https://api.cerebras.ai/v1' },
+  OPENROUTER_API_KEY: { feature: 'OpenRouter in the non-PII failover pool (model diversity). Skipped when unset', secret: true },
+  OPENROUTER_BASE_URL: { default: 'https://openrouter.ai/api/v1' },
+
   // Resume generator (AI-authored HTML resumes). Separate, SWAPPABLE provider +
   // per-stage models so the resume pipeline can use a stronger design model (or a
   // self-hosted vLLM/Ollama endpoint) independent of the copilot. All fall back to
@@ -55,7 +65,15 @@ const SCHEMA = {
   RESUME_LLM_BASE_URL: { default: '' },
   RESUME_LLM_API_KEY: { default: '', secret: true },
   RESUME_DESIGN_MODEL: { default: 'openai/gpt-oss-120b' },
+  // Best-of-N design pool (comma-separated). All must be PII-safe (Groq). When unset,
+  // defaults to gpt-oss-120b + kimi-k2 + llama-3.3-70b. The loop drafts across the first
+  // 2 (when vision is on) and repairs with the first (primary).
+  RESUME_DESIGN_MODELS: { default: '' },
   RESUME_CONTENT_MODEL: { default: 'llama-3.3-70b-versatile' },
+  // Multimodal critic for the resume design self-critique loop. Defaults to Groq's
+  // free, privacy-safe Llama-4 Scout (native image input). When unset/unavailable the
+  // loop degrades to the text/metric verify path (graceful — generation never blocks).
+  RESUME_VISION_MODEL: { default: 'meta-llama/llama-4-scout-17b-16e-instruct' },
   GEMINI_API_KEY: { feature: 'Resume ATS analysis (falls back to keyword matching)', secret: true },
   // Company-specific interview-question research (Interview Game, Phase 3). When
   // unset, the research pipeline is disabled and the game uses mentor + curated
@@ -141,6 +159,7 @@ const config = Object.freeze({
   judge0Url: () => process.env.JUDGE0_API_URL || 'http://localhost:2358',
 
   hasGroq: () => Boolean(process.env.GROQ_API_KEY),
+  groqApiKey: () => process.env.GROQ_API_KEY || '',
   groqGenModel: () => process.env.GROQ_GEN_MODEL || 'llama-3.1-8b-instant',
   groqEvalModel: () => process.env.GROQ_EVAL_MODEL || 'llama-3.3-70b-versatile',
 
@@ -158,12 +177,34 @@ const config = Object.freeze({
   llmGenModel: () => process.env.LLM_GEN_MODEL || 'llama-3.3-70b-versatile',
   llmFastModel: () => process.env.LLM_FAST_MODEL || 'llama-3.1-8b-instant',
 
+  // Failover pool providers (non-PII only). Optional — absent key => skipped.
+  hasCerebras: () => Boolean(process.env.CEREBRAS_API_KEY),
+  cerebrasApiKey: () => process.env.CEREBRAS_API_KEY || '',
+  cerebrasBaseUrl: () => process.env.CEREBRAS_BASE_URL || 'https://api.cerebras.ai/v1',
+  hasOpenrouter: () => Boolean(process.env.OPENROUTER_API_KEY),
+  openrouterApiKey: () => process.env.OPENROUTER_API_KEY || '',
+  openrouterBaseUrl: () => process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+
   // Resume generator provider/models (swappable; fall back to LLM_*/GROQ_API_KEY).
   hasResumeLlm: () => Boolean(process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY),
   resumeLlmBaseUrl: () => process.env.RESUME_LLM_BASE_URL || process.env.LLM_BASE_URL || '',
   resumeLlmApiKey: () => process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY || '',
   resumeDesignModel: () => process.env.RESUME_DESIGN_MODEL || 'openai/gpt-oss-120b',
+  // Ordered best-of-N design pool (PII-safe / Groq). First entry = primary + repairer.
+  resumeDesignModels: () => {
+    const csv = (process.env.RESUME_DESIGN_MODELS || '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (csv.length) return csv;
+    const primary = process.env.RESUME_DESIGN_MODEL || 'openai/gpt-oss-120b';
+    return [primary, 'moonshotai/kimi-k2-instruct', 'llama-3.3-70b-versatile'];
+  },
   resumeContentModel: () => process.env.RESUME_CONTENT_MODEL || 'llama-3.3-70b-versatile',
+  // Vision critic for the resume design loop. hasResumeVision() gates the loop on
+  // BOTH a model id and a usable resume LLM key (the critic reuses the resume creds).
+  resumeVisionModel: () => process.env.RESUME_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct',
+  hasResumeVision: () => Boolean(
+    (process.env.RESUME_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct')
+    && (process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY),
+  ),
   hasGemini: () => Boolean(process.env.GEMINI_API_KEY),
   hasTavily: () => Boolean(process.env.TAVILY_API_KEY),
   tavilyKey: () => process.env.TAVILY_API_KEY || '',

@@ -7,7 +7,7 @@ import {
 } from '../services/api';
 import {
   FiTrash2, FiDownload, FiZap, FiFileText, FiSend, FiMessageSquare,
-  FiArrowLeft, FiRefreshCw, FiFile, FiEdit3, FiCheckCircle, FiCircle,
+  FiArrowLeft, FiRefreshCw, FiFile, FiEdit3, FiCheckCircle, FiCircle, FiCopy,
 } from 'react-icons/fi';
 import PageHero from '../components/ui/PageHero';
 import Reveal from '../components/motion/Reveal';
@@ -37,6 +37,8 @@ const ResumeBuilder = () => {
   const [assessment, setAssessment] = useState(null); // { have, missing, gateMet, contentScore }
   const [draftCard, setDraftCard] = useState(null);   // [{name,description,technologies}] editable "fill a page" draft
   const [drafting, setDrafting] = useState(false);    // busy flag for the draft / apply calls
+  const [designSteer, setDesignSteer] = useState(''); // optional free-text look (theme/fonts/layout)
+  const [thinConfirm, setThinConfirm] = useState(false); // compulsory choice when content is light
   const chatRef = useRef(null);
 
   // refine state
@@ -64,12 +66,14 @@ const ResumeBuilder = () => {
   // ── Gap-fill chat ──
   // Opening the chat immediately seeds from the profile (empty messages) so the
   // first assistant turn is a targeted question + the initial checklist.
-  const startChat = async () => {
+  // `fromDraftId` pre-fills the chat from a specific previous resume (reuse old details);
+  // with none, the server still seeds from the most recent draft + profile.
+  const startChat = async (fromDraftId) => {
     setError(''); setCurrent(null); setCollected(null); setAssessment(null);
-    setDraftCard(null); setDrafting(false);
+    setDraftCard(null); setDrafting(false); setDesignSteer(''); setThinConfirm(false);
     setMessages([]); setInput(''); setView('chat'); setSending(true);
     try {
-      const { data } = await resumeIntake([], null);
+      const { data } = await resumeIntake([], null, fromDraftId);
       setMessages([{ role: 'assistant', content: data.reply || CHAT_GREETING }]);
       setCollected(data.collected);
       setAssessment(data.assessment);
@@ -106,7 +110,7 @@ const ResumeBuilder = () => {
   const draftProjectContent = async (collectedArg) => {
     const src = collectedArg || collected;
     if (!src || drafting) return;
-    setError(''); setDrafting(true);
+    setError(''); setThinConfirm(false); setDrafting(true);
     try {
       const { data } = await draftResumeContent(src);
       const drafted = (data.draftedProjects || []).map((p) => ({
@@ -148,12 +152,15 @@ const ResumeBuilder = () => {
 
   const cancelDraft = () => { setDraftCard(null); setError(''); };
 
-  // Generate from the confirmed (gate-met) content.
+  // Generate from the confirmed (gate-met) content. An optional free-text `designSteer`
+  // becomes the design instruction; left blank, the server picks the best professional
+  // design generatively. The server's measured fill loop guarantees a full A4 either way.
   const confirmGenerate = async () => {
     if (!collected || !assessment?.gateMet) return;
-    setError(''); setView('result'); setBusy('generating');
+    setError(''); setThinConfirm(false); setView('result'); setBusy('generating');
     try {
-      const { data } = await authorResume({ collected });
+      const instruction = designSteer.trim();
+      const { data } = await authorResume(instruction ? { collected, instruction } : { collected });
       setCurrent(data.draft);
       loadDrafts();
     } catch (err) {
@@ -164,6 +171,17 @@ const ResumeBuilder = () => {
       setView('chat');
     }
     setBusy('');
+  };
+
+  // Compulsory conscious choice when content is light: don't silently generate a sparse
+  // resume — surface "draft fuller details" vs "generate anyway" (both finish it; the
+  // server's measured fill loop guarantees a full A4 either way). When content is already
+  // enough, generate straight through.
+  const requestGenerate = () => {
+    if (!collected || !assessment?.gateMet) return;
+    const contentThin = (assessment?.missing || []).some((m) => m.key === 'enoughContent');
+    if (contentThin) { setThinConfirm(true); return; }
+    confirmGenerate();
   };
 
   // ── Result actions ──
@@ -217,7 +235,7 @@ const ResumeBuilder = () => {
           icon={<FiFileText />}
           actions={(
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <button className="btn btn-action" onClick={startChat}><FiZap /> Generate from my profile</button>
+              <button className="btn btn-action" onClick={() => startChat()}><FiZap /> Generate from my profile</button>
             </div>
           )}
         />
@@ -226,7 +244,7 @@ const ResumeBuilder = () => {
           <div className="empty-state">
             <div className="icon"><FiFileText /></div>
             <p>No resumes yet. Click <strong>Generate from my profile</strong> — I'll fill the gaps with a few quick questions, then design it.</p>
-            <button className="btn btn-action" style={{ marginTop: 16 }} onClick={startChat}><FiZap /> Generate from my profile</button>
+            <button className="btn btn-action" style={{ marginTop: 16 }} onClick={() => startChat()}><FiZap /> Generate from my profile</button>
           </div>
         ) : (
           <div className="grid grid-3">
@@ -234,7 +252,10 @@ const ResumeBuilder = () => {
               <Reveal as="div" key={d._id} i={i} className="glass-card spotlight" style={{ cursor: 'pointer' }} onClick={() => openDraft(d)}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                   <div><h3 style={{ fontSize: 16 }}>{d.name}</h3><p style={{ color: 'var(--text-muted)', fontSize: 12 }}>{d.generatedHtml ? 'AI-designed' : d.template ? `${d.template} template` : 'Draft'}</p></div>
-                  <button className="btn btn-sm" style={{ background: 'none', color: 'var(--accent-danger)' }} onClick={(e) => { e.stopPropagation(); removeDraft(d._id); }}><FiTrash2 /></button>
+                  <div style={{ display: 'flex', gap: 2 }}>
+                    <button className="btn btn-sm" style={{ background: 'none', color: 'var(--text-muted)' }} title="Start a new resume pre-filled with this one's details" onClick={(e) => { e.stopPropagation(); startChat(d._id); }}><FiCopy /></button>
+                    <button className="btn btn-sm" style={{ background: 'none', color: 'var(--accent-danger)' }} title="Delete this resume" onClick={(e) => { e.stopPropagation(); removeDraft(d._id); }}><FiTrash2 /></button>
+                  </div>
                 </div>
                 <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{d.personalInfo?.fullName || 'No name'}</p>
                 <p style={{ color: 'var(--text-muted)', fontSize: 11, marginTop: 8 }}>Updated {new Date(d.updatedAt).toLocaleDateString()}</p>
@@ -341,25 +362,55 @@ const ResumeBuilder = () => {
               </ul>
             )}
 
-            {/* Only at the "fill a page" stage: offer to draft the depth instead of
-                making the user type past the word-count bar. */}
-            {onlyContentMissing && !draftCard && (
+            {/* Optional look steer: the user can describe theme / fonts / layout in plain
+                text. Left blank, the server picks the best professional design generatively. */}
+            <label className="rb-steer-label" htmlFor="rb-steer">Design <span>(optional)</span></label>
+            <input id="rb-steer" className="form-input rb-steer-input" type="text" maxLength={400}
+              placeholder="e.g. navy two-column, serif headings — blank = best professional"
+              value={designSteer} onChange={(e) => setDesignSteer(e.target.value)}
+              disabled={sending || drafting} />
+
+            {/* At the "fill a page" stage, offer to draft the depth instead of making the
+                user type past the word-count bar (hidden while the compulsory choice shows). */}
+            {onlyContentMissing && !draftCard && !thinConfirm && (
               <button className="btn btn-secondary rb-draft-btn" onClick={() => draftProjectContent()} disabled={drafting || sending}>
                 <FiEdit3 /> {drafting ? 'Drafting…' : 'Draft my project details'}
               </button>
             )}
-            <button className="btn btn-action rb-generate-btn" onClick={confirmGenerate} disabled={!gateMet || sending || drafting}>
-              <FiZap /> Generate my resume
-            </button>
-            <p className="rb-canvas-help" style={{ marginTop: 8, textAlign: 'center' }}>
-              {onlyContentMissing
-                ? 'You can generate now — or let me draft fuller project details first to fill the page.'
-                : gateMet
-                  ? "You've hit the bar — generate now, or keep adding for an even stronger resume."
-                  : blockingMissing.length
-                    ? `Answer ${blockingMissing.length} more to unlock generation.`
-                    : 'Add your details to unlock generation.'}
-            </p>
+
+            {thinConfirm ? (
+              /* Compulsory conscious choice — both paths finish the resume; the server's
+                 measured fill loop guarantees a full A4 even on "generate anyway". */
+              <div className="rb-thin-confirm">
+                <p className="rb-canvas-help" style={{ marginBottom: 8 }}>
+                  Your content is a little light for a full page. Pick one — both finish your resume:
+                </p>
+                <button className="btn btn-secondary rb-draft-btn" onClick={() => draftProjectContent()} disabled={drafting || sending}>
+                  <FiEdit3 /> {drafting ? 'Drafting…' : 'Draft fuller details for me'}
+                </button>
+                <button className="btn btn-action rb-generate-btn" onClick={confirmGenerate} disabled={sending || drafting}>
+                  <FiZap /> Generate anyway — AI fills the page
+                </button>
+                <button className="btn btn-secondary btn-sm" style={{ marginTop: 6, width: '100%' }} onClick={() => setThinConfirm(false)} disabled={sending || drafting}>
+                  Back
+                </button>
+              </div>
+            ) : (
+              <>
+                <button className="btn btn-action rb-generate-btn" onClick={requestGenerate} disabled={!gateMet || sending || drafting}>
+                  <FiZap /> Generate my resume
+                </button>
+                <p className="rb-canvas-help" style={{ marginTop: 8, textAlign: 'center' }}>
+                  {onlyContentMissing
+                    ? 'You can generate now — or let me draft fuller project details first to fill the page.'
+                    : gateMet
+                      ? "You've hit the bar — generate now, or keep adding for an even stronger resume."
+                      : blockingMissing.length
+                        ? `Answer ${blockingMissing.length} more to unlock generation.`
+                        : 'Add your details to unlock generation.'}
+                </p>
+              </>
+            )}
           </aside>
         </div>
       </div>
@@ -402,7 +453,9 @@ const ResumeBuilder = () => {
         </div>
         {current?.generationMeta && current.generationMeta.verified === false && (
           <p className="rb-canvas-help" style={{ marginTop: 8, color: 'var(--accent-warning)' }}>
-            Heads up: this design may overflow — try Regenerate or refine to tighten it.
+            {(current.generationMeta.pages || 1) >= 2
+              ? 'Heads up: this design may run long — try Regenerate or refine to tighten it.'
+              : 'Heads up: this design may look a little sparse — try Regenerate, or add more detail to fill the page.'}
           </p>
         )}
       </div>

@@ -4,7 +4,7 @@ const GDSession = require('../models/GDSession');
 const { protect, authorize } = require('../middleware/auth');
 const { aiLimiter } = require('../middleware/rateLimit');
 const { config } = require('../config/env');
-const { getGroq, evalCompletion } = require('../utils/aiModels');
+const { evalCompletion } = require('../utils/aiModels');
 const { rubricBlock, RUBRIC_VERSION } = require('../utils/interviewRubric');
 const { generateTopic, randomTopic, genInviteCode, clampScore, strList } = require('../utils/gd');
 const router = express.Router();
@@ -158,7 +158,7 @@ router.post('/:id/start', protect, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Only the host can start the discussion' });
     }
 
-    const topic = config.hasGroq() ? await generateTopic(getGroq()) : randomTopic();
+    const topic = config.hasGroq() ? await generateTopic() : randomTopic();
     const duration = Math.min(Math.max(parseInt(req.body.duration, 10) || 10, 1), 60); // minutes
     room.gdTopic = topic;
     room.status = 'active';
@@ -288,8 +288,7 @@ router.post('/:id/evaluate', protect, aiLimiter, async (req, res) => {
     } else if (!config.hasGroq()) {
       evaluation = heuristicScorecard({ spokenSeconds, turns, spokePct });
     } else {
-      const groq = getGroq();
-      const { completion, modelUsed: used } = await evalCompletion(groq, {
+      const { completion, modelUsed: used } = await evalCompletion({
         messages: [
           { role: 'system', content: 'You are an expert group-discussion evaluator for campus placements. Evaluate ONLY this one candidate, based strictly on what they actually said and how much they participated. Do not invent contributions.' },
           { role: 'user', content: `Topic: "${topic}".

@@ -139,8 +139,11 @@ export const summarizeArticle = (data) => api.post('/summarize', data);
 // Resume Builder
 export const getResumeDesignSystem = () => api.get('/resume-builder/design-system');
 // Gap-aware intake: client holds `collected` and echoes it back each turn so the
-// server can merge the per-turn delta and re-score the completeness gate.
-export const resumeIntake = (messages, collected) => api.post('/resume-builder/intake', { messages, collected });
+// server can merge the per-turn delta and re-score the completeness gate. On the
+// opening turn, an optional `fromDraftId` pre-fills from a previous resume (reuse old
+// details); when omitted the server seeds from the most recent draft + profile.
+export const resumeIntake = (messages, collected, fromDraftId) =>
+  api.post('/resume-builder/intake', { messages, collected, ...(fromDraftId ? { fromDraftId } : {}) });
 // "Fill a page for me" assist. draftResumeContent: AI expands the user's project
 // briefs (grounded) → { draftedProjects }. applyResumeContent: folds the user's
 // EDITED projects back through the gate → { collected, assessment }.

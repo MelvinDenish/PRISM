@@ -10,7 +10,7 @@ const { normalizeStdin } = require('../agent/services/codeRun');
 // Coding-problem gen/verify helpers live in a shared util (Phase 2) so the
 // learning-path final test reuses the exact same verified grading path.
 const { normOut, FALLBACK_CODING_PROBLEM, generateCodingProblems, validateCodingProblems } = require('../utils/codingProblems');
-const Groq = require('groq-sdk');
+const { chatCompletion } = require('../utils/aiModels');
 const { emit: emitSignals } = require('../agent/services/signals');
 const { upsertReviewItems } = require('../agent/services/reviewQueue');
 const { resolveTemplate, difficultyFromReadiness } = require('../utils/gameTemplates');
@@ -33,21 +33,14 @@ const PILLAR_BY_ROUND = {
     gd: 'communication',
 };
 
-const getGroq = () => {
-  if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY not configured');
-  return new Groq({ apiKey: process.env.GROQ_API_KEY });
-};
-
-// Generate MCQ questions via Groq
+// Generate MCQ questions via the non-PII failover pool
 const generateMCQs = async (type, count) => {
-  const groq = getGroq();
   const prompts = {
     aptitude: `Generate ${count} aptitude/quantitative reasoning MCQ questions for a placement test. Mix of: arithmetic, percentages, time-speed-distance, probability, number series, logical reasoning, verbal ability, data interpretation. Each question must be tricky but fair.`,
     technical: `Generate ${count} technical CS MCQ questions for a placement interview. Mix of: Data Structures, Algorithms, DBMS, Operating Systems, Computer Networks, OOP concepts, System Design basics. Questions should test deep understanding, not just definitions.`,
   };
 
-  const completion = await groq.chat.completions.create({
-    model: 'llama-3.1-8b-instant',
+  const completion = await chatCompletion({
     messages: [
       { role: 'system', content: 'You are a placement exam question generator. Return ONLY a JSON array. No extra text, no markdown.' },
       { role: 'user', content: `${prompts[type] || prompts.technical}
@@ -59,7 +52,7 @@ Return exactly ${count} questions.` }
     ],
     max_tokens: 4000,
     temperature: 0.8
-  });
+  }, 'gen');
 
   try {
     const raw = completion.choices[0]?.message?.content || '[]';
@@ -72,9 +65,7 @@ Return exactly ${count} questions.` }
 
 // Generate HR questions via Groq
 const generateHRQuestions = async (count) => {
-  const groq = getGroq();
-  const completion = await groq.chat.completions.create({
-    model: 'llama-3.1-8b-instant',
+  const completion = await chatCompletion({
     messages: [
       { role: 'system', content: 'You are an HR interview question generator. Return ONLY a JSON array of strings. No extra text.' },
       { role: 'user', content: `Generate ${count} HR/behavioral interview questions for a placement interview. Mix of: self-introduction, strengths/weaknesses, teamwork, leadership, failure handling, motivation, career goals, conflict resolution, pressure handling. Make them realistic and thought-provoking.
@@ -83,7 +74,7 @@ Return as JSON array of strings: ["question1","question2",...]` }
     ],
     max_tokens: 1500,
     temperature: 0.8
-  });
+  }, 'fast');
   try {
     const raw = completion.choices[0]?.message?.content || '[]';
     return JSON.parse(raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim());
@@ -94,14 +85,12 @@ Return as JSON array of strings: ["question1","question2",...]` }
 // competencies the candidate already has STAR stories for (so the round fills
 // coverage gaps). Best-effort — callers fall back to the bank on empty/throw.
 const generatePersonalizedHR = async (count, { company, role, coveredTags }) => {
-  const groq = getGroq();
   const ctx = [
     company ? `target company: ${company}` : '',
     role ? `target role: ${role}` : '',
     coveredTags?.length ? `The candidate ALREADY has strong stories about: ${coveredTags.join(', ')}. Ask about OTHER competencies instead.` : '',
   ].filter(Boolean).join('\n');
-  const completion = await groq.chat.completions.create({
-    model: 'llama-3.1-8b-instant',
+  const completion = await chatCompletion({
     messages: [
       { role: 'system', content: 'You are an HR interview question generator. Return ONLY a JSON array of strings. No extra text.' },
       { role: 'user', content: `Generate ${count} HR/behavioral interview questions for a placement interview.
@@ -112,7 +101,7 @@ Return as JSON array of strings: ["question1","question2",...]` }
     ],
     max_tokens: 1500,
     temperature: 0.8,
-  });
+  }, 'fast');
   try {
     const raw = completion.choices[0]?.message?.content || '[]';
     const arr = JSON.parse(raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim());
@@ -122,16 +111,14 @@ Return as JSON array of strings: ["question1","question2",...]` }
 
 // Generate GD topic via Groq
 const generateGDTopic = async () => {
-  const groq = getGroq();
-  const completion = await groq.chat.completions.create({
-    model: 'llama-3.1-8b-instant',
+  const completion = await chatCompletion({
     messages: [
       { role: 'system', content: 'Return ONLY a single discussion topic as a plain string. No quotes, no JSON, no explanation.' },
       { role: 'user', content: 'Generate one thought-provoking group discussion topic for a placement interview. It should be relevant to technology, society, or current affairs. Make it debatable with multiple valid perspectives.' }
     ],
     max_tokens: 100,
     temperature: 0.9
-  });
+  }, 'fast');
   return completion.choices[0]?.message?.content?.trim() || 'Is artificial intelligence a threat or an opportunity for the workforce?';
 };
 

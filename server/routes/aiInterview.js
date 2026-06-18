@@ -1,7 +1,7 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
 const { aiLimiter } = require('../middleware/rateLimit');
-const { getGroq, GEN_MODEL, evalCompletion } = require('../utils/aiModels');
+const { chatCompletion, evalCompletion } = require('../utils/aiModels');
 const { rubricBlock, RUBRIC_VERSION } = require('../utils/interviewRubric');
 const User = require('../models/User');
 const InterviewAttempt = require('../models/InterviewAttempt');
@@ -31,22 +31,20 @@ router.post('/start', protect, aiLimiter, async (req, res) => {
     }
 
     // Generate first question from AI
-    const groq = getGroq();
     const systemPrompt = type === 'technical'
       ? `You are an expert technical interviewer at a top tech company. Ask focused ${topic} questions. Start with medium difficulty and adapt based on responses. Ask one question at a time. Be professional but conversational.`
       : type === 'hr'
       ? `You are an experienced HR interviewer. Ask behavioral and situational questions. Evaluate communication skills, attitude, and cultural fit. Ask one question at a time.`
       : `You are a group discussion moderator. Present a topic and guide discussion. Evaluate communication, reasoning, and leadership skills.`;
 
-    const completion = await groq.chat.completions.create({
-      model: GEN_MODEL(),
+    const completion = await chatCompletion({
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Start the ${type} interview. The candidate's topic of interest is: ${topic}. Begin with your first question.` }
       ],
       max_tokens: 500,
       temperature: 0.7
-    });
+    }, 'fast');
 
     const firstQuestion = completion.choices[0]?.message?.content || 'Tell me about your experience.';
     res.json({
@@ -69,19 +67,17 @@ router.post('/chat', protect, aiLimiter, async (req, res) => {
     if (typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({ success: false, message: 'Message is required' });
     }
-    const groq = getGroq();
 
     const messages = [
       ...sanitizeContext(req.body.conversationContext),
       { role: 'user', content: message.slice(0, MAX_MESSAGE_CHARS) }
     ];
 
-    const completion = await groq.chat.completions.create({
-      model: GEN_MODEL(),
+    const completion = await chatCompletion({
       messages,
       max_tokens: 500,
       temperature: 0.7
-    });
+    }, 'fast');
 
     const aiResponse = completion.choices[0]?.message?.content || 'Could you elaborate on that?';
     res.json({
@@ -107,8 +103,6 @@ router.post('/evaluate', protect, aiLimiter, async (req, res) => {
       });
     }
 
-    const groq = getGroq();
-
     // Build a strict evaluation prompt with an anchored rubric (B4) so scores are
     // comparable across runs. Graded on the stronger eval model (B1, with fallback).
     const evalPrompt = `Based on this ${type} interview conversation, provide a detailed evaluation in JSON format.
@@ -129,7 +123,7 @@ ${rubricBlock()}
 }
 Only respond with the JSON, no extra text.`;
 
-    const { completion, modelUsed } = await evalCompletion(groq, {
+    const { completion, modelUsed } = await evalCompletion({
       messages: [
         ...conversationContext,
         { role: 'user', content: evalPrompt }

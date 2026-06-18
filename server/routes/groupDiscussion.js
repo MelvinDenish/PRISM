@@ -1,7 +1,7 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
 const { aiLimiter } = require('../middleware/rateLimit');
-const { getGroq, GEN_MODEL, evalCompletion } = require('../utils/aiModels');
+const { chatCompletion, evalCompletion } = require('../utils/aiModels');
 const { rubricBlock, RUBRIC_VERSION } = require('../utils/interviewRubric');
 const mongoose = require('mongoose');
 const GDSession = require('../models/GDSession');
@@ -45,21 +45,19 @@ const PARTICIPANTS = [
 // POST /api/group-discussion/start — Generate topic and start GD with AI participants
 router.post('/start', protect, aiLimiter, async (req, res) => {
   try {
-    const groq = getGroq();
     const { customTopic } = req.body;
 
     // Generate a GD topic if none provided
     let topic = typeof customTopic === 'string' ? customTopic.slice(0, 500) : '';
     if (!topic) {
-      const topicRes = await groq.chat.completions.create({
-        model: GEN_MODEL(),
+      const topicRes = await chatCompletion({
         messages: [
           { role: 'system', content: 'Return ONLY a single group discussion topic as a plain string. No quotes, no explanation.' },
           { role: 'user', content: 'Generate a thought-provoking group discussion topic for a placement interview. It should be relevant to technology, business, society, or current affairs. Make it debatable with no clear "right" answer. Examples: "Should AI replace human decision-making in healthcare?", "Is remote work sustainable long-term or just a trend?"' }
         ],
         max_tokens: 100,
         temperature: 0.9
-      });
+      }, 'fast');
       topic = topicRes.choices[0]?.message?.content?.trim() || 'Is artificial intelligence a threat or an opportunity for the workforce?';
     }
 
@@ -68,15 +66,14 @@ router.post('/start', protect, aiLimiter, async (req, res) => {
     const selectedParticipants = shuffled.slice(0, 4 + Math.floor(Math.random() * 2));
 
     // Generate opening statement from first AI participant
-    const openingRes = await groq.chat.completions.create({
-      model: GEN_MODEL(),
+    const openingRes = await chatCompletion({
       messages: [
         { role: 'system', content: `You are ${selectedParticipants[0].name}, a ${selectedParticipants[0].style}. You are in a group discussion for a placement interview. The topic is: "${topic}". Give your opening statement in 2-3 sentences. Be natural, speak in first person, and take a clear stance. Do NOT use your name in the response.` },
         { role: 'user', content: 'Start the group discussion with your opening statement.' }
       ],
       max_tokens: 200,
       temperature: 0.8
-    });
+    }, 'fast');
 
     const openingMessage = openingRes.choices[0]?.message?.content?.trim() || 'I think this is a very important topic that needs careful consideration.';
 
@@ -104,7 +101,6 @@ router.post('/respond', protect, aiLimiter, async (req, res) => {
     if (typeof userMessage !== 'string' || !userMessage.trim()) {
       return res.status(400).json({ success: false, message: 'A message is required' });
     }
-    const groq = getGroq();
 
     // Add user's message to context
     const updatedContext = [
@@ -123,15 +119,14 @@ router.post('/respond', protect, aiLimiter, async (req, res) => {
     for (const responder of responders) {
       const participant = PARTICIPANTS.find(p => p.name === responder.name) || responder;
 
-      const completion = await groq.chat.completions.create({
-        model: GEN_MODEL(),
+      const completion = await chatCompletion({
         messages: [
           ...runningContext,
           { role: 'user', content: `Now ${participant.name} responds. ${participant.name} is ${participant.style || 'thoughtful and articulate'}. Topic: "${topic}". Respond naturally in 2-3 sentences. You may agree, disagree, counter-argue, add new points, or build upon what the candidate said. Be conversational and realistic. Speak in first person. Return ONLY the response text, no name prefix.` }
         ],
         max_tokens: 200,
         temperature: 0.8
-      });
+      }, 'fast');
 
       const aiReply = completion.choices[0]?.message?.content?.trim() || 'That\'s an interesting point. I would like to add...';
       responses.push({ speaker: participant.name, message: aiReply, college: participant.college || '' });
@@ -153,9 +148,8 @@ router.post('/evaluate', protect, aiLimiter, async (req, res) => {
   try {
     const { topic } = req.body;
     const context = sanitizeContext(req.body.context);
-    const groq = getGroq();
 
-    const { completion: evalRes, modelUsed } = await evalCompletion(groq, {
+    const { completion: evalRes, modelUsed } = await evalCompletion({
       messages: [
         ...context,
         { role: 'user', content: `Evaluate the candidate's performance in this group discussion on "${topic}".

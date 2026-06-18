@@ -52,7 +52,11 @@ const PROFILE = {
   // ── 3. Gate flips only once content is deep enough to fill a page ──────────
   const aThin = comp.assessCompleteness(c);
   assert(has(aThin, 'projects') && has(aThin, 'education'), '2 projects + degree satisfied');
-  assert(needs(aThin, 'enoughContent') && !aThin.gateMet, 'thin descriptions keep the gate closed');
+  // `enoughContent` is ADVISORY by design (see resumeCompleteness's header comment): thin
+  // descriptions keep it nudging in `missing`, but generation is unlocked once the FACTUAL
+  // items are in — the chat offers the AI-draft assist / "generate anyway" rather than
+  // trapping the user behind a word-count wall.
+  assert(needs(aThin, 'enoughContent') && aThin.gateMet, 'thin content stays advisory — gate already open on the facts');
   const longDesc = 'word '.repeat(120).trim(); // 120 words
   c = comp.mergeCollected(c, { projects: [{ name: 'Chess AI', description: longDesc }] });
   c = comp.mergeCollected(c, { projects: [{ name: 'PRISM Resume', description: longDesc }] });

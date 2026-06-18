@@ -127,17 +127,27 @@ async function renderResumePdf(draft) {
 // for the self-heal/overflow check (Stage C of the AI-authored pipeline).
 const A4_PAGE_PX = 1123;
 
+// Fill bands for the "always fill a full A4" guarantee. A SINGLE-page resume must
+// fill at least FILL_MIN of the page (no half-empty page); a TWO-page resume must
+// not leave a near-empty trailing page (its last page fills at least TRAILING_MIN,
+// else we compress back toward one full page). Tunable.
+const FILL_MIN = 0.85;
+const TRAILING_MIN = 0.5;
+
 /**
  * Render an arbitrary (UNTRUSTED, already-sanitized) HTML document to a PDF and,
  * in the same pass, measure it for the verify/repair loop. SECURITY: the page is
  * rendered OFFLINE — every non-document network request (external CSS/JS/img/font)
  * is aborted, so a malicious resume can neither exfiltrate nor SSRF. Returns
- * `{ buffer, pages, text }` where `pages` is an A4 page-count estimate and `text`
- * is the rendered innerText (for CUIC field presence checks).
+ * `{ buffer, pages, text, height, screenshot }` where `height` is the TRUE content
+ * height in px (min-heights neutralized — see the measure block), `pages` is the A4
+ * page-count estimate derived from it, `text` is the rendered innerText (CUIC field
+ * checks), and `screenshot` is a PNG Buffer of the rendered page (only when
+ * `opts.screenshot` is set — fed to the vision design critic).
  * @param {string} html
- * @param {{ measure?: boolean }} [opts]
+ * @param {{ measure?: boolean, screenshot?: boolean }} [opts]
  */
-async function renderHtmlDoc(html, { measure = true } = {}) {
+async function renderHtmlDoc(html, { measure = true, screenshot = false } = {}) {
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
@@ -155,19 +165,46 @@ async function renderHtmlDoc(html, { measure = true } = {}) {
 
     let pages = 1;
     let text = '';
+    let height = 0;
     if (measure) {
-      const info = await page.evaluate((pagePx) => ({
-        height: Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0),
-        text: (document.body ? document.body.innerText : '') || '',
-        pagePx,
-      }), A4_PAGE_PX);
-      pages = Math.max(1, Math.ceil((info.height || 0) / A4_PAGE_PX));
+      const info = await page.evaluate(() => {
+        // Measure the TRUE content height. Two traps to avoid:
+        //  1. Designs use min-height (the template's `.page{min-height:1040px}` or an AI
+        //     design's `min-height:100vh`), which would make even a near-empty resume read
+        //     as a full page and defeat the underfull check. Neutralize min-height just for
+        //     the measurement, then restore so the PDF below keeps the design as authored.
+        //  2. `documentElement.scrollHeight` is floored at the viewport height, so a sparse
+        //     page reads as a full viewport. Measure the lowest element bottom instead.
+        const ov = document.createElement('style');
+        ov.textContent = '*{min-height:0!important}';
+        (document.head || document.documentElement).appendChild(ov);
+        let maxBottom = document.body ? document.body.getBoundingClientRect().bottom : 0;
+        const all = document.body ? document.body.getElementsByTagName('*') : [];
+        for (let i = 0; i < all.length; i += 1) {
+          const b = all[i].getBoundingClientRect().bottom; // relative to the viewport top
+          if (b > maxBottom) maxBottom = b;
+        }
+        const h = Math.ceil(maxBottom + (window.scrollY || 0));
+        const t = (document.body ? document.body.innerText : '') || '';
+        ov.remove();
+        return { height: h, text: t };
+      });
+      height = info.height || 0;
+      pages = Math.max(1, Math.ceil(height / A4_PAGE_PX));
       text = info.text;
     }
 
     const pdf = await page.pdf({ printBackground: true, preferCSSPageSize: true });
     const buffer = Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf);
-    return { buffer, pages, text };
+
+    // Optional PNG of the rendered page for the vision design critic. `fullPage`
+    // captures the whole resume (1–2 A4 pages) so the model judges the real layout.
+    let shot = null;
+    if (screenshot) {
+      const png = await page.screenshot({ type: 'png', fullPage: true });
+      shot = Buffer.isBuffer(png) ? png : Buffer.from(png);
+    }
+    return { buffer, pages, text, height, screenshot: shot };
   } finally {
     await page.close();
   }
@@ -196,4 +233,7 @@ async function exportResumePdfArtifact({ userId, draft, title }) {
   return { id, title, format: 'pdf', url: `/api/artifacts/${id}/download` };
 }
 
-module.exports = { resumeHtml, renderResumePdf, renderHtmlDoc, getBrowser, closeBrowser, exportResumePdfArtifact };
+module.exports = {
+  resumeHtml, renderResumePdf, renderHtmlDoc, getBrowser, closeBrowser, exportResumePdfArtifact,
+  A4_PAGE_PX, FILL_MIN, TRAILING_MIN,
+};

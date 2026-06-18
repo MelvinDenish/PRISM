@@ -216,4 +216,81 @@ async function chatStream({ messages, tools, model, temperature = 0.3, max_token
   }
 }
 
-module.exports = { chat, chatStream, ORCHESTRATOR_MODEL, GEN_MODEL, FAST_MODEL };
+// ── Multi-provider failover ───────────────────────────────────────────────────
+//
+// A "pool" is an ORDERED list of OpenAI-compatible candidates
+// `[{ provider, baseUrl, apiKey, model }, ...]`. chatWithFailover() tries each in
+// turn and advances to the next on ANY error while a candidate remains — only the
+// LAST candidate's error propagates. Failing over on 4xx too (not just 429/5xx/
+// timeout) is deliberate: Cerebras's ~8k context cap and any stale/wrong model id
+// surface as 400/404/413, and those MUST fall through to the next provider (e.g.
+// Groq's 128k) rather than hard-fail. The only cost — burning the pool on a genuinely
+// malformed request — is a dev-time bug, caught fast and far cheaper than a user-facing
+// outage. Returns the first success; throws the last error if every candidate fails.
+//
+// Two pools, split by privacy (see config/env.js):
+//   fastPool(tier)  — non-PII: Cerebras → Groq → OpenRouter (key-filtered).
+//   piiPool(tier)   — student PII (resume): Groq only (privacy-safe, no training).
+//
+// `tier` selects the model per provider: 'fast' (cheap/quick), 'gen' (70B-class),
+// 'strong' (120B/235B-class), 'plan' (strongest reasoner). Override ids per
+// deployment by editing PROVIDER_MODELS or passing an explicit `model`.
+
+const PROVIDER_MODELS = {
+  groq:       { fast: 'llama-3.1-8b-instant',              gen: 'llama-3.3-70b-versatile', strong: 'openai/gpt-oss-120b',          plan: 'openai/gpt-oss-120b' },
+  cerebras:   { fast: 'llama-3.3-70b',                     gen: 'llama-3.3-70b',           strong: 'qwen-3-235b-a22b',             plan: 'qwen-3-235b-a22b' },
+  openrouter: { fast: 'meta-llama/llama-3.3-70b-instruct:free', gen: 'meta-llama/llama-3.3-70b-instruct:free', strong: 'deepseek/deepseek-chat-v3-0324:free', plan: 'qwen/qwen3-235b-a22b:free' },
+};
+
+const groqCandidate = (tier) => ({ provider: 'groq', baseUrl: '', apiKey: config.groqApiKey() || config.llmApiKey(), model: PROVIDER_MODELS.groq[tier] });
+
+/** Non-PII pool: fastest first (Cerebras), Groq, then OpenRouter. Skips unkeyed providers. */
+function fastPool(tier = 'gen') {
+  const out = [];
+  if (config.hasCerebras()) out.push({ provider: 'cerebras', baseUrl: config.cerebrasBaseUrl(), apiKey: config.cerebrasApiKey(), model: PROVIDER_MODELS.cerebras[tier] });
+  if (config.hasGroq() || config.llmApiKey()) out.push(groqCandidate(tier));
+  if (config.hasOpenrouter()) out.push({ provider: 'openrouter', baseUrl: config.openrouterBaseUrl(), apiKey: config.openrouterApiKey(), model: PROVIDER_MODELS.openrouter[tier] });
+  return out;
+}
+
+/** PII pool: Groq only (privacy-safe). Uses the resume creds, which fall back to GROQ. */
+function piiPool(tier = 'gen') {
+  return [{ provider: 'groq', baseUrl: config.resumeLlmBaseUrl(), apiKey: config.resumeLlmApiKey(), model: PROVIDER_MODELS.groq[tier] }];
+}
+
+/**
+ * chat() across an ordered candidate pool with failover. Per-candidate `model`
+ * overrides `params.model`. Falls back to the single-provider chat() when no pool
+ * is given (so existing callers keep working). Returns the assistant `message`.
+ * @param {object} params  chat() params PLUS `pool` (the candidate array) and an
+ *   optional `meta` out-object that gets `{ provider, model }` of the winner.
+ */
+async function chatWithFailover({ pool, meta, ...params }) {
+  const candidates = Array.isArray(pool) ? pool.filter(Boolean) : [];
+  if (candidates.length === 0) return chat(params); // no pool → global single provider
+
+  let lastErr;
+  for (let i = 0; i < candidates.length; i++) {
+    const c = candidates[i];
+    try {
+      const message = await chat({ ...params, model: c.model || params.model, baseUrl: c.baseUrl, apiKey: c.apiKey });
+      if (meta) { meta.provider = c.provider; meta.model = c.model || params.model; }
+      return message;
+    } catch (err) {
+      lastErr = err;
+      // Fail over on ANY error while a candidate remains (see header: 4xx from
+      // Cerebras's context cap / a wrong model id must fall through, not hard-fail).
+      if (i < candidates.length - 1) {
+        console.warn(`⚠️  LLM provider "${c.provider || c.baseUrl || 'groq'}" failed (${err.status || err.message}); failing over to "${candidates[i + 1].provider || 'next'}".`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
+module.exports = {
+  chat, chatStream, chatWithFailover, fastPool, piiPool, PROVIDER_MODELS,
+  ORCHESTRATOR_MODEL, GEN_MODEL, FAST_MODEL,
+};

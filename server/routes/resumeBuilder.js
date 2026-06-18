@@ -1,7 +1,7 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
 const { aiLimiter } = require('../middleware/rateLimit');
-const Groq = require('groq-sdk');
+const llm = require('../agent/llm');
 const ResumeDraft = require('../models/ResumeDraft');
 const User = require('../models/User');
 const {
@@ -13,9 +13,19 @@ const { LAYOUTS, FONT_PAIRS, DENSITIES, HEADING_STYLES, SECTION_KEYS, SEED_KEYS 
 const { exportResumePdfArtifact } = require('../agent/services/resumePdf');
 const { intakeTurn } = require('../agent/services/resumeIntake');
 const { shapeAuthorContent, authorHtml, summaryFromContent, expandProjectContent } = require('../agent/services/resumeAuthor');
-const { assessCompleteness, seedCollectedFromProfile, mergeCollected } = require('../agent/services/resumeCompleteness');
+const { assessCompleteness, seedCollectedFromProfile, mergeCollected, estimateContentWords, MIN_CONTENT_WORDS } = require('../agent/services/resumeCompleteness');
 const { cuicFileName, cuicChecklist, CUIC_SECTIONS } = require('../utils/cuicResume');
 const router = express.Router();
+
+// PII-safe completion for resume/cover-letter content: routes the Groq-only pool
+// (no provider that trains on inputs) and returns an OpenAI-shaped completion so
+// existing `.choices[0].message.content` reads are unchanged. Defaults to the 70B
+// 'gen' tier (a quality bump over the old 8B), still privacy-safe and free on Groq.
+const piiCompletion = async (params = {}, tier = 'gen') => {
+  const { model, ...rest } = params;
+  const message = await llm.chatWithFailover({ pool: llm.piiPool(tier), ...rest });
+  return { choices: [{ message }] };
+};
 
 // CUIC compliance catalog — the required sections the client checklist renders.
 router.get('/cuic-checklist', protect, (req, res) => {
@@ -55,6 +65,33 @@ async function loadResumeProfile(userId) {
   };
 }
 
+// Rebuild the intake `collected` shape from a saved ResumeDraft so a NEW resume can
+// start pre-filled with a previous resume's details (reuse old info). Only maps the
+// content fields the pipeline knows; mirrors the re-shape in /regenerate (below).
+function reconstructCollected(draftDoc) {
+  const d = (draftDoc && typeof draftDoc.toObject === 'function') ? draftDoc.toObject() : (draftDoc || {});
+  const pi = d.personalInfo || {};
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  return {
+    personalInfo: {
+      fullName: pi.fullName || '', email: pi.email || '', phone: pi.phone || '',
+      location: pi.location || '', linkedin: pi.linkedin || '', github: pi.github || '',
+      portfolio: pi.portfolio || '', summary: pi.summary || '',
+    },
+    education: arr(d.education).map((e) => ({ institution: e.institution || '', degree: e.degree || '', field: e.field || '', startDate: e.startDate || '', endDate: e.endDate || '', gpa: e.gpa || '' })),
+    experience: arr(d.experience).map((e) => ({ company: e.company || '', position: e.position || '', startDate: e.startDate || '', endDate: e.endDate || '', current: !!e.current, description: e.description || '' })),
+    projects: arr(d.projects).map((p) => ({ name: p.name || '', description: p.description || '', technologies: p.technologies || '', link: p.link || '' })),
+    skills: arr(d.skills).map(String),
+    certifications: arr(d.certifications).map((c) => ({ name: c.name || '', issuer: c.issuer || '', date: c.date || '' })),
+    achievements: arr(d.achievements).map(String),
+    positionsOfResponsibility: arr(d.positionsOfResponsibility).map(String),
+    languages: arr(d.languages).map(String),
+    hobbies: arr(d.hobbies).map(String),
+    cgpa: d.cgpa || '', tenthPercent: d.tenthPercent || '', twelfthPercent: d.twelfthPercent || '',
+    registerNumber: d.registerNumber || '',
+  };
+}
+
 // Build a draft name + the persisted ResumeDraft fields from shaped content + html.
 function authoredDraftDoc(userId, shaped, html, meta) {
   return {
@@ -84,9 +121,21 @@ function authoredDraftDoc(userId, shaped, html, meta) {
 //   →  { success, reply, collected, assessment: { have, missing, gateMet, contentScore }, ready }
 router.post('/intake', protect, aiLimiter, async (req, res) => {
   try {
-    const { messages, collected } = req.body || {};
+    const { messages, collected, fromDraftId } = req.body || {};
     const profile = await loadResumeProfile(req.user._id);
-    const result = await intakeTurn({ messages, collected, profile });
+    // On the OPENING turn (no running `collected` yet) seed from a previous resume so the
+    // user can reuse old details: the chosen draft (fromDraftId) or, failing that, their
+    // most recently updated one. Once the client echoes `collected` back, this is ignored.
+    let seed;
+    if (!collected) {
+      try {
+        const prior = fromDraftId
+          ? await ResumeDraft.findOne({ _id: fromDraftId, user: req.user._id })
+          : await ResumeDraft.findOne({ user: req.user._id }).sort({ updatedAt: -1 });
+        if (prior) seed = reconstructCollected(prior);
+      } catch { /* bad id / lookup failure — just start without a prior seed */ }
+    }
+    const result = await intakeTurn({ messages, collected, profile, seed });
     return res.json({ success: true, ...result });
   } catch (err) {
     const status = err.statusCode || 500;
@@ -152,6 +201,28 @@ router.post('/author', protect, aiLimiter, async (req, res) => {
     // the collected content (best-effort — never blocks generation).
     if (!shaped.personalInfo.summary) {
       shaped.personalInfo.summary = await summaryFromContent(shaped);
+    }
+    // Front-load truthful content so the design loop usually fills the A4 in one pass.
+    // `enoughContent` is advisory (the gate lets a user generate with thin content — see
+    // resumeCompleteness's comment on not trapping them). When they do, elaborate the
+    // EXISTING project briefs into fuller descriptions: expandProjectContent never invents
+    // new projects/employers/dates/metrics, it only deepens what's already there. The gate
+    // guarantees ≥2 valid projects, so this won't throw; still best-effort (the measured
+    // fill loop in authorHtml is the real guarantee if a thin brief can't be expanded).
+    const wc = (s) => String(s || '').trim().split(/\s+/).filter(Boolean).length;
+    const hasThinProject = (shaped.projects || []).some((p) => wc(p.description) < 25);
+    if (estimateContentWords(shaped) < MIN_CONTENT_WORDS && hasThinProject) {
+      try {
+        const fuller = await expandProjectContent(shaped);
+        const byName = new Map((fuller || []).map((p) => [String(p.name || '').toLowerCase(), p]));
+        // Only deepen THIN descriptions — never clobber a project the user already wrote out
+        // fully (e.g. edited the "Draft my project details" assist by hand and accepted it).
+        shaped.projects = (shaped.projects || []).map((p) => {
+          if (wc(p.description) >= 25) return p;
+          const d = byName.get(String(p.name || '').toLowerCase());
+          return d ? { ...p, description: d.description || p.description, technologies: d.technologies || p.technologies } : p;
+        });
+      } catch { /* a genuinely thin brief may not expand — the fill loop still handles it */ }
     }
     const { html, meta } = await authorHtml({ content: shaped, instruction });
     const draft = await ResumeDraft.create(authoredDraftDoc(req.user._id, shaped, html, meta));
@@ -241,11 +312,9 @@ router.post('/generate', protect, aiLimiter, async (req, res) => {
     const { personalInfo, education, experience, skills, projects, jobDescription } = req.body;
     if (!process.env.GROQ_API_KEY) return res.status(400).json({ success: false, message: 'AI generation requires GROQ_API_KEY' });
 
-    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
     const userProfile = JSON.stringify({ personalInfo, education, experience, skills, projects }, null, 2);
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+    const completion = await piiCompletion({
       messages: [
         { role: 'system', content: `You are an expert ATS resume writer. Given user info and a job description, return a JSON object with EXACTLY this structure. Do NOT add any text before or after the JSON:
 {
@@ -269,7 +338,7 @@ CRITICAL RULES:
       ],
       max_tokens: 1000,
       temperature: 0.5
-    });
+    }, 'gen');
 
     let result;
     const raw = completion.choices[0]?.message?.content || '{}';
@@ -551,17 +620,14 @@ router.post('/cover-letter', protect, aiLimiter, async (req, res) => {
     const { personalInfo, jobTitle, companyName, jobDescription, skills } = req.body;
     if (!process.env.GROQ_API_KEY) return res.status(400).json({ success: false, message: 'AI requires GROQ_API_KEY' });
 
-    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+    const completion = await piiCompletion({
       messages: [
         { role: 'system', content: 'You are an expert cover letter writer. Write a professional, compelling cover letter. Use the STAR method subtly. Keep it concise (3-4 paragraphs). Match keywords from the job description. Return ONLY the cover letter text.' },
         { role: 'user', content: `Write a cover letter for ${personalInfo?.fullName || 'the candidate'} applying for ${jobTitle || 'Software Engineer'} at ${companyName || 'the company'}.\n\nSkills: ${(skills || []).join(', ')}\n\nJob Description:\n${jobDescription || 'Software engineering role'}` }
       ],
       max_tokens: 800,
       temperature: 0.6
-    });
+    }, 'gen');
 
     res.json({
       success: true,

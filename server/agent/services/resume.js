@@ -203,7 +203,9 @@ async function refineDraft({ userId, draftId, instruction }) {
   let message;
   try {
     message = await llm.chat({
-      model: llm.GEN_MODEL(),
+      model: config.resumeContentModel(),
+      baseUrl: config.resumeLlmBaseUrl(),
+      apiKey: config.resumeLlmApiKey(),
       temperature: 0.3,
       max_tokens: 2500,
       messages: [
@@ -402,7 +404,9 @@ async function tailorDraft({ userId, draftId, jobDescription, company, role }) {
   let message;
   try {
     message = await llm.chat({
-      model: llm.GEN_MODEL(),
+      model: config.resumeContentModel(),
+      baseUrl: config.resumeLlmBaseUrl(),
+      apiKey: config.resumeLlmApiKey(),
       temperature: 0.3,
       max_tokens: 2500,
       messages: [
@@ -517,7 +521,9 @@ async function generateDraftFromProfile({ userId, profile, jobDescription }) {
   const jd = (jobDescription || '').slice(0, MAX_INPUT);
 
   const message = await llm.chat({
-    model: llm.GEN_MODEL(),
+    model: config.resumeContentModel(),
+    baseUrl: config.resumeLlmBaseUrl(),
+    apiKey: config.resumeLlmApiKey(),
     temperature: 0.4,
     max_tokens: 2500,
     messages: [
@@ -563,7 +569,9 @@ async function rewriteResume({ userId, resumeText, jobDescription }) {
   }
 
   const message = await llm.chat({
-    model: llm.GEN_MODEL(),
+    model: config.resumeContentModel(),
+    baseUrl: config.resumeLlmBaseUrl(),
+    apiKey: config.resumeLlmApiKey(),
     temperature: 0.4,
     max_tokens: 2500,
     messages: [

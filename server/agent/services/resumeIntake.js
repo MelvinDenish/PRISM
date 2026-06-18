@@ -153,8 +153,12 @@ const RECORD_TOOL = {
 // Deterministic opener for the FIRST turn (no user message yet). Avoids a forced
 // tool call on a system-only prompt — the most fragile LLM invocation and the entry
 // to the whole feature — and saves an API call. Keyed to the top outstanding gap.
-function openingQuestion(assessment) {
-  const intro = "Hi! I've pulled in your saved profile to get started.";
+// `fromPrior` is true when the chat was seeded from a previous resume (req: reuse old
+// details), so the opener tells the user their earlier details were carried over.
+function openingQuestion(assessment, fromPrior) {
+  const intro = fromPrior
+    ? "Hi! I've pulled in your saved profile and your previous resume's details to get started — edit anything as we go."
+    : "Hi! I've pulled in your saved profile to get started.";
   const top = assessment.missing[0];
   if (!top) return `${intro} You already have everything needed for a strong resume — want me to generate it, or add extras like achievements or internships first?`;
   return `${intro} To make this resume strong, let's start here — ${top.hint}`;
@@ -168,19 +172,26 @@ function sanitize(messages) {
 }
 
 /**
- * One intake turn. Seeds `collected` from the profile on the first call, asks the
- * LLM for the per-turn delta + next question, merges, and re-scores.
+ * One intake turn. Seeds `collected` on the first call (from the profile, plus an
+ * optional `seed` reconstructed from a previous resume so old details carry over),
+ * asks the LLM for the per-turn delta + next question, merges, and re-scores.
  * @param {object} p
  * @param {Array}  p.messages    prior conversation ({role,content})
  * @param {object} [p.collected] accumulated content echoed back by the client
  * @param {object} [p.profile]   profile snapshot (seeds the first turn)
+ * @param {object} [p.seed]      prior-resume content to pre-fill on the FIRST turn only
  * @returns {Promise<{ reply, collected, assessment, ready }>}
  */
-async function intakeTurn({ messages, collected, profile = {} }) {
+async function intakeTurn({ messages, collected, profile = {}, seed }) {
   if (!config.hasResumeLlm()) {
     const e = new Error('Resume intake needs an AI model, which is not configured.'); e.statusCode = 503; throw e;
   }
-  const base = (collected && typeof collected === 'object') ? collected : seedCollectedFromProfile(profile);
+  // Seed precedence: the client's running `collected` wins; otherwise the profile seed,
+  // layered with a previous resume's content when one was passed (reuse old details).
+  const usedSeed = !(collected && typeof collected === 'object') && seed && typeof seed === 'object';
+  const base = (collected && typeof collected === 'object')
+    ? collected
+    : (usedSeed ? mergeCollected(seedCollectedFromProfile(profile), seed) : seedCollectedFromProfile(profile));
   const preAssess = assessCompleteness(base, profile);
 
   // Opening turn (chat just opened — no user message yet): skip the LLM and return a
@@ -188,7 +199,7 @@ async function intakeTurn({ messages, collected, profile = {} }) {
   const hasUserTurn = Array.isArray(messages)
     && messages.some((m) => m && m.role === 'user' && typeof m.content === 'string' && m.content.trim());
   if (!hasUserTurn) {
-    return { reply: openingQuestion(preAssess), collected: base, assessment: preAssess, ready: preAssess.gateMet };
+    return { reply: openingQuestion(preAssess, usedSeed), collected: base, assessment: preAssess, ready: preAssess.gateMet };
   }
 
   const convo = [{ role: 'system', content: systemPrompt(base, preAssess) }, ...sanitize(messages)];

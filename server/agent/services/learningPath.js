@@ -55,8 +55,10 @@ async function buildSteps({ topicId, level = 'beginner', assessmentAnswers }) {
     .join('\n');
 
   try {
-    const message = await llm.chat({
-      model: llm.GEN_MODEL(),
+    // Non-PII (topic + public resources): route the fast failover pool so path
+    // generation survives a throttled provider (Cerebras → Groq → OpenRouter).
+    const message = await llm.chatWithFailover({
+      pool: llm.fastPool('gen'),
       temperature: 0.4,
       max_tokens: 2000,
       messages: [
