@@ -22,6 +22,7 @@ const llm = require('../llm');
 const { config } = require('../../config/env');
 const { shapeDraft } = require('./resume');
 const { inlineFontsForHtml } = require('./resumeFonts');
+const { pickDesignSystem, designSystemSeedText } = require('./resumeDesignCatalog');
 // Agentic core: the shared best-of-N + keepBest + bounded-reflexion loop, and the
 // dedicated Design Critique Agent (structural verify + vision critic in one verdict).
 const { refineLoop } = require('../core/refineLoop');
@@ -85,42 +86,11 @@ function designSystemPrompt() {
   ].join('\n');
 }
 
-// Curated divergence pools — a random "style seed" is injected per generation so
-// two students (and a regenerate) get visibly different accent / typography /
-// layout, instead of the model converging on one look. The model still authors
-// the whole resume freely; the seed only nudges direction.
-const ACCENTS = [
-  ['#0f766e', 'deep teal'], ['#2563eb', 'royal blue'], ['#1e3a8a', 'navy'], ['#9f1239', 'burgundy'],
-  ['#166534', 'forest green'], ['#6d28d9', 'plum'], ['#b45309', 'amber'], ['#b91c1c', 'crimson'],
-  ['#334155', 'slate'], ['#4338ca', 'indigo'], ['#047857', 'emerald'], ['#0e7490', 'cyan'],
-  ['#7c2d12', 'rust'], ['#374151', 'charcoal'], ['#a21caf', 'magenta'], ['#1d4ed8', 'cobalt'],
-];
-// Real, characterful open-source pairings (all auto-embedded by resumeFonts). The model
-// names them in CSS; this seed only nudges direction so two students diverge.
-const FONTS = [
-  "a high-contrast serif display ('Fraunces' or 'Playfair Display') over a clean sans body ('Inter')",
-  "an editorial serif ('Source Serif 4' / 'Newsreader') headings with a humanist sans body ('Source Sans 3')",
-  "a geometric sans ('Space Grotesk' / 'Sora') headings with a neutral sans body ('Work Sans')",
-  "an all-sans system on 'Manrope' or 'Plus Jakarta Sans', using weight contrast for hierarchy",
-  "a refined serif ('Cormorant Garamond' / 'EB Garamond') headline over an 'IBM Plex Sans' body",
-  "a modern technical pairing: 'IBM Plex Sans' headings with 'IBM Plex Mono' accents on a clean body",
-  "a friendly rounded sans ('Poppins' / 'Outfit') headings with a readable serif body ('Lora')",
-  "a crisp grotesque ('Archivo' / 'Public Sans') with strong weight steps for hierarchy",
-];
-const LAYOUTS = [
-  'a two-column layout with a full-height colored left sidebar (contact + skills) and a wide main column',
-  'a single-column layout with a bold full-bleed header band and an accent rule system',
-  'a two-column layout with a slim right rail for skills/links',
-  'an asymmetric grid with a strong left-aligned name block and clearly sectioned content',
-  'a clean single column with a refined header, hairline dividers, and skill chips',
-  'a compact two-column body beneath a centered name with a thin accent underline',
-];
-const pick = (a) => a[Math.floor(Math.random() * a.length)];
-
-function styleSeed() {
-  const [hex, name] = pick(ACCENTS);
-  return `STYLE SEED (interpret freely for variety; never mention it in the resume): lean toward ${pick(LAYOUTS)}, use ${pick(FONTS)}, and an accent color near ${hex} (${name}). Name the fonts directly in your CSS — the system embeds them. Make this resume look clearly distinct and design-led, not a generic template.`;
-}
+// Per-generation divergence now comes from the curated design-system catalog
+// (resumeDesignCatalog.js): pickDesignSystem() selects a whole INTERNALLY COHERENT
+// system (palette + Google-Font pairing + layout + accent rules) and designSystemSeedText()
+// renders the steer. This replaced the old random orthogonal ACCENTS/FONTS/LAYOUTS pools,
+// which could pair clashing choices and looked generic.
 
 // Unified repair prompt: the reviewer feedback may be STRUCTURAL (page fit/fullness,
 // missing name) and/or VISUAL (the Design Critique Agent's fixes) — one prompt handles
@@ -236,10 +206,10 @@ async function authorHtml({ content, instruction, vision }) {
 
   const makeProposer = (model) => async () => {
     const message = await llm.chat({
-      baseUrl, apiKey, model, temperature: 0.85, max_tokens: 4200,
+      baseUrl, apiKey, model, temperature: 0.85, max_tokens: 8000,
       messages: [
         { role: 'system', content: designSystemPrompt() },
-        { role: 'user', content: `RESUME CONTENT (JSON):\n${contentJson}\n\n${steer || styleSeed()}` },
+        { role: 'user', content: `RESUME CONTENT (JSON):\n${contentJson}\n\n${steer || designSystemSeedText(pickDesignSystem())}` },
       ],
     });
     const prepared = await prepareHtml(message.content || ''); // sanitize + inline fonts (security in-path)
