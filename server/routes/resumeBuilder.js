@@ -346,7 +346,7 @@ router.post('/generate', protect, aiLimiter, async (req, res) => {
     {
       "company": "company name",
       "position": "job title",
-      "description": "2-3 sentence improved description with quantifiable achievements"
+      "description": "2-3 sentence improved description led by a strong action verb; include a quantifiable achievement ONLY if present in the input (never invent numbers)"
     }
   ],
   "skillsOptimized": ["Skill1", "Skill2", "Skill3"],

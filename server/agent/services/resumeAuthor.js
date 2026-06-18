@@ -290,7 +290,7 @@ async function contentFromProfile(profile = {}) {
     temperature: 0.4,
     max_tokens: 2500,
     messages: [
-      { role: 'system', content: 'You are an expert resume writer. From the candidate profile JSON, produce strong, recruiter-ready resume CONTENT (no design/HTML). Write a crisp professional summary and impactful bullet points, grouping skills where natural. NEVER invent employers, degrees, schools, dates, metrics, or links not supported by the profile — leave unknown fields empty. Return ONLY a JSON object with keys: personalInfo {fullName,email,phone,location,linkedin,github,portfolio,summary}, education [{institution,degree,field,startDate,endDate,gpa}], experience [{company,position,startDate,endDate,current,description}], skills [string], projects [{name,description,technologies,link}], achievements [string], positionsOfResponsibility [string], certifications [{name,issuer,date}], languages [string], hobbies [string], cgpa, tenthPercent, twelfthPercent, registerNumber.' },
+      { role: 'system', content: 'You are an expert resume writer. From the candidate profile JSON, produce strong, recruiter-ready resume CONTENT (no design/HTML). Write a crisp, specific professional summary and impactful, STAR-shaped bullet points led by strong action verbs; group skills into Languages / Frameworks / Tools where natural. NEVER invent employers, degrees, schools, dates, metrics, or links not supported by the profile — leave unknown fields empty. Return ONLY a JSON object with keys: personalInfo {fullName,email,phone,location,linkedin,github,portfolio,summary}, education [{institution,degree,field,startDate,endDate,gpa}], experience [{company,position,startDate,endDate,current,description}], skills [string], projects [{name,description,technologies,link}], achievements [string], positionsOfResponsibility [string], certifications [{name,issuer,date}], languages [string], hobbies [string], cgpa, tenthPercent, twelfthPercent, registerNumber.' },
       { role: 'user', content: `CANDIDATE PROFILE:\n${JSON.stringify(profile || {}, null, 2)}` },
     ],
   });
@@ -362,7 +362,8 @@ async function expandProjectContent(collected = {}) {
     messages: [
       { role: 'system', content: [
         'You strengthen the PROJECTS section of a student resume. You are given their projects (name, a short brief, technologies) plus their skills and interests as JSON.',
-        'For EACH project, rewrite `description` into a concrete 2–3 sentence brief covering: the problem it solves, what they built, the tech stack used, and their role/impact.',
+        'For EACH project, rewrite `description` into a concrete 2–3 sentence brief in STAR shape: the problem/context, what they built and the key technical decisions, the tech stack used, and the outcome or impact. Open with a strong action verb.',
+        'Prefer specific, concrete phrasing over generic claims ("built a real-time sync engine using WebSockets" beats "worked on a web app"). State a number/metric ONLY if it already appears in the input — never fabricate one; when no metric exists, describe the impact qualitatively.',
         'HARD RULES:',
         '- Use ONLY the information given. NEVER invent employers, companies, teammates, dates, awards, user counts, percentages, or any metric/number not already present.',
         '- Keep each project\'s EXACT `name` unchanged (do not rename, merge, or drop projects, and do not add new ones).',
@@ -422,7 +423,7 @@ async function summaryFromContent(content = {}) {
       temperature: 0.4,
       max_tokens: 220,
       messages: [
-        { role: 'system', content: 'You write the professional-summary line of a resume. Given the candidate\'s structured resume content (JSON), return ONLY a single plain-text summary of 2–3 sentences (no heading, no quotes, no markdown). Ground it strictly in the provided content — never invent employers, degrees, metrics, or skills not present. Lead with their field/role focus, then strengths shown by their projects and skills.' },
+        { role: 'system', content: 'You write the professional-summary line of a resume. Given the candidate\'s structured resume content (JSON), return ONLY a single plain-text summary of 2–3 sentences (no heading, no quotes, no markdown). Lead with their field/role focus, name their strongest and most relevant technologies and the domain shown by their best projects, and close with the value they bring. Be specific and confident, not generic. Ground it STRICTLY in the provided content — never invent employers, degrees, metrics, or skills not present.' },
         { role: 'user', content: `RESUME CONTENT (JSON):\n${JSON.stringify(content)}` },
       ],
     });
