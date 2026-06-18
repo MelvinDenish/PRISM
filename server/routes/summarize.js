@@ -2,7 +2,7 @@ const express = require('express');
 const { protect } = require('../middleware/auth');
 const { aiLimiter } = require('../middleware/rateLimit');
 const { assertSafeUrl } = require('../utils/urlGuard');
-const Groq = require('groq-sdk');
+const { chatCompletion } = require('../utils/aiModels');
 const axios = require('axios');
 const router = express.Router();
 
@@ -56,16 +56,14 @@ router.post('/', protect, aiLimiter, async (req, res) => {
       });
     }
 
-    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+    const completion = await chatCompletion({
       messages: [
         { role: 'system', content: 'You are a concise summarizer. Provide a clear, structured summary with key points in bullet format. Keep it under 300 words.' },
         { role: 'user', content: `Summarize this article:\n\n${content}` }
       ],
       max_tokens: 500,
       temperature: 0.3
-    });
+    }, 'fast');
 
     res.json({
       success: true,

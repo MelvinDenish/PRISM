@@ -21,7 +21,11 @@ const sanitizeHtml = require('sanitize-html');
 const llm = require('../llm');
 const { config } = require('../../config/env');
 const { shapeDraft } = require('./resume');
-const { renderHtmlDoc } = require('./resumePdf');
+const { inlineFontsForHtml } = require('./resumeFonts');
+// Agentic core: the shared best-of-N + keepBest + bounded-reflexion loop, and the
+// dedicated Design Critique Agent (structural verify + vision critic in one verdict).
+const { refineLoop } = require('../core/refineLoop');
+const { verifyRender, critiqueDesign, verifyDesign } = require('../core/designCritic');
 
 const str = (v) => (v == null ? '' : String(v));
 const arrStr = (v, n = 30) => (Array.isArray(v) ? v.map(str).map((s) => s.trim()).filter(Boolean).slice(0, n) : []);
@@ -57,22 +61,27 @@ function shapeAuthorContent(raw = {}, profile = {}) {
 // ── Stage B: design prompt ──────────────────────────────────────────────────
 function designSystemPrompt() {
   return [
-    'You are an elite resume designer. Given a candidate\'s structured resume content (JSON), you DESIGN AND WRITE a complete, single-file HTML resume.',
+    'You are an award-winning resume designer + front-end developer. Given a candidate\'s structured resume content (JSON), you DESIGN AND BUILD a complete, single-file HTML resume that looks like it came from a professional design studio — distinctive, modern, and genuinely beautiful.',
     'Return ONLY raw HTML — start with <!doctype html>. No markdown, no code fences, no commentary.',
     '',
-    'HARD RULES:',
-    '1. ONE self-contained document: all CSS in a single <style> in <head>. NO external CSS, JS, fonts, or images. Use only web-safe font stacks (e.g. Georgia, "Segoe UI", Helvetica, Arial, Calibri, "Times New Roman").',
-    '2. Do NOT include @page rules, <script>, or any external URL — the system controls the A4 page. Design for A4 width with comfortable inner padding (~28–40px) so nothing touches the edges. Full-bleed colored sidebars/header bands are welcome.',
-    '3. It MUST fit on 1–2 A4 pages. Be concise; prefer one page.',
-    '4. Use ONLY the data provided. NEVER invent employers, degrees, dates, metrics, or links. Omit any section that has no data — do not write "N/A" or placeholders.',
-    '5. Render text as real, selectable HTML text (no text-as-image), so it stays ATS-readable.',
+    'HARD RULES (non-negotiable):',
+    '1. ONE self-contained document: all CSS in a single <style> in <head>. NO <script>, NO external URLs, NO <link>, NO @import — the system embeds fonts and controls the page for you.',
+    '2. FONTS — you MUST design with real, named Google / open-source fonts (the system AUTOMATICALLY EMBEDS whatever you name — the entire library is available). Set an explicit non-system family for BOTH headings and body (e.g. font-family:\'Fraunces\'; / font-family:\'Space Grotesk\',sans-serif / \'Inter\' / \'Source Serif 4\' / \'Manrope\'). Do NOT fall back to Arial, Helvetica, Georgia, Times, or system defaults — generic system fonts are the #1 reason a resume looks cheap. Always end each font stack with a generic fallback (serif / sans-serif) only as a safety net.',
+    '3. Do NOT include @page rules. Design for A4 width with comfortable inner padding (~28–44px) so nothing touches the edges. Full-bleed colored sidebars / header bands are encouraged.',
+    '4. It MUST fit on 1–2 A4 pages — prefer one full page. Render all text as real, selectable HTML (no text-as-image) so it stays ATS-readable.',
+    '5. Use ONLY the data provided. NEVER invent employers, degrees, dates, metrics, or links. Omit any empty section — no "N/A"/placeholders.',
+    '6. NO DANGLING SEPARATORS: never print a separator (•, |, /, –) next to a missing value. If a field (e.g. LinkedIn/GitHub/portfolio) is absent, omit it AND its separator; if a whole line (e.g. the links line) has no values, omit the line entirely. The contact/links row must never end with or contain a lone bullet.',
     '',
     'MUST INCLUDE when present in the content:',
-    '- Header: full name, then contact line (email • phone • location) and links (LinkedIn, GitHub, portfolio).',
+    '- Header: full name (a strong focal point), then contact line (email • phone • location) and links (LinkedIn, GitHub, portfolio).',
     '- Education with CGPA and 10th/12th percentages (CEG/Anna University requires these).',
     '- Skills grouped where possible (Languages / Frameworks / Tools), Projects (problem + solution), Experience/Internships, plus Achievements, Positions of Responsibility, Certifications, Languages, Hobbies when provided.',
     '',
-    'DESIGN: invent a fresh, distinctive, modern yet professional look every time — your own tasteful color accent, typography, spacing, and layout. Make it recruiter-ready and visually polished. IMPORTANT: actually VARY the font family between resumes (don\'t default to one) — choose a web-safe stack that fits the seed below.',
+    'DESIGN PRINCIPLES (aim for a portfolio-quality look, fresh every time):',
+    '- Strong typographic hierarchy: a confident name/heading scale, clear section titles, comfortable body size (~10.5–12pt) and line-height (~1.4–1.6).',
+    '- A real layout — consider a two-column grid or a colored sidebar (contact/skills) with a wide main column for experience/projects. Align everything to a consistent grid; generous, even whitespace.',
+    '- A tasteful, restrained color system: one accent used deliberately (section markers, name, rules, sidebar), strong contrast, never garish.',
+    '- Polished details: consistent date alignment, subtle dividers, skill chips/tags, balanced margins. AVOID the generic "centered name + underlined ALL-CAPS section titles" template look.',
   ].join('\n');
 }
 
@@ -86,30 +95,47 @@ const ACCENTS = [
   ['#334155', 'slate'], ['#4338ca', 'indigo'], ['#047857', 'emerald'], ['#0e7490', 'cyan'],
   ['#7c2d12', 'rust'], ['#374151', 'charcoal'], ['#a21caf', 'magenta'], ['#1d4ed8', 'cobalt'],
 ];
+// Real, characterful open-source pairings (all auto-embedded by resumeFonts). The model
+// names them in CSS; this seed only nudges direction so two students diverge.
 const FONTS = [
-  'a classic serif (Georgia / "Times New Roman")', 'an elegant serif (Garamond / Palatino)',
-  'a clean modern sans-serif (Helvetica / Arial)', 'a humanist sans-serif (Calibri / "Segoe UI")',
-  'a geometric sans-serif (Verdana / Tahoma)', 'a distinctive sans-serif ("Trebuchet MS")',
-  'a serif headline paired with a sans-serif body', 'a sans-serif headline paired with a serif body',
+  "a high-contrast serif display ('Fraunces' or 'Playfair Display') over a clean sans body ('Inter')",
+  "an editorial serif ('Source Serif 4' / 'Newsreader') headings with a humanist sans body ('Source Sans 3')",
+  "a geometric sans ('Space Grotesk' / 'Sora') headings with a neutral sans body ('Work Sans')",
+  "an all-sans system on 'Manrope' or 'Plus Jakarta Sans', using weight contrast for hierarchy",
+  "a refined serif ('Cormorant Garamond' / 'EB Garamond') headline over an 'IBM Plex Sans' body",
+  "a modern technical pairing: 'IBM Plex Sans' headings with 'IBM Plex Mono' accents on a clean body",
+  "a friendly rounded sans ('Poppins' / 'Outfit') headings with a readable serif body ('Lora')",
+  "a crisp grotesque ('Archivo' / 'Public Sans') with strong weight steps for hierarchy",
 ];
 const LAYOUTS = [
-  'a clean single-column layout', 'a two-column layout with a colored left sidebar',
-  'a two-column layout with a right sidebar', 'a full-width colored header band over a single-column body',
-  'a compact two-column body with a slim accent rail', 'a single-column layout with a bold left accent border',
+  'a two-column layout with a full-height colored left sidebar (contact + skills) and a wide main column',
+  'a single-column layout with a bold full-bleed header band and an accent rule system',
+  'a two-column layout with a slim right rail for skills/links',
+  'an asymmetric grid with a strong left-aligned name block and clearly sectioned content',
+  'a clean single column with a refined header, hairline dividers, and skill chips',
+  'a compact two-column body beneath a centered name with a thin accent underline',
 ];
 const pick = (a) => a[Math.floor(Math.random() * a.length)];
 
 function styleSeed() {
   const [hex, name] = pick(ACCENTS);
-  return `STYLE SEED (interpret freely for variety; never mention it in the resume): lean toward ${pick(LAYOUTS)}, use ${pick(FONTS)}, and an accent color near ${hex} (${name}). Make this resume look clearly distinct from a generic template.`;
+  return `STYLE SEED (interpret freely for variety; never mention it in the resume): lean toward ${pick(LAYOUTS)}, use ${pick(FONTS)}, and an accent color near ${hex} (${name}). Name the fonts directly in your CSS — the system embeds them. Make this resume look clearly distinct and design-led, not a generic template.`;
 }
 
-function repairSystemPrompt() {
+// Unified repair prompt: the reviewer feedback may be STRUCTURAL (page fit/fullness,
+// missing name) and/or VISUAL (the Design Critique Agent's fixes) — one prompt handles
+// both so the bounded-reflexion loop can lift structure and design in the same round.
+function agenticRepairPrompt() {
   return [
-    'You are fixing an HTML resume you generated. Return ONLY the corrected full HTML document (start with <!doctype html>) — no commentary, no code fences.',
-    'Keep the same content and overall style; only fix the reported problem. Same hard rules apply: single self-contained file, web-safe fonts, no external resources, no @page/scripts, must fit 1–2 A4 pages, use only the given data.',
+    'You are improving an HTML resume you generated, using the reviewer feedback below. Return ONLY the corrected full HTML document (start with <!doctype html>) — no commentary, no code fences.',
+    'Apply the feedback to fix structural issues (A4 page fit, page fullness, missing header/name) AND/OR visual design (typographic hierarchy, alignment/grid, whitespace rhythm, color discipline, characterful named fonts). Keep ALL the same content; keep the same fonts unless a fix says otherwise.',
+    'Same hard rules: single self-contained file, any named font (the system embeds it), no external URLs/@import/<link>/@page/scripts, no @page rule, must fit 1–2 A4 pages (prefer one full page), use only the given data.',
   ].join('\n');
 }
+
+// The vision design critic (visionCriticMessages / critiqueDesign / VISUAL_BAR) and the
+// structural verifier (verifyRender) now live in ../core/designCritic — the single source
+// of truth for "what makes a good resume design", reused by refineLoop via verifyDesign().
 
 // ── Stage C: sanitize untrusted model HTML ──────────────────────────────────
 const ALLOWED_TAGS = [
@@ -160,94 +186,117 @@ function sanitizeResumeHtml(raw) {
   return clean;
 }
 
-// Verify a rendered resume. Returns { ok, problem } — problem feeds the repair pass.
-function verifyRender({ pages, text }, content) {
-  const t = (text || '').trim();
-  if (t.length < 120) return { ok: false, problem: 'The resume rendered almost empty. Re-author it using all the provided content.' };
-  if (pages > 2) return { ok: false, problem: `The resume overflowed to ${pages} pages. Make it fit within 2 A4 pages by tightening spacing, font sizes, and wording — prefer 1 page.` };
-  const name = str(content?.personalInfo?.fullName).trim();
-  if (name && !t.toLowerCase().includes(name.toLowerCase().split(/\s+/)[0])) {
-    return { ok: false, problem: 'The candidate name is missing from the header. Add a clear header with the full name.' };
-  }
-  return { ok: true };
+// verifyRender (the structural verifier) now lives in ../core/designCritic and is
+// imported above; it is re-exported at the bottom for back-compat with the seeds.
+
+// Sanitize the model's raw HTML AND embed every webfont it named, so the rendered/exported
+// document carries its fonts inline (offline-safe). `sanitized` (no base64) is what we feed
+// back to the model on a repair/improve turn; `inlined` is what we render and store.
+async function prepareHtml(rawModelHtml) {
+  const sanitized = sanitizeResumeHtml(rawModelHtml);
+  const inlined = await inlineFontsForHtml(sanitized);
+  return { sanitized, inlined };
 }
 
-const MAX_REPAIRS = 2;
-
 /**
- * Stage B + C: author a unique HTML resume for the given (already-shaped) content,
- * sanitize it, render+verify, and repair up to MAX_REPAIRS times.
+ * Stages B–D as ONE agentic loop (refineLoop + Design Critique Agent):
+ *   • Best-of-N: 2 PII-safe design models (when vision is on) author drafts IN PARALLEL,
+ *     each with a fresh style seed for divergence; the verifier picks the winner. Without
+ *     vision there is no visual discriminator, so a single proposer is used (N=1).
+ *   • verify = designCritic.verifyDesign: render OFFLINE → structural metrics + (optional)
+ *     vision critic → one { pass, score, feedback } verdict.
+ *   • repair = the strongest model fixes the current candidate from the FRESH feedback.
+ *   • keepBest + early-exit (maxN=5 with vision, 3 structural-only): the best-scoring
+ *     candidate ships — extra rounds can only help, never regress.
+ * Security is unchanged: every candidate (draft OR repair) goes through prepareHtml
+ * (sanitize + offline font-inline) before it can be rendered.
  * @param {object} p
  * @param {object} p.content   shaped content (from shapeAuthorContent)
  * @param {string} [p.instruction]  optional design steer ("make it two-column, blue")
+ * @param {boolean} [p.vision]  override the vision loop on/off (default: config.hasResumeVision())
  * @returns {Promise<{ html:string, pages:number, meta:object }>}
  */
-async function authorHtml({ content, instruction }) {
+async function authorHtml({ content, instruction, vision }) {
   if (!config.hasResumeLlm()) {
     const e = new Error('Resume generation needs an AI model, which is not configured on this server.');
     e.statusCode = 503; throw e;
   }
   const baseUrl = config.resumeLlmBaseUrl();
   const apiKey = config.resumeLlmApiKey();
-  const model = config.resumeDesignModel();
+  const models = config.resumeDesignModels();
+  const primary = models[0];
+  const useVision = vision === undefined ? config.hasResumeVision() : vision;
   const contentJson = JSON.stringify(content);
-  // When the user gives an explicit instruction (Refine), honor it; otherwise inject
-  // a random style seed so each generation/Regenerate diverges in accent/font/layout.
-  const steer = instruction ? `DESIGN INSTRUCTION:\n${String(instruction).slice(0, 400)}` : styleSeed();
-  const userMsg = `RESUME CONTENT (JSON):\n${contentJson}\n\n${steer}`;
+  // Explicit instruction (Refine) is honored verbatim; otherwise each draft gets its own
+  // random style seed so best-of-N (and Regenerate) diverge in accent/font/layout.
+  const steer = instruction ? `DESIGN INSTRUCTION:\n${String(instruction).slice(0, 400)}` : null;
 
-  const messages = [
-    { role: 'system', content: designSystemPrompt() },
-    { role: 'user', content: userMsg },
-  ];
+  // Best-of-N only earns its extra calls when vision can discriminate the drafts.
+  const proposerModels = useVision ? models.slice(0, 2) : models.slice(0, 1);
 
-  let lastErr = null;
-  let repairs = 0;
-  let html = '';
-  let pages = 1;
-  let prevRawHtml = '';
+  const makeProposer = (model) => async () => {
+    const message = await llm.chat({
+      baseUrl, apiKey, model, temperature: 0.85, max_tokens: 4200,
+      messages: [
+        { role: 'system', content: designSystemPrompt() },
+        { role: 'user', content: `RESUME CONTENT (JSON):\n${contentJson}\n\n${steer || styleSeed()}` },
+      ],
+    });
+    const prepared = await prepareHtml(message.content || ''); // sanitize + inline fonts (security in-path)
+    return { ...prepared, model };
+  };
 
-  for (let attempt = 0; attempt <= MAX_REPAIRS; attempt += 1) {
-    let message;
-    try {
-      message = await llm.chat({
-        baseUrl, apiKey, model,
-        temperature: attempt === 0 ? 0.85 : 0.5,  // first pass varied; repairs conservative
-        max_tokens: 4200,
-        messages: attempt === 0 ? messages : [
-          { role: 'system', content: repairSystemPrompt() },
-          { role: 'user', content: `PROBLEM TO FIX:\n${lastErr}\n\nPREVIOUS HTML:\n${prevRawHtml.slice(0, 14000)}` },
-        ],
-      });
-    } catch (err) {
-      const e = new Error(`Resume design model failed: ${err.message}`);
-      e.statusCode = err.status === 429 ? 429 : 502; throw e;
-    }
+  // The strongest model repairs the current candidate using the reviewer's fresh fixes.
+  const repair = async (candidate, feedback) => {
+    const message = await llm.chat({
+      baseUrl, apiKey, model: primary, temperature: 0.55, max_tokens: 4200,
+      messages: [
+        { role: 'system', content: agenticRepairPrompt() },
+        { role: 'user', content: `REVIEWER FEEDBACK:\n${feedback}\n\nCURRENT HTML:\n${(candidate.sanitized || '').slice(0, 16000)}` },
+      ],
+    });
+    return prepareHtml(message.content || '');
+  };
 
-    prevRawHtml = message.content || '';
-    html = sanitizeResumeHtml(prevRawHtml);
+  const verify = (candidate) => verifyDesign({ inlined: candidate.inlined, content, useVision });
 
-    let rendered;
-    try {
-      rendered = await renderHtmlDoc(html, { measure: true });
-    } catch (err) {
-      lastErr = `Rendering failed (${err.message}). Produce clean, valid HTML.`;
-      repairs += 1;
-      continue;
-    }
-
-    const check = verifyRender(rendered, content);
-    pages = rendered.pages;
-    if (check.ok) {
-      return { html, pages, meta: { model, repairs, verified: true } };
-    }
-    lastErr = check.problem;
-    repairs += 1;
+  let out;
+  try {
+    out = await refineLoop({
+      proposers: proposerModels.map(makeProposer),
+      verify,
+      repair,
+      maxN: useVision ? 5 : 3,
+      // Wall-clock budget so a slow provider can't make the (synchronous) request run
+      // away across 5 rounds. Override per deployment via RESUME_GEN_DEADLINE_MS.
+      deadlineMs: Number(process.env.RESUME_GEN_DEADLINE_MS) || 60000,
+    });
+  } catch (err) {
+    // Every proposer failed (e.g. 429 across all). Surface the provider status so the
+    // route/seeds can retry on a Groq rate limit, mirroring the old loop's behavior.
+    const status = err.status || err.cause?.status;
+    const e = new Error(`Resume design model failed: ${err.cause?.message || err.message}`);
+    e.statusCode = status === 429 ? 429 : 502; throw e;
   }
 
-  // Exhausted repairs — return the last sanitized HTML anyway (best-effort) so the
-  // user still gets a resume; meta flags it unverified for the UI/telemetry.
-  return { html, pages, meta: { model, repairs, verified: false, lastProblem: lastErr } };
+  const { candidate, result, rounds } = out;
+  const m = result.meta || {};
+  const verified = Boolean(m.structuralOk);
+  const meta = {
+    model: candidate.model || primary,
+    models: proposerModels,
+    candidates: proposerModels.length,
+    repairs: rounds,        // back-compat: rounds of repair applied
+    rounds,
+    verified,
+    fillRatio: m.fillRatio || 0,
+    pages: m.pages || 1,
+    ...(useVision && m.visionScore != null
+      ? { visionModel: config.resumeVisionModel(), visionScore: m.visionScore }
+      : {}),
+    ...(verified ? {} : { lastProblem: result.feedback }),
+  };
+  return { html: candidate.inlined, pages: m.pages || 1, meta };
 }
 
 // ── Lazy path (no chat): generate resume CONTENT from the user's profile ─────
@@ -410,4 +459,4 @@ async function summaryFromContent(content = {}) {
   }
 }
 
-module.exports = { shapeAuthorContent, authorHtml, contentFromProfile, summaryFromContent, expandProjectContent, sanitizeResumeHtml };
+module.exports = { shapeAuthorContent, authorHtml, contentFromProfile, summaryFromContent, expandProjectContent, sanitizeResumeHtml, verifyRender, critiqueDesign };

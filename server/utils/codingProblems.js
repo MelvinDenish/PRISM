@@ -8,7 +8,7 @@
  * Behavior is identical to the previous in-route definitions; the game route now
  * imports these instead of defining them. Keep the verification contract intact.
  */
-const { getGroq, GEN_MODEL } = require('./aiModels');
+const { chatCompletion } = require('./aiModels');
 const { executeCode } = require('../routes/codeExecution');
 
 // Normalize program output for comparison (trailing whitespace/newlines vary).
@@ -41,9 +41,9 @@ const FALLBACK_CODING_PROBLEM = {
 
 // Generate coding problems via Groq.
 const generateCodingProblems = async (count, difficulty = 'medium') => {
-  const groq = getGroq();
-  const completion = await groq.chat.completions.create({
-    model: GEN_MODEL(),
+  // 'gen' tier (70B-class) authors better problems + reference solutions; the
+  // execute-verify in validateCodingProblems still gates correctness regardless.
+  const completion = await chatCompletion({
     messages: [
       { role: 'system', content: 'You are a competitive programming problem setter. Return ONLY valid JSON. No markdown, no extra text.' },
       { role: 'user', content: `Generate ${count} coding problems for a placement interview coding round (${difficulty} difficulty). Each problem should have:
@@ -80,7 +80,7 @@ Return as JSON array:
     ],
     max_tokens: 6000,
     temperature: 0.7
-  });
+  }, 'gen');
 
   try {
     const raw = completion.choices[0]?.message?.content || '[]';

@@ -14,6 +14,7 @@ const { config } = require('../../config/env');
 const Resource = require('../../models/Resource');
 const { extractText } = require('./resourceContent');
 const { generateCodingProblems, validateCodingProblems, FALLBACK_CODING_PROBLEM } = require('../../utils/codingProblems');
+const { filterByConsensus } = require('../core/mcqConsensus');
 
 const CODING_HINTS = /\b(dsa|data structures?|algorithms?|coding|programming|arrays?|strings?|stack|queue|heap|recursion|linked list|binary tree|trees?|graphs?|dynamic programming|dp|sorting|searching|greedy|bst)\b/i;
 
@@ -52,8 +53,8 @@ async function generateMcqTest(path) {
   const content = await gatherContent(path);
   const topicName = path.topic?.name || path.title || 'this topic';
 
-  const message = await llm.chat({
-    model: llm.GEN_MODEL(),
+  const message = await llm.chatWithFailover({
+    pool: llm.fastPool('gen'),
     temperature: 0.4,
     max_tokens: 3000,
     messages: [
@@ -73,6 +74,10 @@ Return as a JSON array:
     const raw = message.content || '[]';
     parsed = JSON.parse(raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim());
   } catch { parsed = []; }
+
+  // Self-consistency: a second model answers each question blind; keep only the ones it
+  // agrees with (drops ambiguous/mis-keyed questions). Best-effort — never blocks.
+  parsed = await filterByConsensus(Array.isArray(parsed) ? parsed : []);
 
   const questions = [];
   const servedKey = [];

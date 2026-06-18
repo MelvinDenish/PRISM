@@ -24,13 +24,25 @@ It is deployed-and-verified-by-you (it cannot run in CI without LiveKit creds an
 a GPU/TTS endpoint). Confirm plugin import paths against the pinned version.
 """
 
+import asyncio
 import json
 import logging
 import os
+import uuid
 
+import aiohttp
 from livekit import agents, rtc
-from livekit.agents import Agent, AgentSession, JobContext, RoomInputOptions, WorkerOptions, cli
+from livekit.agents import Agent, AgentSession, JobContext, RoomInputOptions, WorkerOptions, cli, tts
+from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS
 from livekit.plugins import openai, silero
+
+# Native Groq plugin (optional) — used for Groq-hosted TTS, which speaks Groq's exact
+# API shape. The generic openai.TTS plugin sends a `stream_format` field that Groq's
+# /audio/speech rejects, so on the Groq on-ramp we use groq.TTS instead.
+try:
+    from livekit.plugins import groq as groq_plugin
+except Exception:  # pragma: no cover - optional dependency
+    groq_plugin = None
 
 # The semantic turn-detector is optional; degrade to plain VAD if unavailable.
 try:
@@ -61,8 +73,84 @@ STT_MODEL = os.getenv("STT_MODEL", "whisper-large-v3-turbo")
 # OpenAI `/v1/audio/speech` shape, so only the base URL + model + voice change.
 TTS_BASE_URL = os.getenv("TTS_BASE_URL") or os.getenv("TTS_ENDPOINT_URL", "https://api.groq.com/openai/v1")
 TTS_API_KEY = os.getenv("TTS_API_KEY") or os.getenv("GROQ_API_KEY", "")
-TTS_MODEL = os.getenv("TTS_MODEL", "playai-tts")
-TTS_VOICE = os.getenv("TTS_VOICE", "Fritz-PlayAI")
+# Groq's TTS is Orpheus (playai-tts was decommissioned). NOTE: the Orpheus model is
+# gated — your Groq org admin must accept its terms once at
+# https://console.groq.com/playground?model=canopylabs%2Forpheus-v1-english
+# (or set TTS_PROVIDER=openai + TTS_BASE_URL to a self-hosted Orpheus endpoint).
+TTS_MODEL = os.getenv("TTS_MODEL", "canopylabs/orpheus-v1-english")
+TTS_VOICE = os.getenv("TTS_VOICE", "troy")
+# "groq" (native Groq TTS — the zero-GPU on-ramp) or "openai" (any OpenAI-compatible
+# /v1/audio/speech endpoint, e.g. a self-hosted streaming Orpheus on serverless GPU).
+TTS_PROVIDER = os.getenv("TTS_PROVIDER", "groq").lower()
+
+
+TTS_FORMAT = (os.getenv("TTS_RESPONSE_FORMAT", "wav") or "wav").strip()
+TTS_SAMPLE_RATE = int(os.getenv("TTS_SAMPLE_RATE", "24000"))
+
+
+class SimpleHTTPTTS(tts.TTS):
+    """Minimal TTS for self-hosted OpenAI-style `/v1/audio/speech` endpoints (e.g.
+    Kokoro-FastAPI, a basic Orpheus FastAPI) that return a COMPLETE audio file rather
+    than OpenAI's streamed audio events. livekit's `openai.TTS` can't frame those
+    ('no audio frames were pushed'); this does a plain POST and hands the whole file
+    to the AudioEmitter, which decodes it via `av`."""
+
+    def __init__(self, *, base_url, voice, model, api_key="", sample_rate=24000, fmt="wav"):
+        super().__init__(
+            capabilities=tts.TTSCapabilities(streaming=False),
+            sample_rate=sample_rate,
+            num_channels=1,
+        )
+        self._base_url = base_url.rstrip("/")
+        self._voice, self._model, self._api_key, self._fmt = voice, model, api_key, fmt
+
+    def synthesize(self, text, *, conn_options=DEFAULT_API_CONNECT_OPTIONS):
+        return _SimpleHTTPStream(tts=self, input_text=text, conn_options=conn_options)
+
+
+class _SimpleHTTPStream(tts.ChunkedStream):
+    def __init__(self, *, tts, input_text, conn_options):
+        super().__init__(tts=tts, input_text=input_text, conn_options=conn_options)
+        self._t, self._text = tts, input_text
+
+    async def _run(self, output_emitter):
+        t = self._t
+        headers = {"Authorization": f"Bearer {t._api_key}"} if t._api_key and t._api_key != "not-needed" else {}
+        payload = {"model": t._model, "voice": t._voice, "input": self._text, "response_format": t._fmt}
+        async with aiohttp.ClientSession() as sess:
+            async with sess.post(
+                f"{t._base_url}/audio/speech", json=payload, headers=headers,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                resp.raise_for_status()
+                audio = await resp.read()
+        output_emitter.initialize(
+            request_id=uuid.uuid4().hex,
+            sample_rate=t.sample_rate,
+            num_channels=t.num_channels,
+            mime_type=f"audio/{t._fmt}",
+        )
+        output_emitter.push(audio)
+        output_emitter.flush()
+
+
+def build_tts():
+    """Pick the TTS backend:
+      groq   → native Groq plugin (Groq's /audio/speech rejects openai.TTS's stream_format)
+      kokoro → SimpleHTTPTTS adapter for file-returning endpoints (local Kokoro on-ramp)
+      openai → openai.TTS for endpoints that implement OpenAI's STREAMING audio events
+    """
+    if TTS_PROVIDER == "groq" and groq_plugin is not None:
+        return groq_plugin.TTS(model=TTS_MODEL, voice=TTS_VOICE)
+    if TTS_PROVIDER in ("kokoro", "http"):
+        return SimpleHTTPTTS(
+            base_url=TTS_BASE_URL, voice=TTS_VOICE, model=TTS_MODEL,
+            api_key=TTS_API_KEY, sample_rate=TTS_SAMPLE_RATE, fmt=TTS_FORMAT,
+        )
+    kwargs = dict(model=TTS_MODEL, voice=TTS_VOICE, base_url=TTS_BASE_URL, api_key=TTS_API_KEY)
+    if TTS_FORMAT:
+        kwargs["response_format"] = TTS_FORMAT
+    return openai.TTS(**kwargs)
 
 
 PANELIST_INSTRUCTIONS = """\
@@ -101,6 +189,7 @@ async def entrypoint(ctx: JobContext):
     # (topic "gd-meta"). Capture it so the opener can name the real topic; fall back
     # to a generic opener if none arrives.
     state = {"topic": "", "duration_min": 10}
+    topic_ready = asyncio.Event()
 
     def _on_data(packet: rtc.DataPacket):
         try:
@@ -111,6 +200,7 @@ async def entrypoint(ctx: JobContext):
                 state["topic"] = str(msg["topic"])[:500]
                 state["duration_min"] = int(msg.get("durationMin") or 10)
                 logger.info("Received GD topic: %s", state["topic"])
+                topic_ready.set()
         except Exception as exc:  # pragma: no cover
             logger.debug("Ignoring data packet: %s", exc)
 
@@ -119,7 +209,7 @@ async def entrypoint(ctx: JobContext):
     session = AgentSession(
         stt=openai.STT(model=STT_MODEL, base_url=STT_BASE_URL, api_key=STT_API_KEY),
         llm=openai.LLM(model=LLM_MODEL, base_url=LLM_BASE_URL, api_key=LLM_API_KEY),
-        tts=openai.TTS(model=TTS_MODEL, voice=TTS_VOICE, base_url=TTS_BASE_URL, api_key=TTS_API_KEY),
+        tts=build_tts(),
         vad=silero.VAD.load(),
         turn_detection=_TURN_DETECTION,
     )
@@ -132,10 +222,20 @@ async def entrypoint(ctx: JobContext):
         # configured here — it's a future enhancement. It is not required for the
         # current build: per-participant scoring stays on the PRISM server's existing
         # /api/gd-rooms/:id/evaluate, which scores each user from their OWN mic.
-        room_input_options=RoomInputOptions(),
+        # close_on_disconnect=False: a participant's connection can blip (and the GD
+        # video reconnects around Start), so don't tear the session down on the first
+        # disconnect — otherwise the panelist never lives long enough to speak.
+        room_input_options=RoomInputOptions(close_on_disconnect=False),
     )
 
-    # Give the host's topic packet a moment to arrive, then open with the rules.
+    # Greet only once the GD has actually STARTED — the host publishes the topic on
+    # Start. We join the LiveKit room when the user ENTERS (before Start), so greeting
+    # immediately would talk to an empty waiting room. Wait for the topic, then greet
+    # (generic fallback if none arrives within the window).
+    try:
+        await asyncio.wait_for(topic_ready.wait(), timeout=900)
+    except asyncio.TimeoutError:
+        pass
     topic = state["topic"]
     opener = (
         f"Greet the group, then state the discussion rules clearly and briefly, and "

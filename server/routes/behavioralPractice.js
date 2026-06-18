@@ -1,7 +1,7 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
 const { aiLimiter } = require('../middleware/rateLimit');
-const { getGroq, evalCompletion } = require('../utils/aiModels');
+const { evalCompletion } = require('../utils/aiModels');
 const QuestionBank = require('../models/QuestionBank');
 const { emit: emitSignals } = require('../agent/services/signals');
 const router = express.Router();
@@ -59,7 +59,6 @@ router.post('/evaluate', protect, aiLimiter, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Write a fuller answer (at least a couple of sentences) before scoring.' });
     }
 
-    const groq = getGroq();
     const prompt = `You are an experienced placement HR interviewer grading a candidate's behavioral answer.
 
 QUESTION: ${question.slice(0, 600)}
@@ -77,7 +76,7 @@ Respond with ONLY this JSON (no markdown, no extra text):
   "modelOutline": "A 3-4 sentence STAR outline showing how a strong answer to THIS question would be structured (an outline, not a fabricated story)."
 }`;
 
-    const { completion } = await evalCompletion(groq, {
+    const { completion } = await evalCompletion({
       messages: [
         { role: 'system', content: 'You return only strict JSON. No markdown fences, no commentary.' },
         { role: 'user', content: prompt },
