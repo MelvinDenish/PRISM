@@ -95,9 +95,11 @@ function systemPrompt(collected, assessment) {
   return [
     'You are PRISM Resume Copilot. Through a short, friendly chat you gather the details needed to build a STRONG, complete resume. Ask ONE question at a time and keep it brief and warm.',
     '',
-    'Every turn you MUST call the `record_fields` function with:',
-    '- `delta`: ONLY the new/changed resume facts from the user\'s LATEST message. Never repeat anything already in COLLECTED below. If the user gave nothing new, send an empty delta.',
-    '- `next_question`: ONE short question asking for the TOP item in STILL MISSING (the list is in priority order — ask for #1 next).',
+    'Return ONLY a JSON object (no prose before/after, no markdown code fences) with EXACTLY these two keys:',
+    '- "delta": an object containing ONLY the new/changed resume facts from the user\'s LATEST message. Never repeat anything already in COLLECTED below. If the user gave nothing new, use {}. Include only the fields the user actually provided, using this shape: { "personalInfo": { "fullName", "email", "phone", "location", "linkedin", "github", "portfolio", "summary" }, "education": [{ "institution", "degree", "field", "startDate", "endDate", "gpa" }], "experience": [{ "company", "position", "startDate", "endDate", "current", "description" }], "projects": [{ "name", "description", "technologies", "link" }], "skills": [string], "certifications": [{ "name", "issuer", "date" }], "achievements": [string], "positionsOfResponsibility": [string], "languages": [string], "hobbies": [string], "cgpa", "tenthPercent", "twelfthPercent", "registerNumber" }.',
+    '- "next_question": ONE short, friendly question asking for the TOP item in STILL MISSING (the list is in priority order — ask for #1 next).',
+    '',
+    'When the user adds detail to a project already listed, repeat that project\'s EXACT name inside delta.projects so it updates instead of duplicating. Same for education (repeat the institution).',
     '',
     'Rules:',
     '- Prioritise PROJECTS and project DETAIL. Every student needs at least 2 projects, each with a name plus a brief covering the problem it solves, what they built, the tech stack, and their role. If a project is thin, keep drilling into it (impact, metrics, tech) before moving on — the resume must have enough substance to fill a page.',
@@ -115,40 +117,15 @@ function systemPrompt(collected, assessment) {
   ].join('\n');
 }
 
-const RECORD_TOOL = {
-  type: 'function',
-  function: {
-    name: 'record_fields',
-    description: 'Record any NEW resume facts from the user\'s latest message and ask the next question. Call this EVERY turn.',
-    parameters: {
-      type: 'object',
-      properties: {
-        delta: {
-          type: 'object',
-          description: 'ONLY the new/changed resume facts from the user\'s latest message — never repeat already-collected data. Same shape as the resume content.',
-          properties: {
-            personalInfo: { type: 'object', description: '{ fullName, email, phone, location, linkedin, github, portfolio, summary }' },
-            education: { type: 'array', description: '[{ institution, degree, field, startDate, endDate, gpa }] — repeat the institution when updating an existing entry' },
-            experience: { type: 'array', description: '[{ company, position, startDate, endDate, current, description }]' },
-            projects: { type: 'array', description: '[{ name, description, technologies, link }] — repeat the exact name when adding detail to an existing project' },
-            skills: { type: 'array', items: { type: 'string' } },
-            certifications: { type: 'array', description: '[{ name, issuer, date }]' },
-            achievements: { type: 'array', items: { type: 'string' } },
-            positionsOfResponsibility: { type: 'array', items: { type: 'string' } },
-            languages: { type: 'array', items: { type: 'string' } },
-            hobbies: { type: 'array', items: { type: 'string' } },
-            cgpa: { type: 'string' }, tenthPercent: { type: 'string' }, twelfthPercent: { type: 'string' }, registerNumber: { type: 'string' },
-          },
-        },
-        next_question: {
-          type: 'string',
-          description: 'One short, friendly question asking for the top outstanding item. If everything required is already collected, briefly say so and offer to generate (or to collect optional extras like achievements or internships).',
-        },
-      },
-      required: ['delta', 'next_question'],
-    },
-  },
-};
+// Strip code fences and brace-match a JSON object out of a model reply. Coders/non-tool
+// models reliably emit JSON, so this replaced the old forced `record_fields` function
+// call (NOT portable — the HF router + some coders ignore tool_choice, which silently
+// dropped every per-turn delta and froze the checklist).
+function parseTurnJson(text) {
+  const raw = norm(text).replace(/```json\s*/gi, '').replace(/```/g, '');
+  const m = raw.match(/\{[\s\S]*\}/);
+  try { return JSON.parse(m ? m[0] : raw); } catch { return {}; }
+}
 
 // Deterministic opener for the FIRST turn (no user message yet). Avoids a forced
 // tool call on a system-only prompt — the most fragile LLM invocation and the entry
@@ -213,25 +190,21 @@ async function intakeTurn({ messages, collected, profile = {}, seed }) {
       temperature: 0.4,
       max_tokens: 1500,
       messages: convo,
-      tools: [RECORD_TOOL],
-      tool_choice: { type: 'function', function: { name: 'record_fields' } },
+      response_format: { type: 'json_object' }, // portable structured output (no fragile tool_choice)
     });
   } catch (err) {
     const e = new Error(`Resume intake model failed: ${err.message}`);
     e.statusCode = err.status === 429 ? 429 : 502; throw e;
   }
 
-  const call = (msg.tool_calls || []).find((c) => c.function && c.function.name === 'record_fields');
-  let args = {};
-  if (call) { try { args = JSON.parse(call.function.arguments || '{}'); } catch { args = {}; } }
-
-  // Merge the per-turn delta (none if the model didn't structure a call) and re-score.
-  const merged = call ? mergeCollected(base, args.delta || {}) : base;
+  // Parse the model's JSON { delta, next_question } and merge the per-turn delta.
+  const args = parseTurnJson(msg.content);
+  const merged = mergeCollected(base, (args && args.delta) || {});
   const assessment = assessCompleteness(merged, profile);
 
   // The reply is the DETERMINISTIC gate's call, not the model's — see buildReply.
   const userText = lastUserText(messages);
-  const modelQuestion = call ? args.next_question : norm(msg.content);
+  const modelQuestion = (args && norm(args.next_question)) ? args.next_question : norm(msg.content);
   const { reply, assist } = buildReply({ assessment, userText, modelQuestion });
   return { reply, assist, collected: merged, assessment, ready: assessment.gateMet };
 }
