@@ -202,9 +202,14 @@ const config = Object.freeze({
   // Vision critic for the resume design loop. hasResumeVision() gates the loop on
   // BOTH a model id and a usable resume LLM key (the critic reuses the resume creds).
   resumeVisionModel: () => process.env.RESUME_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct',
+  // Vision critic creds, resolved INDEPENDENTLY of the design provider so the critic can
+  // stay on reliable Groq (a critic 429 makes verifyDesign ship ungated generic) even when
+  // design drafts on OpenRouter. Default to the resume creds when RESUME_VISION_* unset.
+  resumeVisionBaseUrl: () => process.env.RESUME_VISION_BASE_URL || process.env.RESUME_LLM_BASE_URL || process.env.LLM_BASE_URL || '',
+  resumeVisionApiKey: () => process.env.RESUME_VISION_API_KEY || process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY || '',
   hasResumeVision: () => Boolean(
     (process.env.RESUME_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct')
-    && (process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY),
+    && (process.env.RESUME_VISION_API_KEY || process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY),
   ),
   hasGemini: () => Boolean(process.env.GEMINI_API_KEY),
   hasTavily: () => Boolean(process.env.TAVILY_API_KEY),

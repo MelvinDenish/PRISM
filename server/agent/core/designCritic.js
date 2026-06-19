@@ -85,8 +85,8 @@ function visionCriticMessages(pngBase64) {
 /** Ask the vision model to score a rendered screenshot. Throws on failure (caller decides). */
 async function critiqueDesign(screenshotBuf) {
   const message = await llm.chat({
-    baseUrl: config.resumeLlmBaseUrl(),
-    apiKey: config.resumeLlmApiKey(),
+    baseUrl: config.resumeVisionBaseUrl(),
+    apiKey: config.resumeVisionApiKey(),
     model: config.resumeVisionModel(),
     temperature: 0.2,
     max_tokens: 500,

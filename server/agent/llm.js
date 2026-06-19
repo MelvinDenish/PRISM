@@ -253,9 +253,27 @@ function fastPool(tier = 'gen') {
   return out;
 }
 
-/** PII pool: Groq only (privacy-safe). Uses the resume creds, which fall back to GROQ. */
+/** PII-safe pool: Groq only, with explicit Groq creds (independent of RESUME_LLM_* base,
+ *  which may now point at OpenRouter). Keeps the legacy /generate + /cover-letter paths on
+ *  Groq model ids instead of sending them to a different provider. */
 function piiPool(tier = 'gen') {
-  return [{ provider: 'groq', baseUrl: config.resumeLlmBaseUrl(), apiKey: config.resumeLlmApiKey(), model: PROVIDER_MODELS.groq[tier] }];
+  return [groqCandidate(tier)];
+}
+
+/** Resume design candidates — one per configured design slug, on the resume provider creds
+ *  (RESUME_LLM_*; OpenRouter by default now). best-of-N drafts across the first 1–2 of these. */
+function resumeDesignCandidates() {
+  const base = config.resumeLlmBaseUrl();
+  const apiKey = config.resumeLlmApiKey();
+  const provider = /openrouter\.ai/i.test(base) ? 'openrouter' : (base ? 'custom' : 'groq');
+  return config.resumeDesignModels().map((model) => ({ provider, baseUrl: base, apiKey, model }));
+}
+
+/** Last-resort design proposer on Groq's top free model — used only if the primary design
+ *  pool is exhausted (e.g. all OpenRouter candidates 429). Always available when a Groq key
+ *  is set. (NB: Groq's free TPM cap may reject a very large exemplar prompt; best-effort.) */
+function groqDesignFallback() {
+  return { provider: 'groq', baseUrl: '', apiKey: config.groqApiKey() || config.llmApiKey(), model: 'openai/gpt-oss-120b' };
 }
 
 /**
@@ -292,5 +310,6 @@ async function chatWithFailover({ pool, meta, ...params }) {
 
 module.exports = {
   chat, chatStream, chatWithFailover, fastPool, piiPool, PROVIDER_MODELS,
+  resumeDesignCandidates, groqDesignFallback,
   ORCHESTRATOR_MODEL, GEN_MODEL, FAST_MODEL,
 };

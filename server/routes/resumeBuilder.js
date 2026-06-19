@@ -2,6 +2,7 @@ const express = require('express');
 const { protect } = require('../middleware/auth');
 const { aiLimiter } = require('../middleware/rateLimit');
 const llm = require('../agent/llm');
+const { config } = require('../config/env');
 const ResumeDraft = require('../models/ResumeDraft');
 const User = require('../models/User');
 const {
@@ -17,13 +18,17 @@ const { assessCompleteness, seedCollectedFromProfile, mergeCollected, estimateCo
 const { cuicFileName, cuicChecklist, CUIC_SECTIONS } = require('../utils/cuicResume');
 const router = express.Router();
 
-// PII-safe completion for resume/cover-letter content: routes the Groq-only pool
-// (no provider that trains on inputs) and returns an OpenAI-shaped completion so
-// existing `.choices[0].message.content` reads are unchanged. Defaults to the 70B
-// 'gen' tier (a quality bump over the old 8B), still privacy-safe and free on Groq.
-const piiCompletion = async (params = {}, tier = 'gen') => {
+// Content completion for resume/cover-letter text: routes the configured resume CONTENT
+// model + provider (RESUME_LLM_* — OpenRouter by default now) and returns an OpenAI-shaped
+// completion so existing `.choices[0].message.content` reads are unchanged.
+const contentCompletion = async (params = {}) => {
   const { model, ...rest } = params;
-  const message = await llm.chatWithFailover({ pool: llm.piiPool(tier), ...rest });
+  const message = await llm.chat({
+    baseUrl: config.resumeLlmBaseUrl(),
+    apiKey: config.resumeLlmApiKey(),
+    model: model || config.resumeContentModel(),
+    ...rest,
+  });
   return { choices: [{ message }] };
 };
 
@@ -337,7 +342,7 @@ router.post('/generate', protect, aiLimiter, async (req, res) => {
 
     const userProfile = JSON.stringify({ personalInfo, education, experience, skills, projects }, null, 2);
 
-    const completion = await piiCompletion({
+    const completion = await contentCompletion({
       messages: [
         { role: 'system', content: `You are an expert ATS resume writer. Given user info and a job description, return a JSON object with EXACTLY this structure. Do NOT add any text before or after the JSON:
 {
@@ -361,7 +366,7 @@ CRITICAL RULES:
       ],
       max_tokens: 1000,
       temperature: 0.5
-    }, 'gen');
+    });
 
     let result;
     const raw = completion.choices[0]?.message?.content || '{}';
@@ -643,14 +648,14 @@ router.post('/cover-letter', protect, aiLimiter, async (req, res) => {
     const { personalInfo, jobTitle, companyName, jobDescription, skills } = req.body;
     if (!process.env.GROQ_API_KEY) return res.status(400).json({ success: false, message: 'AI requires GROQ_API_KEY' });
 
-    const completion = await piiCompletion({
+    const completion = await contentCompletion({
       messages: [
         { role: 'system', content: 'You are an expert cover letter writer. Write a professional, compelling cover letter. Use the STAR method subtly. Keep it concise (3-4 paragraphs). Match keywords from the job description. Return ONLY the cover letter text.' },
         { role: 'user', content: `Write a cover letter for ${personalInfo?.fullName || 'the candidate'} applying for ${jobTitle || 'Software Engineer'} at ${companyName || 'the company'}.\n\nSkills: ${(skills || []).join(', ')}\n\nJob Description:\n${jobDescription || 'Software engineering role'}` }
       ],
       max_tokens: 800,
       temperature: 0.6
-    }, 'gen');
+    });
 
     res.json({
       success: true,

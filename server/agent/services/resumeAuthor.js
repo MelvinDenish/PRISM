@@ -194,71 +194,89 @@ async function authorHtml({ content, instruction, vision }) {
     const e = new Error('Resume generation needs an AI model, which is not configured on this server.');
     e.statusCode = 503; throw e;
   }
-  const baseUrl = config.resumeLlmBaseUrl();
-  const apiKey = config.resumeLlmApiKey();
-  const models = config.resumeDesignModels();
-  const primary = models[0];
   const useVision = vision === undefined ? config.hasResumeVision() : vision;
   const contentJson = JSON.stringify(content);
-  // Explicit instruction (Refine) is honored verbatim; otherwise each draft gets its own
-  // random style seed so best-of-N (and Regenerate) diverge in accent/font/layout.
+  // Explicit instruction (Refine) is honored verbatim; otherwise each draft picks a fresh
+  // catalog design system so best-of-N (and Regenerate) diverge in palette/font/layout.
   const steer = instruction ? `DESIGN INSTRUCTION:\n${String(instruction).slice(0, 400)}` : null;
+  const maxTokens = Number(process.env.RESUME_DESIGN_MAX_TOKENS) || 8000;
 
-  // Best-of-N only earns its extra calls when vision can discriminate the drafts.
-  const proposerModels = useVision ? models.slice(0, 2) : models.slice(0, 1);
+  // Design candidates come from the resume provider (OpenRouter by default); a Groq
+  // gpt-oss-120b candidate is the last-resort fallback if that pool is exhausted.
+  const designCandidates = llm.resumeDesignCandidates();
+  const groqFallback = llm.groqDesignFallback();
 
-  const makeProposer = (model) => async () => {
-    const message = await llm.chat({
-      baseUrl, apiKey, model, temperature: 0.85, max_tokens: 8000,
-      messages: [
-        { role: 'system', content: designSystemPrompt() },
-        { role: 'user', content: `RESUME CONTENT (JSON):\n${contentJson}\n\n${steer || designSystemSeedText(pickDesignSystem())}` },
-      ],
-    });
-    const prepared = await prepareHtml(message.content || ''); // sanitize + inline fonts (security in-path)
-    return { ...prepared, model };
-  };
-
-  // The strongest model repairs the current candidate using the reviewer's fresh fixes.
-  const repair = async (candidate, feedback) => {
-    const message = await llm.chat({
-      baseUrl, apiKey, model: primary, temperature: 0.55, max_tokens: 4200,
-      messages: [
-        { role: 'system', content: agenticRepairPrompt() },
-        { role: 'user', content: `REVIEWER FEEDBACK:\n${feedback}\n\nCURRENT HTML:\n${(candidate.sanitized || '').slice(0, 16000)}` },
-      ],
-    });
-    return prepareHtml(message.content || '');
+  // Bind proposer + repair to a SPECIFIC candidate pool so a Groq retry repairs with Groq
+  // creds (not stale OpenRouter creds). proposers = first 1–2 candidates; repair = primary.
+  const buildPool = (candidates) => {
+    const primary = candidates[0];
+    const proposerCands = useVision ? candidates.slice(0, 2) : candidates.slice(0, 1);
+    const makeProposer = (cand) => async () => {
+      const message = await llm.chat({
+        baseUrl: cand.baseUrl, apiKey: cand.apiKey, model: cand.model, temperature: 0.85, max_tokens: maxTokens,
+        messages: [
+          { role: 'system', content: designSystemPrompt() },
+          { role: 'user', content: `RESUME CONTENT (JSON):\n${contentJson}\n\n${steer || designSystemSeedText(pickDesignSystem())}` },
+        ],
+      });
+      const prepared = await prepareHtml(message.content || ''); // sanitize + inline fonts (security in-path)
+      return { ...prepared, model: cand.model };
+    };
+    const repair = async (candidate, feedback) => {
+      const message = await llm.chat({
+        baseUrl: primary.baseUrl, apiKey: primary.apiKey, model: primary.model, temperature: 0.55, max_tokens: maxTokens,
+        messages: [
+          { role: 'system', content: agenticRepairPrompt() },
+          { role: 'user', content: `REVIEWER FEEDBACK:\n${feedback}\n\nCURRENT HTML:\n${(candidate.sanitized || '').slice(0, 16000)}` },
+        ],
+      });
+      return prepareHtml(message.content || '');
+    };
+    return { proposers: proposerCands.map(makeProposer), repair };
   };
 
   const verify = (candidate) => verifyDesign({ inlined: candidate.inlined, content, useVision });
+  const runLoop = (pool) => refineLoop({
+    proposers: pool.proposers, verify, repair: pool.repair,
+    maxN: useVision ? 5 : 3,
+    // Wall-clock budget so a slow provider can't make the (synchronous) request run
+    // away across 5 rounds. Override per deployment via RESUME_GEN_DEADLINE_MS.
+    deadlineMs: Number(process.env.RESUME_GEN_DEADLINE_MS) || 60000,
+  });
 
   let out;
+  let usedFallback = false;
   try {
-    out = await refineLoop({
-      proposers: proposerModels.map(makeProposer),
-      verify,
-      repair,
-      maxN: useVision ? 5 : 3,
-      // Wall-clock budget so a slow provider can't make the (synchronous) request run
-      // away across 5 rounds. Override per deployment via RESUME_GEN_DEADLINE_MS.
-      deadlineMs: Number(process.env.RESUME_GEN_DEADLINE_MS) || 60000,
-    });
+    out = await runLoop(buildPool(designCandidates));
   } catch (err) {
-    // Every proposer failed (e.g. 429 across all). Surface the provider status so the
-    // route/seeds can retry on a Groq rate limit, mirroring the old loop's behavior.
+    // Primary design pool exhausted (e.g. all OpenRouter candidates 429). Fall back to
+    // Groq ONCE before failing, so generation degrades instead of erroring.
     const status = err.status || err.cause?.status;
-    const e = new Error(`Resume design model failed: ${err.cause?.message || err.message}`);
-    e.statusCode = status === 429 ? 429 : 502; throw e;
+    const exhausted = status === 429 || /every proposer failed/i.test(err.message || '');
+    if (exhausted && groqFallback.apiKey) {
+      try {
+        out = await runLoop(buildPool([groqFallback]));
+        usedFallback = true;
+      } catch (err2) {
+        const s2 = err2.status || err2.cause?.status;
+        const e = new Error(`Resume design model failed (incl. Groq fallback): ${err2.cause?.message || err2.message}`);
+        e.statusCode = s2 === 429 ? 429 : 502; throw e;
+      }
+    } else {
+      const e = new Error(`Resume design model failed: ${err.cause?.message || err.message}`);
+      e.statusCode = status === 429 ? 429 : 502; throw e;
+    }
   }
 
   const { candidate, result, rounds } = out;
   const m = result.meta || {};
   const verified = Boolean(m.structuralOk);
+  const attempted = (usedFallback ? [groqFallback] : designCandidates).map((c) => c.model);
   const meta = {
-    model: candidate.model || primary,
-    models: proposerModels,
-    candidates: proposerModels.length,
+    model: candidate.model || attempted[0],
+    models: attempted,
+    candidates: useVision ? Math.min(2, attempted.length) : 1,
+    usedFallback,           // true only if the OpenRouter pool was exhausted and we fell back to Groq
     repairs: rounds,        // back-compat: rounds of repair applied
     rounds,
     verified,
