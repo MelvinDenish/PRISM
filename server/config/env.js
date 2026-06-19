@@ -178,6 +178,18 @@ const config = Object.freeze({
   llmGenModel: () => process.env.LLM_GEN_MODEL || 'llama-3.3-70b-versatile',
   llmFastModel: () => process.env.LLM_FAST_MODEL || 'llama-3.1-8b-instant',
 
+  // Copilot (agentic tool-calling assistant). Lets the copilot run on the best free
+  // TOOL-CAPABLE model (e.g. Cerebras zai-glm-4.7), independent of the global LLM_*; falls
+  // back to LLM_*/Groq. Key auto-resolves by base URL like the resume creds. NOTE: the model
+  // MUST reliably emit OpenAI tool_calls (HF coder models don't — they'd break tool use).
+  copilotBaseUrl: () => process.env.COPILOT_BASE_URL || process.env.LLM_BASE_URL || '',
+  copilotApiKey: () => process.env.COPILOT_API_KEY
+    || (/cerebras\.ai/i.test(process.env.COPILOT_BASE_URL || '') ? process.env.CEREBRAS_API_KEY : '')
+    || (/openrouter\.ai/i.test(process.env.COPILOT_BASE_URL || '') ? process.env.OPENROUTER_API_KEY : '')
+    || (/huggingface\.co/i.test(process.env.COPILOT_BASE_URL || '') ? process.env.HF_TOKEN : '')
+    || process.env.LLM_API_KEY || process.env.GROQ_API_KEY || '',
+  copilotModel: () => process.env.COPILOT_MODEL || process.env.LLM_ORCHESTRATOR_MODEL || 'llama-3.3-70b-versatile',
+
   // Failover pool providers (non-PII only). Optional — absent key => skipped.
   hasCerebras: () => Boolean(process.env.CEREBRAS_API_KEY),
   cerebrasApiKey: () => process.env.CEREBRAS_API_KEY || '',

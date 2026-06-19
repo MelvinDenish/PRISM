@@ -129,7 +129,7 @@ async function chat({ messages, tools, model, temperature = 0.3, max_tokens = 15
  * @param {string|object} [params.tool_choice]
  * @param {(text:string)=>void} [params.onToken]
  */
-async function chatStream({ messages, tools, model, temperature = 0.3, max_tokens = 1500, tool_choice, onToken }) {
+async function chatStream({ messages, tools, model, temperature = 0.3, max_tokens = 1500, tool_choice, onToken, baseUrl, apiKey, timeoutMs }) {
   const body = { model: model || ORCHESTRATOR_MODEL(), messages, temperature, max_tokens, stream: true };
   if (tools && tools.length) {
     body.tools = tools;
@@ -137,12 +137,12 @@ async function chatStream({ messages, tools, model, temperature = 0.3, max_token
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS());
+  const timer = setTimeout(() => controller.abort(), timeoutMs || TIMEOUT_MS());
 
   try {
-    const res = await fetch(endpoint(), {
+    const res = await fetch(endpoint(baseUrl), {
       method: 'POST',
-      headers: headers(),
+      headers: headers(apiKey, baseUrl),
       body: JSON.stringify(body),
       signal: controller.signal,
     });
