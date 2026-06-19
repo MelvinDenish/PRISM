@@ -199,7 +199,11 @@ async function authorHtml({ content, instruction, vision }) {
   // Explicit instruction (Refine) is honored verbatim; otherwise each draft picks a fresh
   // catalog design system so best-of-N (and Regenerate) diverge in palette/font/layout.
   const steer = instruction ? `DESIGN INSTRUCTION:\n${String(instruction).slice(0, 400)}` : null;
-  const maxTokens = Number(process.env.RESUME_DESIGN_MAX_TOKENS) || 8000;
+  // A one-page resume is ~2k output tokens; 4500 gives headroom AND keeps a Groq-fallback
+  // call (prompt + completion) under Groq's free 8k TPM. Override via RESUME_DESIGN_MAX_TOKENS.
+  const maxTokens = Number(process.env.RESUME_DESIGN_MAX_TOKENS) || 4500;
+  // Large free OpenRouter models can take >30s (the default) to author a full resume.
+  const designTimeoutMs = Number(process.env.RESUME_LLM_TIMEOUT_MS) || 120000;
 
   // Design candidates come from the resume provider (OpenRouter by default); a Groq
   // gpt-oss-120b candidate is the last-resort fallback if that pool is exhausted.
@@ -213,7 +217,7 @@ async function authorHtml({ content, instruction, vision }) {
     const proposerCands = useVision ? candidates.slice(0, 2) : candidates.slice(0, 1);
     const makeProposer = (cand) => async () => {
       const message = await llm.chat({
-        baseUrl: cand.baseUrl, apiKey: cand.apiKey, model: cand.model, temperature: 0.85, max_tokens: maxTokens,
+        baseUrl: cand.baseUrl, apiKey: cand.apiKey, model: cand.model, temperature: 0.85, max_tokens: maxTokens, timeoutMs: designTimeoutMs,
         messages: [
           { role: 'system', content: designSystemPrompt() },
           { role: 'user', content: `RESUME CONTENT (JSON):\n${contentJson}\n\n${steer || designSystemSeedText(pickDesignSystem())}` },
@@ -224,7 +228,7 @@ async function authorHtml({ content, instruction, vision }) {
     };
     const repair = async (candidate, feedback) => {
       const message = await llm.chat({
-        baseUrl: primary.baseUrl, apiKey: primary.apiKey, model: primary.model, temperature: 0.55, max_tokens: maxTokens,
+        baseUrl: primary.baseUrl, apiKey: primary.apiKey, model: primary.model, temperature: 0.55, max_tokens: maxTokens, timeoutMs: designTimeoutMs,
         messages: [
           { role: 'system', content: agenticRepairPrompt() },
           { role: 'user', content: `REVIEWER FEEDBACK:\n${feedback}\n\nCURRENT HTML:\n${(candidate.sanitized || '').slice(0, 16000)}` },

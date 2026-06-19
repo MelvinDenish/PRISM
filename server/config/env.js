@@ -189,7 +189,9 @@ const config = Object.freeze({
   // Resume generator provider/models (swappable; fall back to LLM_*/GROQ_API_KEY).
   hasResumeLlm: () => Boolean(process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY),
   resumeLlmBaseUrl: () => process.env.RESUME_LLM_BASE_URL || process.env.LLM_BASE_URL || '',
-  resumeLlmApiKey: () => process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY || '',
+  resumeLlmApiKey: () => process.env.RESUME_LLM_API_KEY
+    || (/openrouter\.ai/i.test(process.env.RESUME_LLM_BASE_URL || '') ? process.env.OPENROUTER_API_KEY : '')
+    || process.env.LLM_API_KEY || process.env.GROQ_API_KEY || '',
   resumeDesignModel: () => process.env.RESUME_DESIGN_MODEL || 'openai/gpt-oss-120b',
   // Ordered best-of-N design pool (PII-safe / Groq). First entry = primary + repairer.
   resumeDesignModels: () => {
@@ -206,7 +208,10 @@ const config = Object.freeze({
   // stay on reliable Groq (a critic 429 makes verifyDesign ship ungated generic) even when
   // design drafts on OpenRouter. Default to the resume creds when RESUME_VISION_* unset.
   resumeVisionBaseUrl: () => process.env.RESUME_VISION_BASE_URL || process.env.RESUME_LLM_BASE_URL || process.env.LLM_BASE_URL || '',
-  resumeVisionApiKey: () => process.env.RESUME_VISION_API_KEY || process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY || '',
+  resumeVisionApiKey: () => process.env.RESUME_VISION_API_KEY
+    || (/api\.groq\.com/i.test(process.env.RESUME_VISION_BASE_URL || '') ? process.env.GROQ_API_KEY : '')
+    || (/openrouter\.ai/i.test(process.env.RESUME_VISION_BASE_URL || '') ? process.env.OPENROUTER_API_KEY : '')
+    || process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY || '',
   hasResumeVision: () => Boolean(
     (process.env.RESUME_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct')
     && (process.env.RESUME_VISION_API_KEY || process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY),
