@@ -238,10 +238,15 @@ async function chatStream({ messages, tools, model, temperature = 0.3, max_token
 // 'strong' (120B/235B-class), 'plan' (strongest reasoner). Override ids per
 // deployment by editing PROVIDER_MODELS or passing an explicit `model`.
 
+// Per-provider model id per tier. Cerebras (fastest + 1M tok/day free) is tried first by
+// fastPool, so its ids must be ones the key actually serves — today: zai-glm-4.7 (strong
+// GLM coder/generalist) + gpt-oss-120b. (The old llama-3.3-70b / qwen-3-235b ids 404'd on
+// the current Cerebras lineup, silently dropping every call through to Groq.) OpenRouter is
+// the last failover; its free ids rotate — refreshed to currently-live ones.
 const PROVIDER_MODELS = {
   groq:       { fast: 'llama-3.1-8b-instant',              gen: 'llama-3.3-70b-versatile', strong: 'openai/gpt-oss-120b',          plan: 'openai/gpt-oss-120b' },
-  cerebras:   { fast: 'llama-3.3-70b',                     gen: 'llama-3.3-70b',           strong: 'qwen-3-235b-a22b',             plan: 'qwen-3-235b-a22b' },
-  openrouter: { fast: 'meta-llama/llama-3.3-70b-instruct:free', gen: 'meta-llama/llama-3.3-70b-instruct:free', strong: 'deepseek/deepseek-chat-v3-0324:free', plan: 'qwen/qwen3-235b-a22b:free' },
+  cerebras:   { fast: 'gpt-oss-120b',                      gen: 'zai-glm-4.7',             strong: 'zai-glm-4.7',                  plan: 'zai-glm-4.7' },
+  openrouter: { fast: 'meta-llama/llama-3.3-70b-instruct:free', gen: 'openai/gpt-oss-120b:free', strong: 'qwen/qwen3-coder:free', plan: 'qwen/qwen3-next-80b-a3b-instruct:free' },
 };
 
 const groqCandidate = (tier) => ({ provider: 'groq', baseUrl: '', apiKey: config.groqApiKey() || config.llmApiKey(), model: PROVIDER_MODELS.groq[tier] });
