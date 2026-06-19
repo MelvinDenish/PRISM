@@ -191,6 +191,8 @@ const config = Object.freeze({
   resumeLlmBaseUrl: () => process.env.RESUME_LLM_BASE_URL || process.env.LLM_BASE_URL || '',
   resumeLlmApiKey: () => process.env.RESUME_LLM_API_KEY
     || (/openrouter\.ai/i.test(process.env.RESUME_LLM_BASE_URL || '') ? process.env.OPENROUTER_API_KEY : '')
+    || (/cerebras\.ai/i.test(process.env.RESUME_LLM_BASE_URL || '') ? process.env.CEREBRAS_API_KEY : '')
+    || (/huggingface\.co/i.test(process.env.RESUME_LLM_BASE_URL || '') ? process.env.HF_TOKEN : '')
     || process.env.LLM_API_KEY || process.env.GROQ_API_KEY || '',
   resumeDesignModel: () => process.env.RESUME_DESIGN_MODEL || 'openai/gpt-oss-120b',
   // Ordered best-of-N design pool (PII-safe / Groq). First entry = primary + repairer.
