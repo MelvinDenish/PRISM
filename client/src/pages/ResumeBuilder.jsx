@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  getResumeDrafts, getResumeDraft, deleteResumeDraft, resumeIntake, authorResume,
-  regenerateResume, exportResumeDraft, downloadArtifact,
+  getResumeDrafts, getResumeDraft, deleteResumeDraft, resumeIntake, authorResumeAndWait,
+  regenerateResumeAndWait, exportResumeDraft, downloadArtifact,
   draftResumeContent, applyResumeContent,
 } from '../services/api';
 import {
@@ -160,7 +160,7 @@ const ResumeBuilder = () => {
     setError(''); setThinConfirm(false); setView('result'); setBusy('generating');
     try {
       const instruction = designSteer.trim();
-      const { data } = await authorResume(instruction ? { collected, instruction } : { collected });
+      const { data } = await authorResumeAndWait(instruction ? { collected, instruction } : { collected });
       setCurrent(data.draft);
       loadDrafts();
     } catch (err) {
@@ -189,7 +189,7 @@ const ResumeBuilder = () => {
     if (!current?._id) return;
     setError(''); setBusy('regenerating');
     try {
-      const { data } = await regenerateResume(current._id, steer);
+      const { data } = await regenerateResumeAndWait(current._id, steer);
       setCurrent(data.draft);
       if (steer) setInstruction('');
       loadDrafts();

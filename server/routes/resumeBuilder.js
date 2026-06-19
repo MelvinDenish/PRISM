@@ -114,6 +114,27 @@ function authoredDraftDoc(userId, shaped, html, meta) {
   };
 }
 
+// Run the (slow) agentic design loop in the BACKGROUND and write the result back to the
+// draft, flipping generationStatus done/failed. Process-local + best-effort (matches the
+// app's other in-memory background work); the client polls the draft until it leaves
+// 'generating'. Never throws to the caller and never leaves an unhandled rejection.
+function runAuthorInBackground(draftId, content, instruction) {
+  (async () => {
+    try {
+      const { html, meta } = await authorHtml({ content, instruction });
+      await ResumeDraft.findByIdAndUpdate(draftId, {
+        generatedHtml: html, generationMeta: meta, lastGenerated: new Date(),
+        generationStatus: 'done', generationError: '',
+      });
+    } catch (err) {
+      const msg = err.statusCode === 429
+        ? 'The AI is busy right now (rate limited). Please try again in a moment.'
+        : (err.message || 'Resume generation failed.');
+      await ResumeDraft.findByIdAndUpdate(draftId, { generationStatus: 'failed', generationError: msg }).catch(() => {});
+    }
+  })();
+}
+
 // STAGE 0 — GAP-AWARE INTAKE with a DETERMINISTIC completeness gate. Seeds from
 // the profile, asks only for what's missing, and re-scores each turn. The client
 // holds `collected` and echoes it back; `ready` mirrors the server-side gate.
@@ -224,9 +245,11 @@ router.post('/author', protect, aiLimiter, async (req, res) => {
         });
       } catch { /* a genuinely thin brief may not expand — the fill loop still handles it */ }
     }
-    const { html, meta } = await authorHtml({ content: shaped, instruction });
-    const draft = await ResumeDraft.create(authoredDraftDoc(req.user._id, shaped, html, meta));
-    return res.status(201).json({ success: true, draft });
+    // Create the draft immediately in 'generating' state and author the HTML in the
+    // background (the agentic loop can run several rounds); the client polls the draft.
+    const draft = await ResumeDraft.create({ ...authoredDraftDoc(req.user._id, shaped, '', undefined), generationStatus: 'generating' });
+    runAuthorInBackground(draft._id, shaped, instruction);
+    return res.status(202).json({ success: true, draft });
   } catch (err) {
     const status = err.statusCode || 500;
     return res.status(status).json({ success: false, message: process.env.NODE_ENV === 'production' && status >= 500 ? 'Internal Server Error' : err.message });
@@ -249,12 +272,12 @@ router.post('/drafts/:id/regenerate', protect, aiLimiter, async (req, res) => {
       hobbies: draft.hobbies, languages: draft.languages,
       cgpa: draft.cgpa, tenthPercent: draft.tenthPercent, twelfthPercent: draft.twelfthPercent,
     }, profile);
-    const { html, meta } = await authorHtml({ content: shaped, instruction });
-    draft.generatedHtml = html;
-    draft.generationMeta = meta;
-    draft.lastGenerated = new Date();
+    // Re-author in the background (same content, brand-new design); client polls.
+    draft.generationStatus = 'generating';
+    draft.generationError = '';
     await draft.save();
-    return res.json({ success: true, draft });
+    runAuthorInBackground(draft._id, shaped, instruction);
+    return res.status(202).json({ success: true, draft });
   } catch (err) {
     const status = err.statusCode || 500;
     return res.status(status).json({ success: false, message: process.env.NODE_ENV === 'production' && status >= 500 ? 'Internal Server Error' : err.message });
