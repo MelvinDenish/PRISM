@@ -22,6 +22,8 @@ const llm = require('../llm');
 const { config } = require('../../config/env');
 const { shapeDraft } = require('./resume');
 const { inlineFontsForHtml } = require('./resumeFonts');
+const { pickDesignSystem, designSystemSeedText } = require('./resumeDesignCatalog');
+const { exemplarBlock } = require('./resumeExemplars');
 // Agentic core: the shared best-of-N + keepBest + bounded-reflexion loop, and the
 // dedicated Design Critique Agent (structural verify + vision critic in one verdict).
 const { refineLoop } = require('../core/refineLoop');
@@ -82,45 +84,16 @@ function designSystemPrompt() {
     '- A real layout — consider a two-column grid or a colored sidebar (contact/skills) with a wide main column for experience/projects. Align everything to a consistent grid; generous, even whitespace.',
     '- A tasteful, restrained color system: one accent used deliberately (section markers, name, rules, sidebar), strong contrast, never garish.',
     '- Polished details: consistent date alignment, subtle dividers, skill chips/tags, balanced margins. AVOID the generic "centered name + underlined ALL-CAPS section titles" template look.',
+    '',
+    exemplarBlock(),
   ].join('\n');
 }
 
-// Curated divergence pools — a random "style seed" is injected per generation so
-// two students (and a regenerate) get visibly different accent / typography /
-// layout, instead of the model converging on one look. The model still authors
-// the whole resume freely; the seed only nudges direction.
-const ACCENTS = [
-  ['#0f766e', 'deep teal'], ['#2563eb', 'royal blue'], ['#1e3a8a', 'navy'], ['#9f1239', 'burgundy'],
-  ['#166534', 'forest green'], ['#6d28d9', 'plum'], ['#b45309', 'amber'], ['#b91c1c', 'crimson'],
-  ['#334155', 'slate'], ['#4338ca', 'indigo'], ['#047857', 'emerald'], ['#0e7490', 'cyan'],
-  ['#7c2d12', 'rust'], ['#374151', 'charcoal'], ['#a21caf', 'magenta'], ['#1d4ed8', 'cobalt'],
-];
-// Real, characterful open-source pairings (all auto-embedded by resumeFonts). The model
-// names them in CSS; this seed only nudges direction so two students diverge.
-const FONTS = [
-  "a high-contrast serif display ('Fraunces' or 'Playfair Display') over a clean sans body ('Inter')",
-  "an editorial serif ('Source Serif 4' / 'Newsreader') headings with a humanist sans body ('Source Sans 3')",
-  "a geometric sans ('Space Grotesk' / 'Sora') headings with a neutral sans body ('Work Sans')",
-  "an all-sans system on 'Manrope' or 'Plus Jakarta Sans', using weight contrast for hierarchy",
-  "a refined serif ('Cormorant Garamond' / 'EB Garamond') headline over an 'IBM Plex Sans' body",
-  "a modern technical pairing: 'IBM Plex Sans' headings with 'IBM Plex Mono' accents on a clean body",
-  "a friendly rounded sans ('Poppins' / 'Outfit') headings with a readable serif body ('Lora')",
-  "a crisp grotesque ('Archivo' / 'Public Sans') with strong weight steps for hierarchy",
-];
-const LAYOUTS = [
-  'a two-column layout with a full-height colored left sidebar (contact + skills) and a wide main column',
-  'a single-column layout with a bold full-bleed header band and an accent rule system',
-  'a two-column layout with a slim right rail for skills/links',
-  'an asymmetric grid with a strong left-aligned name block and clearly sectioned content',
-  'a clean single column with a refined header, hairline dividers, and skill chips',
-  'a compact two-column body beneath a centered name with a thin accent underline',
-];
-const pick = (a) => a[Math.floor(Math.random() * a.length)];
-
-function styleSeed() {
-  const [hex, name] = pick(ACCENTS);
-  return `STYLE SEED (interpret freely for variety; never mention it in the resume): lean toward ${pick(LAYOUTS)}, use ${pick(FONTS)}, and an accent color near ${hex} (${name}). Name the fonts directly in your CSS — the system embeds them. Make this resume look clearly distinct and design-led, not a generic template.`;
-}
+// Per-generation divergence now comes from the curated design-system catalog
+// (resumeDesignCatalog.js): pickDesignSystem() selects a whole INTERNALLY COHERENT
+// system (palette + Google-Font pairing + layout + accent rules) and designSystemSeedText()
+// renders the steer. This replaced the old random orthogonal ACCENTS/FONTS/LAYOUTS pools,
+// which could pair clashing choices and looked generic.
 
 // Unified repair prompt: the reviewer feedback may be STRUCTURAL (page fit/fullness,
 // missing name) and/or VISUAL (the Design Critique Agent's fixes) — one prompt handles
@@ -221,71 +194,93 @@ async function authorHtml({ content, instruction, vision }) {
     const e = new Error('Resume generation needs an AI model, which is not configured on this server.');
     e.statusCode = 503; throw e;
   }
-  const baseUrl = config.resumeLlmBaseUrl();
-  const apiKey = config.resumeLlmApiKey();
-  const models = config.resumeDesignModels();
-  const primary = models[0];
   const useVision = vision === undefined ? config.hasResumeVision() : vision;
   const contentJson = JSON.stringify(content);
-  // Explicit instruction (Refine) is honored verbatim; otherwise each draft gets its own
-  // random style seed so best-of-N (and Regenerate) diverge in accent/font/layout.
+  // Explicit instruction (Refine) is honored verbatim; otherwise each draft picks a fresh
+  // catalog design system so best-of-N (and Regenerate) diverge in palette/font/layout.
   const steer = instruction ? `DESIGN INSTRUCTION:\n${String(instruction).slice(0, 400)}` : null;
+  // A one-page resume is ~2k output tokens; 4500 gives headroom AND keeps a Groq-fallback
+  // call (prompt + completion) under Groq's free 8k TPM. Override via RESUME_DESIGN_MAX_TOKENS.
+  const maxTokens = Number(process.env.RESUME_DESIGN_MAX_TOKENS) || 4500;
+  // Large free OpenRouter models can take >30s (the default) to author a full resume.
+  const designTimeoutMs = Number(process.env.RESUME_LLM_TIMEOUT_MS) || 120000;
 
-  // Best-of-N only earns its extra calls when vision can discriminate the drafts.
-  const proposerModels = useVision ? models.slice(0, 2) : models.slice(0, 1);
+  // Design candidates come from the resume provider (OpenRouter by default); a Groq
+  // gpt-oss-120b candidate is the last-resort fallback if that pool is exhausted.
+  const designCandidates = llm.resumeDesignCandidates();
+  const groqFallback = llm.groqDesignFallback();
 
-  const makeProposer = (model) => async () => {
-    const message = await llm.chat({
-      baseUrl, apiKey, model, temperature: 0.85, max_tokens: 4200,
-      messages: [
-        { role: 'system', content: designSystemPrompt() },
-        { role: 'user', content: `RESUME CONTENT (JSON):\n${contentJson}\n\n${steer || styleSeed()}` },
-      ],
-    });
-    const prepared = await prepareHtml(message.content || ''); // sanitize + inline fonts (security in-path)
-    return { ...prepared, model };
-  };
-
-  // The strongest model repairs the current candidate using the reviewer's fresh fixes.
-  const repair = async (candidate, feedback) => {
-    const message = await llm.chat({
-      baseUrl, apiKey, model: primary, temperature: 0.55, max_tokens: 4200,
-      messages: [
-        { role: 'system', content: agenticRepairPrompt() },
-        { role: 'user', content: `REVIEWER FEEDBACK:\n${feedback}\n\nCURRENT HTML:\n${(candidate.sanitized || '').slice(0, 16000)}` },
-      ],
-    });
-    return prepareHtml(message.content || '');
+  // Bind proposer + repair to a SPECIFIC candidate pool so a Groq retry repairs with Groq
+  // creds (not stale OpenRouter creds). proposers = first 1–2 candidates; repair = primary.
+  const buildPool = (candidates) => {
+    const primary = candidates[0];
+    const proposerCands = useVision ? candidates.slice(0, 2) : candidates.slice(0, 1);
+    const makeProposer = (cand) => async () => {
+      const message = await llm.chat({
+        baseUrl: cand.baseUrl, apiKey: cand.apiKey, model: cand.model, temperature: 0.85, max_tokens: maxTokens, timeoutMs: designTimeoutMs,
+        messages: [
+          { role: 'system', content: designSystemPrompt() },
+          { role: 'user', content: `RESUME CONTENT (JSON):\n${contentJson}\n\n${steer || designSystemSeedText(pickDesignSystem())}` },
+        ],
+      });
+      const prepared = await prepareHtml(message.content || ''); // sanitize + inline fonts (security in-path)
+      return { ...prepared, model: cand.model };
+    };
+    const repair = async (candidate, feedback) => {
+      const message = await llm.chat({
+        baseUrl: primary.baseUrl, apiKey: primary.apiKey, model: primary.model, temperature: 0.55, max_tokens: maxTokens, timeoutMs: designTimeoutMs,
+        messages: [
+          { role: 'system', content: agenticRepairPrompt() },
+          { role: 'user', content: `REVIEWER FEEDBACK:\n${feedback}\n\nCURRENT HTML:\n${(candidate.sanitized || '').slice(0, 16000)}` },
+        ],
+      });
+      return prepareHtml(message.content || '');
+    };
+    return { proposers: proposerCands.map(makeProposer), repair };
   };
 
   const verify = (candidate) => verifyDesign({ inlined: candidate.inlined, content, useVision });
+  const runLoop = (pool) => refineLoop({
+    proposers: pool.proposers, verify, repair: pool.repair,
+    maxN: useVision ? 5 : 3,
+    // Wall-clock budget so a slow provider can't make the (synchronous) request run
+    // away across 5 rounds. Override per deployment via RESUME_GEN_DEADLINE_MS.
+    deadlineMs: Number(process.env.RESUME_GEN_DEADLINE_MS) || 60000,
+  });
 
   let out;
+  let usedFallback = false;
   try {
-    out = await refineLoop({
-      proposers: proposerModels.map(makeProposer),
-      verify,
-      repair,
-      maxN: useVision ? 5 : 3,
-      // Wall-clock budget so a slow provider can't make the (synchronous) request run
-      // away across 5 rounds. Override per deployment via RESUME_GEN_DEADLINE_MS.
-      deadlineMs: Number(process.env.RESUME_GEN_DEADLINE_MS) || 60000,
-    });
+    out = await runLoop(buildPool(designCandidates));
   } catch (err) {
-    // Every proposer failed (e.g. 429 across all). Surface the provider status so the
-    // route/seeds can retry on a Groq rate limit, mirroring the old loop's behavior.
+    // Primary design pool exhausted (e.g. all OpenRouter candidates 429). Fall back to
+    // Groq ONCE before failing, so generation degrades instead of erroring.
     const status = err.status || err.cause?.status;
-    const e = new Error(`Resume design model failed: ${err.cause?.message || err.message}`);
-    e.statusCode = status === 429 ? 429 : 502; throw e;
+    const exhausted = status === 429 || /every proposer failed/i.test(err.message || '');
+    if (exhausted && groqFallback.apiKey) {
+      try {
+        out = await runLoop(buildPool([groqFallback]));
+        usedFallback = true;
+      } catch (err2) {
+        const s2 = err2.status || err2.cause?.status;
+        const e = new Error(`Resume design model failed (incl. Groq fallback): ${err2.cause?.message || err2.message}`);
+        e.statusCode = s2 === 429 ? 429 : 502; throw e;
+      }
+    } else {
+      const e = new Error(`Resume design model failed: ${err.cause?.message || err.message}`);
+      e.statusCode = status === 429 ? 429 : 502; throw e;
+    }
   }
 
   const { candidate, result, rounds } = out;
   const m = result.meta || {};
   const verified = Boolean(m.structuralOk);
+  const attempted = (usedFallback ? [groqFallback] : designCandidates).map((c) => c.model);
   const meta = {
-    model: candidate.model || primary,
-    models: proposerModels,
-    candidates: proposerModels.length,
+    model: candidate.model || attempted[0],
+    models: attempted,
+    candidates: useVision ? Math.min(2, attempted.length) : 1,
+    usedFallback,           // true only if the OpenRouter pool was exhausted and we fell back to Groq
     repairs: rounds,        // back-compat: rounds of repair applied
     rounds,
     verified,
@@ -317,7 +312,7 @@ async function contentFromProfile(profile = {}) {
     temperature: 0.4,
     max_tokens: 2500,
     messages: [
-      { role: 'system', content: 'You are an expert resume writer. From the candidate profile JSON, produce strong, recruiter-ready resume CONTENT (no design/HTML). Write a crisp professional summary and impactful bullet points, grouping skills where natural. NEVER invent employers, degrees, schools, dates, metrics, or links not supported by the profile — leave unknown fields empty. Return ONLY a JSON object with keys: personalInfo {fullName,email,phone,location,linkedin,github,portfolio,summary}, education [{institution,degree,field,startDate,endDate,gpa}], experience [{company,position,startDate,endDate,current,description}], skills [string], projects [{name,description,technologies,link}], achievements [string], positionsOfResponsibility [string], certifications [{name,issuer,date}], languages [string], hobbies [string], cgpa, tenthPercent, twelfthPercent, registerNumber.' },
+      { role: 'system', content: 'You are an expert resume writer. From the candidate profile JSON, produce strong, recruiter-ready resume CONTENT (no design/HTML). Write a crisp, specific professional summary and impactful, STAR-shaped bullet points led by strong action verbs; group skills into Languages / Frameworks / Tools where natural. NEVER invent employers, degrees, schools, dates, metrics, or links not supported by the profile — leave unknown fields empty. Return ONLY a JSON object with keys: personalInfo {fullName,email,phone,location,linkedin,github,portfolio,summary}, education [{institution,degree,field,startDate,endDate,gpa}], experience [{company,position,startDate,endDate,current,description}], skills [string], projects [{name,description,technologies,link}], achievements [string], positionsOfResponsibility [string], certifications [{name,issuer,date}], languages [string], hobbies [string], cgpa, tenthPercent, twelfthPercent, registerNumber.' },
       { role: 'user', content: `CANDIDATE PROFILE:\n${JSON.stringify(profile || {}, null, 2)}` },
     ],
   });
@@ -389,7 +384,8 @@ async function expandProjectContent(collected = {}) {
     messages: [
       { role: 'system', content: [
         'You strengthen the PROJECTS section of a student resume. You are given their projects (name, a short brief, technologies) plus their skills and interests as JSON.',
-        'For EACH project, rewrite `description` into a concrete 2–3 sentence brief covering: the problem it solves, what they built, the tech stack used, and their role/impact.',
+        'For EACH project, rewrite `description` into a concrete 2–3 sentence brief in STAR shape: the problem/context, what they built and the key technical decisions, the tech stack used, and the outcome or impact. Open with a strong action verb.',
+        'Prefer specific, concrete phrasing over generic claims ("built a real-time sync engine using WebSockets" beats "worked on a web app"). State a number/metric ONLY if it already appears in the input — never fabricate one; when no metric exists, describe the impact qualitatively.',
         'HARD RULES:',
         '- Use ONLY the information given. NEVER invent employers, companies, teammates, dates, awards, user counts, percentages, or any metric/number not already present.',
         '- Keep each project\'s EXACT `name` unchanged (do not rename, merge, or drop projects, and do not add new ones).',
@@ -449,7 +445,7 @@ async function summaryFromContent(content = {}) {
       temperature: 0.4,
       max_tokens: 220,
       messages: [
-        { role: 'system', content: 'You write the professional-summary line of a resume. Given the candidate\'s structured resume content (JSON), return ONLY a single plain-text summary of 2–3 sentences (no heading, no quotes, no markdown). Ground it strictly in the provided content — never invent employers, degrees, metrics, or skills not present. Lead with their field/role focus, then strengths shown by their projects and skills.' },
+        { role: 'system', content: 'You write the professional-summary line of a resume. Given the candidate\'s structured resume content (JSON), return ONLY a single plain-text summary of 2–3 sentences (no heading, no quotes, no markdown). Lead with their field/role focus, name their strongest and most relevant technologies and the domain shown by their best projects, and close with the value they bring. Be specific and confident, not generic. Ground it STRICTLY in the provided content — never invent employers, degrees, metrics, or skills not present.' },
         { role: 'user', content: `RESUME CONTENT (JSON):\n${JSON.stringify(content)}` },
       ],
     });

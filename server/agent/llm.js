@@ -55,7 +55,7 @@ function headers(apiKey, baseUrl) {
  * @param {number} [params.max_tokens]
  * @param {string|object} [params.tool_choice]
  */
-async function chat({ messages, tools, model, temperature = 0.3, max_tokens = 1500, tool_choice, baseUrl, apiKey, response_format }) {
+async function chat({ messages, tools, model, temperature = 0.3, max_tokens = 1500, tool_choice, baseUrl, apiKey, response_format, timeoutMs }) {
   const body = { model: model || ORCHESTRATOR_MODEL(), messages, temperature, max_tokens };
   if (tools && tools.length) {
     body.tools = tools;
@@ -68,7 +68,9 @@ async function chat({ messages, tools, model, temperature = 0.3, max_tokens = 15
   // turn (the old code awaited fetch with no deadline). Covers both the request and
   // the response-body read.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS());
+  // Per-call timeout override (resume design uses a longer one — large free models on
+  // OpenRouter can take well over the 30s default to author a full HTML resume).
+  const timer = setTimeout(() => controller.abort(), timeoutMs || TIMEOUT_MS());
 
   let res, text;
   try {
@@ -253,9 +255,27 @@ function fastPool(tier = 'gen') {
   return out;
 }
 
-/** PII pool: Groq only (privacy-safe). Uses the resume creds, which fall back to GROQ. */
+/** PII-safe pool: Groq only, with explicit Groq creds (independent of RESUME_LLM_* base,
+ *  which may now point at OpenRouter). Keeps the legacy /generate + /cover-letter paths on
+ *  Groq model ids instead of sending them to a different provider. */
 function piiPool(tier = 'gen') {
-  return [{ provider: 'groq', baseUrl: config.resumeLlmBaseUrl(), apiKey: config.resumeLlmApiKey(), model: PROVIDER_MODELS.groq[tier] }];
+  return [groqCandidate(tier)];
+}
+
+/** Resume design candidates — one per configured design slug, on the resume provider creds
+ *  (RESUME_LLM_*; OpenRouter by default now). best-of-N drafts across the first 1–2 of these. */
+function resumeDesignCandidates() {
+  const base = config.resumeLlmBaseUrl();
+  const apiKey = config.resumeLlmApiKey();
+  const provider = /openrouter\.ai/i.test(base) ? 'openrouter' : (base ? 'custom' : 'groq');
+  return config.resumeDesignModels().map((model) => ({ provider, baseUrl: base, apiKey, model }));
+}
+
+/** Last-resort design proposer on Groq's top free model — used only if the primary design
+ *  pool is exhausted (e.g. all OpenRouter candidates 429). Always available when a Groq key
+ *  is set. (NB: Groq's free TPM cap may reject a very large exemplar prompt; best-effort.) */
+function groqDesignFallback() {
+  return { provider: 'groq', baseUrl: '', apiKey: config.groqApiKey() || config.llmApiKey(), model: 'openai/gpt-oss-120b' };
 }
 
 /**
@@ -292,5 +312,6 @@ async function chatWithFailover({ pool, meta, ...params }) {
 
 module.exports = {
   chat, chatStream, chatWithFailover, fastPool, piiPool, PROVIDER_MODELS,
+  resumeDesignCandidates, groqDesignFallback,
   ORCHESTRATOR_MODEL, GEN_MODEL, FAST_MODEL,
 };

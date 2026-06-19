@@ -12,5 +12,8 @@ dist/
 # Runtime file-storage (local STORAGE_DRIVER) — uploaded files are not source
 server/uploads/
 
+# Throwaway resume-quality baseline/after renders (not source)
+server/tmp/
+
 # Playwright MCP test artifacts
 .playwright-mcp/

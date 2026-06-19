@@ -65,9 +65,10 @@ const SCHEMA = {
   RESUME_LLM_BASE_URL: { default: '' },
   RESUME_LLM_API_KEY: { default: '', secret: true },
   RESUME_DESIGN_MODEL: { default: 'openai/gpt-oss-120b' },
-  // Best-of-N design pool (comma-separated). All must be PII-safe (Groq). When unset,
-  // defaults to gpt-oss-120b + kimi-k2 + llama-3.3-70b. The loop drafts across the first
-  // 2 (when vision is on) and repairs with the first (primary).
+  // Best-of-N design pool (comma-separated). When unset, defaults to gpt-oss-120b +
+  // gpt-oss-20b + llama-3.3-70b (all LIVE on Groq — kimi-k2 was deprecated 2026-03-23 and
+  // would collapse best-of-N). The loop drafts across the first 2 (when vision is on) and
+  // repairs with the first (primary).
   RESUME_DESIGN_MODELS: { default: '' },
   RESUME_CONTENT_MODEL: { default: 'llama-3.3-70b-versatile' },
   // Multimodal critic for the resume design self-critique loop. Defaults to Groq's
@@ -188,22 +189,32 @@ const config = Object.freeze({
   // Resume generator provider/models (swappable; fall back to LLM_*/GROQ_API_KEY).
   hasResumeLlm: () => Boolean(process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY),
   resumeLlmBaseUrl: () => process.env.RESUME_LLM_BASE_URL || process.env.LLM_BASE_URL || '',
-  resumeLlmApiKey: () => process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY || '',
+  resumeLlmApiKey: () => process.env.RESUME_LLM_API_KEY
+    || (/openrouter\.ai/i.test(process.env.RESUME_LLM_BASE_URL || '') ? process.env.OPENROUTER_API_KEY : '')
+    || process.env.LLM_API_KEY || process.env.GROQ_API_KEY || '',
   resumeDesignModel: () => process.env.RESUME_DESIGN_MODEL || 'openai/gpt-oss-120b',
   // Ordered best-of-N design pool (PII-safe / Groq). First entry = primary + repairer.
   resumeDesignModels: () => {
     const csv = (process.env.RESUME_DESIGN_MODELS || '').split(',').map((s) => s.trim()).filter(Boolean);
     if (csv.length) return csv;
     const primary = process.env.RESUME_DESIGN_MODEL || 'openai/gpt-oss-120b';
-    return [primary, 'moonshotai/kimi-k2-instruct', 'llama-3.3-70b-versatile'];
+    return [primary, 'openai/gpt-oss-20b', 'llama-3.3-70b-versatile'];
   },
   resumeContentModel: () => process.env.RESUME_CONTENT_MODEL || 'llama-3.3-70b-versatile',
   // Vision critic for the resume design loop. hasResumeVision() gates the loop on
   // BOTH a model id and a usable resume LLM key (the critic reuses the resume creds).
   resumeVisionModel: () => process.env.RESUME_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct',
+  // Vision critic creds, resolved INDEPENDENTLY of the design provider so the critic can
+  // stay on reliable Groq (a critic 429 makes verifyDesign ship ungated generic) even when
+  // design drafts on OpenRouter. Default to the resume creds when RESUME_VISION_* unset.
+  resumeVisionBaseUrl: () => process.env.RESUME_VISION_BASE_URL || process.env.RESUME_LLM_BASE_URL || process.env.LLM_BASE_URL || '',
+  resumeVisionApiKey: () => process.env.RESUME_VISION_API_KEY
+    || (/api\.groq\.com/i.test(process.env.RESUME_VISION_BASE_URL || '') ? process.env.GROQ_API_KEY : '')
+    || (/openrouter\.ai/i.test(process.env.RESUME_VISION_BASE_URL || '') ? process.env.OPENROUTER_API_KEY : '')
+    || process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY || '',
   hasResumeVision: () => Boolean(
     (process.env.RESUME_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct')
-    && (process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY),
+    && (process.env.RESUME_VISION_API_KEY || process.env.RESUME_LLM_API_KEY || process.env.LLM_API_KEY || process.env.GROQ_API_KEY),
   ),
   hasGemini: () => Boolean(process.env.GEMINI_API_KEY),
   hasTavily: () => Boolean(process.env.TAVILY_API_KEY),
