@@ -14,10 +14,12 @@
 require('dotenv').config();
 
 // Apply the Phase-2 resume config in-process (mirrors the server/.env block).
-process.env.RESUME_LLM_BASE_URL = 'https://openrouter.ai/api/v1';
-process.env.RESUME_LLM_API_KEY = process.env.OPENROUTER_API_KEY;
-process.env.RESUME_DESIGN_MODELS = 'openai/gpt-oss-120b:free,cohere/north-mini-code:free';
-process.env.RESUME_CONTENT_MODEL = 'openai/gpt-oss-120b:free';
+// Hugging Face router: the best open coders — Kimi-K2.7-Code (renowned for frontend)
+// + Qwen3-Coder-Next (fast, latest Qwen coder). Best-of-N across the two.
+process.env.RESUME_LLM_BASE_URL = 'https://router.huggingface.co/v1';
+process.env.RESUME_LLM_API_KEY = process.env.HF_TOKEN;
+process.env.RESUME_DESIGN_MODELS = 'moonshotai/Kimi-K2.7-Code,Qwen/Qwen3-Coder-Next';
+process.env.RESUME_CONTENT_MODEL = 'Qwen/Qwen3-Coder-Next';
 process.env.RESUME_DESIGN_MAX_TOKENS = process.env.RESUME_DESIGN_MAX_TOKENS || '4500';
 process.env.RESUME_LLM_TIMEOUT_MS = process.env.RESUME_LLM_TIMEOUT_MS || '120000';
 process.env.RESUME_GEN_DEADLINE_MS = process.env.RESUME_GEN_DEADLINE_MS || '180000';

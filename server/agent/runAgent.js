@@ -14,6 +14,7 @@
 // Imported as a namespace (not destructured) so `llm.chat` resolves at call time
 // — keeps the loop testable (stub llm.chat) and lets llm.js evolve freely.
 const llm = require('./llm');
+const { config } = require('../config/env');
 const { randomUUID } = require('crypto');
 const { TOOLS, toolDefinitionsForRole } = require('./tools');
 
@@ -69,13 +70,31 @@ function failedGenerationOf(err) {
     || (typeof err?.message === 'string' && /failed_generation/.test(err.message) ? err.message : '');
 }
 
-// One LLM turn that tolerates the malformed-tool-call failure mode.
+// Copilot model/provider (best free tool-capable model; e.g. Cerebras zai-glm-4.7) and the
+// reliable Groq fallback used when the primary provider hard-fails. Resolved per call so env
+// changes take effect without a restart.
+const copilotCreds = () => ({ baseUrl: config.copilotBaseUrl(), apiKey: config.copilotApiKey(), model: config.copilotModel(), timeoutMs: 60000 });
+const groqFallback = () => ({ baseUrl: '', apiKey: config.groqApiKey() || config.llmApiKey(), model: 'llama-3.3-70b-versatile', timeoutMs: 60000 });
+
+// One LLM turn that tolerates the malformed-tool-call failure mode AND a hard provider
+// error (retries once on reliable Groq llama-3.3-70b — correctness of tool execution beats
+// a model bump).
 async function chatResilient(params) {
   try {
     return await llm.chat(params);
   } catch (err) {
     const salvaged = salvageToolCalls(failedGenerationOf(err));
     if (salvaged.length) return { role: 'assistant', content: '', tool_calls: salvaged };
+    const fb = groqFallback();
+    if (params.model !== fb.model && fb.apiKey) {
+      try {
+        return await llm.chat({ ...params, ...fb });
+      } catch (err2) {
+        const s2 = salvageToolCalls(failedGenerationOf(err2));
+        if (s2.length) return { role: 'assistant', content: '', tool_calls: s2 };
+        throw err2;
+      }
+    }
     throw err;
   }
 }
@@ -182,7 +201,7 @@ async function runAgent({ messages, userId, role }) {
   const toolsUsed = [];
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const message = await chatResilient({ messages: convo, tools });
+    const message = await chatResilient({ ...copilotCreds(), messages: convo, tools });
 
     // Recover tool calls a model emitted as plain text rather than structured calls.
     let calls = message.tool_calls || [];
@@ -201,7 +220,7 @@ async function runAgent({ messages, userId, role }) {
   }
 
   // Hit the iteration cap — ask the model for a final answer with no more tools.
-  const finalMsg = await chatResilient({ messages: convo });
+  const finalMsg = await chatResilient({ ...copilotCreds(), messages: convo });
   return { reply: finalMsg.content || '', proposedActions, toolsUsed };
 }
 
@@ -236,15 +255,23 @@ async function runAgentStream({ messages, userId, role, onEvent }) {
     let message;
     try {
       message = await llm.chatStream({
+        ...copilotCreds(),
         messages: convo,
         tools,
         onToken: (t) => { tokenEmitted = true; emit({ type: 'token', delta: t }); },
       });
     } catch (err) {
-      // Same malformed-tool-call salvage as the non-stream path (content arm).
+      // Salvage a malformed tool call; else fall back to reliable Groq once (only if the
+      // primary hadn't already streamed tokens, to avoid double-emitting).
       const salvaged = salvageToolCalls(failedGenerationOf(err));
-      if (salvaged.length) message = { role: 'assistant', content: '', tool_calls: salvaged };
-      else throw err;
+      if (salvaged.length) {
+        message = { role: 'assistant', content: '', tool_calls: salvaged };
+      } else {
+        const fb = groqFallback();
+        if (!tokenEmitted && copilotCreds().model !== fb.model && fb.apiKey) {
+          message = await llm.chatStream({ ...fb, messages: convo, tools, onToken: (t) => { tokenEmitted = true; emit({ type: 'token', delta: t }); } });
+        } else throw err;
+      }
     }
 
     let calls = message.tool_calls || [];
@@ -273,6 +300,7 @@ async function runAgentStream({ messages, userId, role, onEvent }) {
   // Iteration cap — final answer with no tools, still streamed.
   let finalEmitted = false;
   const finalMsg = await llm.chatStream({
+    ...copilotCreds(),
     messages: convo,
     onToken: (t) => { finalEmitted = true; emit({ type: 'token', delta: t }); },
   });
