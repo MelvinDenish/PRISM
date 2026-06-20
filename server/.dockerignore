@@ -1,0 +1,20 @@
+# Build context exclusions for server/Dockerfile.
+# node_modules and .cache are produced INSIDE the image (npm ci + Puppeteer's
+# Chromium download) — never copy host copies over them.
+node_modules
+.cache
+npm-debug.log*
+
+# Secrets & local state must never enter the image.
+.env
+.env.*
+!.env.example
+uploads
+tmp
+
+# Dev-only repro scripts and VCS.
+_repro_*.js
+.git
+.gitignore
+Dockerfile
+.dockerignore
