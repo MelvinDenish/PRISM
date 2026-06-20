@@ -1,0 +1,18 @@
+# Caddy reverse proxy for the PRISM backend (Part A of the AWS deploy plan).
+#
+# Terminates TLS (automatic Let's Encrypt) on the public domain and proxies to the
+# Node app. reverse_proxy transparently upgrades WebSocket (Socket.IO over WSS) —
+# no extra config needed. This is what makes the HTTPS frontend able to reach the
+# backend (browsers block ws:// / http:// from an https:// page).
+#
+# BACKEND_DOMAIN and ACME_EMAIL are injected from deploy/.env via the caddy service
+# (see docker-compose.deploy.yml). Certs persist in the caddy_data volume.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$BACKEND_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:5000
+}

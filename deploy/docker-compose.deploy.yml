@@ -1,0 +1,67 @@
+# PRISM production stack for a single AWS box (Lightsail 4GB / EC2 t4g.medium).
+# Part A of docs/deployment/2026-06-20-aws-deployment-plan.md.
+#
+#   cd deploy
+#   docker compose -f docker-compose.deploy.yml up -d --build
+#
+# Prerequisites (see deploy/README.aws.md):
+#   • Docker + Docker Compose v2.20+ (the `include:` below needs 2.20+)
+#   • Host kernel on cgroup v1 for Judge0's `isolate` (privileged containers)
+#   • server/.env   — backend config (copy from deploy/server.env.production.example)
+#   • deploy/.env   — BACKEND_DOMAIN + ACME_EMAIL for Caddy TLS
+#
+# Stack: Caddy (TLS/WSS) → app (Node + Chromium) ; self-hosted Judge0 (code-exec).
+name: prism
+
+include:
+  # Self-hosted Judge0 CE — judge0-server, judge0-workers (both privileged),
+  # db (Postgres), redis. Merged into this project's default network so `app`
+  # reaches it at http://judge0-server:2358 (set JUDGE0_API_URL accordingly).
+  - ../judge0-docker-compose.yml
+
+services:
+  app:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    image: prism-app:latest
+    container_name: prism-app
+    restart: unless-stopped
+    # Mount server/.env and let the app's own dotenv (config/env.js) parse it.
+    # NOT `env_file:` — Compose's env_file parser is stricter than dotenv and
+    # rejects values/inline-comments the app accepts. Create server/.env BEFORE
+    # `up` (a missing source would mount as an empty dir → server exits).
+    volumes:
+      - ../server/.env:/app/.env:ro
+    expose:
+      - "5000"
+    depends_on:
+      - judge0-server
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:5000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  caddy:
+    image: caddy:2
+    container_name: prism-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    environment:
+      - BACKEND_DOMAIN=${BACKEND_DOMAIN:?set BACKEND_DOMAIN in deploy/.env}
+      - ACME_EMAIL=${ACME_EMAIL:?set ACME_EMAIL in deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:
