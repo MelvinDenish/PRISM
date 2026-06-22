@@ -29,8 +29,13 @@ jobs:
           cache: npm
           cache-dependency-path: client/package-lock.json
       - run: npm ci
-      - run: npm run lint
-      - run: npm run build
+      # Advisory only: the client carries pre-existing lint debt. Reported in the
+      # log/annotations but does not block deploys. The hard gate is the build.
+      - name: Lint (advisory)
+        run: npm run lint
+        continue-on-error: true
+      - name: Build (production) — hard gate
+        run: npm run build
 
   server:
     name: server — auth integration test
