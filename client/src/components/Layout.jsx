@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
-import AuroraBackground from './AuroraBackground';
+import RefractedAscent from './RefractedAscent';
 import PageTransition from './motion/PageTransition';
 import { FiMenu, FiChevronsLeft, FiChevronsRight } from 'react-icons/fi';
 
@@ -22,7 +22,7 @@ const Layout = () => {
 
     return (
         <div style={{ display: 'flex', minHeight: '100vh' }}>
-            <AuroraBackground variant="app" />
+            <RefractedAscent variant="app" />
 
             {/* Mobile overlay */}
             {sidebarOpen && (
