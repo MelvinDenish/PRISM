@@ -36,7 +36,7 @@ const AuthLayout = ({ children }) => {
     return (
         <div className="auth-shell">
             <aside className="auth-aside">
-                <RefractedAscent variant="hero" />
+                <RefractedAscent variant="hero" dark />
                 <div className="auth-aside-inner">
                     <div className="auth-aside-brand">
                         <BrandMark size={46} />

@@ -52,69 +52,78 @@ void main(){
   vec2 uv = gl_FragCoord.xy / res;                 // 0..1
   vec2 p  = (gl_FragCoord.xy - 0.5 * res) / res.y; // aspect-correct, center 0
 
-  float t = u_time * 0.06;
+  float t = u_time * 0.05;
   vec2  par = u_mouse * 0.06 * u_parallax;
   float climb = uv.y;
   float focalX = u_mouse.x * 0.04 * u_parallax;
+
+  // base vertical wash — always tinted off pure black so it never reads dead:
+  // warm at the foot (potential), a hint cooler toward the top (the goal).
+  vec3 baseLow = mix(u_bg, u_amber, 0.10);
+  vec3 baseTop = mix(u_bg, u_cool, 0.045);
+  vec3 col = mix(baseLow, baseTop, smoothstep(-0.1, 1.0, uv.y));
 
   // three rising depth layers, leaning toward the focal column as they climb
   float light = 0.0, spectrum = 0.0;
   for (int i = 0; i < 3; i++){
     float fi = float(i);
-    float depth = 0.5 + fi * 0.5;
-    float speed = 0.4 + fi * 0.35;
-    vec2 q = p + par * (0.4 + fi * 0.5);
-    q.x = mix(q.x, focalX, climb * 0.45);
-    vec2 fp = q * vec2(1.6, 1.1) * depth;
+    float depth = 0.6 + fi * 0.55;
+    float speed = 0.5 + fi * 0.4;
+    vec2 q = p + par * (0.4 + fi * 0.6);
+    q.x = mix(q.x, focalX, climb * 0.5);
+    vec2 fp = q * vec2(1.5, 1.05) * depth;
     fp.y += t * speed * 3.0 + u_scroll * 1.5;
     float n = fbm(fp + fbm(fp * 0.5 + t));
-    float stream = smoothstep(0.45, 0.95, n);
-    float w = 1.0 / (1.0 + fi * 0.6);
+    float stream = smoothstep(0.38, 0.92, n);
+    float w = 1.0 / (1.0 + fi * 0.55);
     light += stream * w;
     spectrum += n * w;
   }
-  light /= 2.0;
+  light /= 1.9;
 
   // beam of potential entering at the bottom-center
-  float beam = smoothstep(0.18, 0.0, abs(p.x - focalX))
-             * smoothstep(1.0, 0.0, uv.y)
-             * smoothstep(0.0, 0.25, uv.y);
+  float beam = smoothstep(0.15, 0.0, abs(p.x - focalX))
+             * smoothstep(0.95, 0.05, uv.y)
+             * smoothstep(0.0, 0.22, uv.y);
   light += beam * 0.5;
 
-  // dispersion: spectral color across the horizontal axis + noise
-  float s = clamp(p.x * 0.8 + spectrum * 0.5 + 0.5, 0.0, 1.0);
-  vec3 spec = mix(u_gold, u_amber, smoothstep(0.0, 0.5, s));
-  spec = mix(spec, u_cool, smoothstep(0.5, 1.0, s));
-  spec = mix(spec, u_potential, beam * 0.6);
+  // dispersion: warm-dominant spectrum; cool appears only at the far edge
+  float s = clamp(p.x * 0.55 + spectrum * 0.4 + 0.42, 0.0, 1.0);
+  vec3 spec = mix(u_gold, u_amber, smoothstep(0.0, 0.45, s));
+  spec = mix(spec, u_cool, smoothstep(0.74, 1.0, s));
+  spec = mix(spec, u_potential, beam * 0.55);
 
-  // bloom focal point near the top-center (the goal), slow pulse
-  vec2 focal = vec2(focalX, 0.30);
-  float fd = length((p - focal) * vec2(1.0, 1.3));
-  float pulse = 0.85 + 0.15 * sin(u_time * 0.6);
-  float bloom = smoothstep(0.6, 0.0, fd) * pulse;
-  light += bloom * 0.7;
-  spec = mix(spec, u_potential, bloom * 0.4);
+  // bloom focal point (the goal) — compact, set high and off the text column
+  vec2 focal = vec2(focalX + 0.16, 0.44);
+  float fd = length((p - focal) * vec2(1.0, 1.25));
+  float pulse = 0.82 + 0.18 * sin(u_time * 0.5);
+  float bloom = smoothstep(0.38, 0.0, fd) * pulse;
+  light += bloom * 0.5;
+  spec = mix(spec, u_potential, bloom * 0.35);
 
-  // rising motes
+  // rising motes — small, sparse spectral particles
   float motes = 0.0;
   if (u_motes > 0.01){
-    vec2 mp = p * vec2(8.0, 6.0);
-    mp.y += t * 6.0;
+    vec2 mp = p * vec2(7.0, 5.5);
+    mp.y += t * 5.0;
     vec2 gid = floor(mp), gf = fract(mp) - 0.5;
     float h = hash(gid);
     float tw = 0.5 + 0.5 * sin(u_time * 2.0 + h * 30.0);
-    motes = smoothstep(0.12, 0.0, length(gf)) * step(0.82, h) * tw;
+    motes = smoothstep(0.07, 0.0, length(gf)) * step(0.86, h) * tw;
   }
-  light += motes * u_motes * 0.8;
+  light += motes * u_motes * 0.7;
 
-  // compose: lift the base background toward the spectrum by accumulated light
-  vec3 col = mix(u_bg, spec, clamp(light, 0.0, 1.0));
-  col += spec * light * 0.4;                 // additive glow
-  col = mix(u_bg, col, u_intensity);          // master intensity
+  // compose: spectral light added over the tinted base
+  col += spec * light * 0.85;
 
-  float vig = smoothstep(1.2, 0.2, length(p));
-  col *= 0.85 + 0.15 * vig;
+  // gentle Reinhard-ish tonemap lifts midtones for a richer, cinematic read
+  col = col / (col + vec3(0.85)) * 1.35;
 
+  // soft elliptical vignette to frame the ascent
+  float vig = smoothstep(1.3, 0.25, length(vec2(p.x * 0.85, p.y)));
+  col *= 0.82 + 0.18 * vig;
+
+  col = mix(u_bg, col, u_intensity);          // master intensity (variant)
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -163,7 +172,18 @@ function hexToRgb(hex, fallback) {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
 
-function readPalette() {
+// Fixed dark brand palette for surfaces that stay dark regardless of theme
+// (the auth aside is a dark brand panel even in light mode).
+const DARK_PALETTE = {
+  bg: [0.043, 0.039, 0.031], // ~#0B0A08
+  gold: [0.788, 0.635, 0.294], // #C9A24B
+  amber: [0.886, 0.408, 0.165], // #E2682A
+  cool: [0.18, 0.43, 0.45], // derived cool spectral end
+  potential: [1.0, 0.97, 0.9],
+};
+
+function readPalette(forceDark) {
+  if (forceDark) return DARK_PALETTE;
   const cs = getComputedStyle(document.documentElement);
   const v = (name, fb) => hexToRgb(cs.getPropertyValue(name), fb);
   return {
@@ -175,7 +195,7 @@ function readPalette() {
   };
 }
 
-const RefractedAscent = ({ variant = 'app' }) => {
+const RefractedAscent = ({ variant = 'app', dark = false }) => {
   const rootRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -228,9 +248,11 @@ const RefractedAscent = ({ variant = 'app' }) => {
 
     const cfg = VARIANTS[variant] || VARIANTS.app;
 
-    let palette = readPalette();
-    const themeObserver = new MutationObserver(() => { palette = readPalette(); });
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    let palette = readPalette(dark);
+    const themeObserver = new MutationObserver(() => { palette = readPalette(dark); });
+    if (!dark) {
+      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    }
 
     // Parallax input (hero only).
     const targetIn = { mx: 0, my: 0, scroll: 0 };
@@ -322,7 +344,7 @@ const RefractedAscent = ({ variant = 'app' }) => {
       gl.deleteBuffer(buf);
       gl.deleteProgram(program);
     };
-  }, [variant]);
+  }, [variant, dark]);
 
   return (
     <div ref={rootRef} className={`refracted-ascent refracted-ascent--${variant}`} aria-hidden="true">

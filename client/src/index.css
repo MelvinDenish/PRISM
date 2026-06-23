@@ -629,8 +629,24 @@ tr:hover td { background: var(--bg-card-hover); }
   display: flex;
   align-items: center;
 }
-/* keep the aside legible regardless of theme (it's a dark brand panel) */
-.auth-aside .aurora { z-index: 0; }
+/* keep the aside legible regardless of theme (it's a dark brand panel).
+   The Refracted Ascent shader fills the aside (absolute, clipped by the
+   aside's overflow:hidden) as its cinematic backdrop — above the gradient
+   fallback, below the .auth-aside-inner content (z-index:1). */
+.auth-aside .refracted-ascent { position: absolute; z-index: 0; }
+/* Legibility scrim: darkens the text-bearing left/bottom of the aside so the
+   shader stays vivid on the right while the headline reads cleanly. Paints
+   above the shader (z:0, later in DOM) and below .auth-aside-inner (z:1). */
+.auth-aside::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(8, 7, 5, 0.82) 0%, rgba(8, 7, 5, 0.45) 32%, rgba(8, 7, 5, 0.04) 64%, transparent 100%),
+    linear-gradient(0deg, rgba(8, 7, 5, 0.55) 0%, transparent 42%);
+}
 .auth-aside-inner {
   position: relative; z-index: 1;
   padding: clamp(40px, 5vw, 80px);
