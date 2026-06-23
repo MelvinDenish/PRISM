@@ -20,7 +20,9 @@ module.exports = {
   driver,
   saveFile: impl.saveFile,
   deleteFile: impl.deleteFile,
-  // Optional read seam (local driver only for now; undefined under s3 — callers
-  // that need bytes there fall back to fetching the file's public URL).
+  // Read bytes by key (both drivers implement this).
   readFile: impl.readFile,
+  // Mint a short-lived presigned GET URL (s3 driver only; undefined for local,
+  // whose files are served directly by express.static at /uploads).
+  getSignedReadUrl: impl.getSignedReadUrl,
 };
