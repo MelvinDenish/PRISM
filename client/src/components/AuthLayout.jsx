@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { FiUsers, FiPlay, FiFileText, FiTrendingUp } from 'react-icons/fi';
 import { BrandMark } from './Brand';
-import AuroraBackground from './AuroraBackground';
+import RefractedAscent from './RefractedAscent';
 
 const ROTATING = [
     { icon: <FiUsers />, text: 'Get matched with mentors who landed the roles you want.' },
@@ -36,7 +36,7 @@ const AuthLayout = ({ children }) => {
     return (
         <div className="auth-shell">
             <aside className="auth-aside">
-                <AuroraBackground variant="hero" />
+                <RefractedAscent variant="hero" />
                 <div className="auth-aside-inner">
                     <div className="auth-aside-brand">
                         <BrandMark size={46} />

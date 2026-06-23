@@ -1,14 +1,14 @@
 import { useNavigate } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import { FiCompass, FiArrowLeft } from 'react-icons/fi';
-import AuroraBackground from '../components/AuroraBackground';
+import RefractedAscent from '../components/RefractedAscent';
 
 const NotFound = () => {
     const navigate = useNavigate();
     const reduce = useReducedMotion();
     return (
         <div style={{ position: 'relative', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-            <AuroraBackground variant="hero" />
+            <RefractedAscent variant="hero" />
             <motion.div
                 style={{ textAlign: 'center', position: 'relative', zIndex: 1, padding: 24 }}
                 initial={reduce ? false : { opacity: 0, y: 16 }}

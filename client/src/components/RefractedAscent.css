@@ -1,0 +1,34 @@
+/* Refracted Ascent — WebGL background with a static CSS fallback.
+   z-index:-1 keeps it behind content WITHOUT trapping fixed modals. */
+.refracted-ascent {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  contain: strict;
+  /* Static fallback: a baked "refracted ascent" gradient (warm -> cool, rising). */
+  background:
+    radial-gradient(60% 50% at 50% 8%, rgba(201, 162, 75, 0.30), transparent 70%),
+    radial-gradient(70% 60% at 30% 90%, rgba(226, 104, 42, 0.22), transparent 72%),
+    radial-gradient(80% 70% at 75% 80%, rgba(46, 110, 115, 0.16), transparent 74%),
+    var(--bg-primary, #0E0E11);
+}
+.refracted-ascent__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* app variant: quieter so dense content stays readable */
+.refracted-ascent--app .refracted-ascent__canvas { opacity: 0.5; }
+.refracted-ascent--hero .refracted-ascent__canvas { opacity: 1; }
+/* When WebGL is unavailable the canvas is hidden and the gradient above shows. */
+.refracted-ascent.is-fallback .refracted-ascent__canvas { display: none; }
+.refracted-ascent--app.is-fallback { opacity: 0.5; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* JS already skips the loop; this guards against any canvas paint flash. */
+  .refracted-ascent__canvas { display: none; }
+}
