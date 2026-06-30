@@ -117,10 +117,17 @@ jobs:
       - run: npm ci
       # Bake the backend URLs into the static build (VITE_* are inlined at build time).
       - name: Build (production, pointed at the backend)
+        env:
+          # PostHog project API key is public (safe to inline in the bundle), so a
+          # repo Variable is fine. Unset -> empty -> analytics no-ops (graceful).
+          VITE_POSTHOG_KEY: ${{ vars.VITE_POSTHOG_KEY }}
+          VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
         run: |
-          cat > .env.production <<'EOF'
+          cat > .env.production <<EOF
           VITE_API_URL=https://prism-project.duckdns.org/api
           VITE_SOCKET_URL=https://prism-project.duckdns.org
+          VITE_POSTHOG_KEY=${VITE_POSTHOG_KEY}
+          VITE_POSTHOG_HOST=${VITE_POSTHOG_HOST}
           EOF
           npm run build
       - name: Sync to S3

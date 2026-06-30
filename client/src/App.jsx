@@ -1,6 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { useEffect } from 'react';
 import { MotionConfig } from 'framer-motion';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { trackPageview } from './utils/analytics';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -36,6 +38,16 @@ import Assistant from './pages/Assistant';
 import Artifacts from './pages/Artifacts';
 import './index.css';
 
+// Fires a PostHog $pageview on every client-side navigation (and the first load).
+// No-ops when analytics is disabled. Must live inside <BrowserRouter>.
+const PageviewTracker = () => {
+  const location = useLocation();
+  useEffect(() => {
+    trackPageview(location.pathname + location.search);
+  }, [location.pathname, location.search]);
+  return null;
+};
+
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <div className="page"><div className="spinner" /></div>;
@@ -63,6 +75,7 @@ const App = () => {
     <AuthProvider>
       <MotionConfig reducedMotion="user">
       <BrowserRouter>
+        <PageviewTracker />
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
