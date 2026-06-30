@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { loginUser, registerUser, getMe } from '../services/api';
 import { applyUserTheme } from '../utils/theme';
+import { identifyUser, trackEvent, resetAnalytics } from '../utils/analytics';
 import { io } from 'socket.io-client';
 
 const AuthContext = createContext(null);
@@ -36,6 +37,7 @@ export const AuthProvider = ({ children }) => {
             getMe()
                 .then((res) => {
                     setUser(res.data.user);
+                    identifyUser(res.data.user);
                     registerSocket(res.data.user);
                 })
                 .catch(() => localStorage.removeItem('prism_token'))
@@ -52,6 +54,8 @@ export const AuthProvider = ({ children }) => {
             const res = await loginUser({ email, password });
             localStorage.setItem('prism_token', res.data.token);
             setUser(res.data.user);
+            identifyUser(res.data.user);
+            trackEvent('user_logged_in', { role: res.data.user?.role });
             registerSocket(res.data.user);
             return res.data;
         } catch (err) {
@@ -67,6 +71,8 @@ export const AuthProvider = ({ children }) => {
             const res = await registerUser(data);
             localStorage.setItem('prism_token', res.data.token);
             setUser(res.data.user);
+            identifyUser(res.data.user);
+            trackEvent('user_signed_up', { role: res.data.user?.role });
             registerSocket(res.data.user);
             return res.data;
         } catch (err) {
@@ -79,6 +85,7 @@ export const AuthProvider = ({ children }) => {
     const logout = () => {
         localStorage.removeItem('prism_token');
         setUser(null);
+        resetAnalytics();
     };
 
     // Re-hydrate the user from the server (e.g. after onboarding flips a flag).
