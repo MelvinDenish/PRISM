@@ -296,6 +296,16 @@ async function runSandboxed({ language, code, stdin = '', maxBytes = MAX_CODE_LE
         exitCode: 1,
       };
     }
+    // Judge0 was genuinely unreachable/erroring (not a user timeout). Node's fetch
+    // wraps the real reason in err.cause (e.g. `connect ECONNREFUSED` when the
+    // container is down, `getaddrinfo ENOTFOUND judge0-server` when JUDGE0_API_URL
+    // is wrong) — err.message is just "fetch failed". Log the cause so an operator
+    // can tell a bad URL apart from a down sandbox via `docker logs prism-app`.
+    // The client only ever sees the generic fail-closed message below.
+    console.error(
+      `[codeRun] Judge0 request failed at ${JUDGE0_URL}: ${err?.name}: ${err?.message}` +
+      (err?.cause ? ` (cause: ${err.cause.message || err.cause})` : ''),
+    );
     if (config.isProduction()) {
       return {
         stdout: '',

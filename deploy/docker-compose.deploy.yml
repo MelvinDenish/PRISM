@@ -33,6 +33,13 @@ services:
     # `up` (a missing source would mount as an empty dir → server exits).
     volumes:
       - ../server/.env:/app/.env:ro
+    # Pin the in-network Judge0 URL here so code execution can't break if the
+    # SERVER_ENV secret ever omits or mis-sets JUDGE0_API_URL. dotenv (config/env.js)
+    # does NOT override values already present in the container environment, so this
+    # wins over whatever server/.env contains. `judge0-server` resolves on the shared
+    # compose network (the Judge0 stack is merged in via the include: above).
+    environment:
+      - JUDGE0_API_URL=http://judge0-server:2358
     expose:
       - "5000"
     depends_on:
